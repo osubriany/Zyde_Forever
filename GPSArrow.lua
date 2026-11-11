@@ -55,7 +55,7 @@ local LOOK = {
 	showThenWithin = 80,          -- the "Then: ..." line only when the next move is this close in yards (0 = always)
 	maxObjectives = 2,            -- in a quest's area: its objective lines shown
 	-- the backing plate
-	plate = 0.45,                 -- its darkness, 0 = none
+	plate = 0,                    -- its darkness, 0 = none (try 0.45 for a soft dark backing)
 	plateFade = 28,               -- its soft left and right edges, in pixels
 	platePad = 8,
 	fadeInCombat = 0.35,          -- opacity in combat (1 = no change)
