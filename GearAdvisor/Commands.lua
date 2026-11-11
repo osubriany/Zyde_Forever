@@ -146,6 +146,7 @@ end
 local function lootStatus()
 	local s = ns.Loot.status()
 	ns.print("Loot data:")
+	print(("  Bundled (cMaNGOS + sightings): %d dungeons, %d bosses, %d items"):format(s.bundled.dungeons, s.bundled.bosses, s.bundled.items))
 	print("  AtlasLoot: " .. tostring(s.atlas) .. (s.modules and (" (" .. table.concat(s.modules, ", ") .. ")") or ""))
 	print(("  %d dungeons/raids, %d items; %d drops recorded by GearAdvisor"):format(s.dungeons, s.items, s.recorded))
 	local b = ns.Loot.lastBoss()
@@ -175,7 +176,7 @@ local function dungeonCmd(name)
 	for i = 1, math.min(#list, 12) do
 		local e = list[i]
 		local it = e.boss.items[e.result.info.itemID]
-		local src = (it and it.atlas) and "" or " (seen drop)"
+		local src = (it and (it.atlas or it.bundled)) and "" or " (seen drop)"
 		print(("  %s – %s%s: %s"):format(e.result.info.link, e.boss.name, src, ns.describe(e.result)))
 	end
 	if loading > 0 then print(("  %d items still loading; run it again in a moment."):format(loading)) end
@@ -276,6 +277,8 @@ end
 
 local function help()
 	ns.print("commands:")
+	print("  /ga or /ga plan – open the planner window (My Gear, Dungeons, By Slot)")
+	print("  /ga minimap – show or hide the minimap button")
 	print("  /ga score – score the item under your mouse (or Shift-click an item after /ga score)")
 	print("  /ga summary – your profile, hit, hit cap and every equipped item's value")
 	print("  /ga bags – list upgrades in your bags")
@@ -304,7 +307,12 @@ SlashCmdList.GEARADVISOR = function(msg)
 	local cmd, rest = msg:match("^%s*(%S*)%s*(.-)%s*$")
 	cmd = (cmd or ""):lower()
 	local ok, err = pcall(function()
-		if cmd == "score" then
+		if cmd == "" or cmd == "plan" then ns.Window.toggle()
+		elseif cmd == "help" then help()
+		elseif cmd == "minimap" then
+			ns.Window.setMinimap(ns.db.minimap == false)
+			ns.print("Minimap button " .. (ns.db.minimap and "shown." or "hidden."))
+		elseif cmd == "score" then
 			local link = linkFrom(rest) or hoveredLink()
 			if link then scoreItem(link) else summary() end
 		elseif cmd == "summary" then summary()

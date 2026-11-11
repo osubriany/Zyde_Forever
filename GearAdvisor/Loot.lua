@@ -1,4 +1,7 @@
--- Loot (phase e): which dungeon boss drops what. Nothing is bundled; two sources are merged:
+-- Loot (phase e): which dungeon boss drops what. Three sources are merged:
+--   0. The bundled table in Data\BossLoot.lua (ns.BossLoot, GPL-3.0-or-later like all of Zyde; see LICENSE):
+--      cMaNGOS classic-db boss loot plus in-game sightings and Forever's own dungeon list, extracted
+--      once from SimGear Forever's data files. Nothing here needs SimGear installed.
 --   1. AtlasLoot, if you have a Forever version installed ("AtlasLoot Classic Forever" or
 --      "AtlasLootClassic Continued" on CurseForge). Its tables are read in game at runtime; nothing of
 --      AtlasLoot's is copied into GearAdvisor. Layout (AtlasLootClassic, also read this way by
@@ -155,12 +158,32 @@ local function build()
 			byItem[id] = byItem[id] or {}
 			table.insert(byItem[id], { dungeon = d, boss = b })
 		end
-		if from == "atlas" then it.atlas = true else it.seen = (it.seen or 0) + (count or 1) end
+		if from == "atlas" then it.atlas = true
+		elseif from == "bundled" then
+			it.bundled = true
+			if count and count > 0 then it.chance = count end
+		else it.seen = (it.seen or 0) + (count or 1) end
+	end
+
+	local bundled = ns.BossLoot and ns.BossLoot.dungeons
+	for _, src in ipairs(bundled or {}) do
+		local d = dungeonOf(src.name)
+		d.minLevel, d.maxLevel, d.levelSource = src.minLevel, src.maxLevel, src.levelSource
+		d.kind, d.fromBundled = src.kind, true
+		for _, sb in ipairs(src.bosses or {}) do
+			local b = bossOf(d, sb.name)
+			b.level = b.level or sb.level
+			for id, chance in pairs(sb.items or {}) do addItem(d, b, id, "bundled", chance) end
+			table.sort(b.order)
+		end
 	end
 
 	for _, src in ipairs(atlas.dungeons or {}) do
 		local d = dungeonOf(src.name)
-		d.minLevel, d.maxLevel = d.minLevel or src.minLevel, d.maxLevel or src.maxLevel
+		-- AtlasLoot's level range beats one guessed from boss levels; Forever's own range beats both.
+		if src.minLevel and (not d.minLevel or d.levelSource == "bosses") then
+			d.minLevel, d.maxLevel, d.levelSource = src.minLevel, src.maxLevel, "atlas"
+		end
 		d.fromAtlas = true
 		for _, sb in ipairs(src.bosses) do
 			local b = bossOf(d, sb.name)
@@ -201,8 +224,20 @@ function Loot.status()
 	for _, bosses in pairs(ns.db and ns.db.drops or {}) do
 		for _, list in pairs(bosses) do for _ in pairs(list) do recorded = recorded + 1 end end
 	end
+	local bundled = { dungeons = 0, bosses = 0, items = 0 }
+	local ids = {}
+	for _, d in ipairs(ns.BossLoot and ns.BossLoot.dungeons or {}) do
+		bundled.dungeons = bundled.dungeons + 1
+		for _, b in ipairs(d.bosses or {}) do
+			bundled.bosses = bundled.bosses + 1
+			for id in pairs(b.items or {}) do
+				if not ids[id] then ids[id] = true; bundled.items = bundled.items + 1 end
+			end
+		end
+	end
 	return {
 		atlas = atlas.state, modules = atlas.modules, dungeons = n, items = items, recorded = recorded,
+		bundled = bundled,
 	}
 end
 

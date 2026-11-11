@@ -28,6 +28,7 @@ GearAdvisor\Stats.lua
 GearAdvisor\Player.lua
 GearAdvisor\Score.lua
 GearAdvisor\API.lua
+GearAdvisor\Data\BossLoot.lua
 GearAdvisor\Loot.lua
 GearAdvisor\Tooltip.lua
 GearAdvisor\QuestRewards.lua
@@ -35,4 +36,5 @@ GearAdvisor\Marks.lua
 GearAdvisor\Auction.lua
 GearAdvisor\LootRolls.lua
 GearAdvisor\Toast.lua
+GearAdvisor\Window.lua
 GearAdvisor\Commands.lua

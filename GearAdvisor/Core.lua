@@ -59,6 +59,10 @@ local DEFAULTS = {
 	rollMarks = true,     -- advice line on Need/Greed roll windows (/ga rolls)
 	toast = true,         -- popup with an Equip button when an upgrade lands in your bags (/ga toast)
 	toastPos = nil,       -- where you dragged the popup
+	minimap = true,       -- minimap button that opens the planner window (/ga minimap)
+	minimapAngle = 200,   -- where on the minimap's edge you dragged it
+	windowPos = nil,      -- where you dragged the planner window
+	windowTab = nil,      -- the tab it was last on
 }
 
 -- A short headline for a compare result, plus its colour (r, g, b), or nil when there's
