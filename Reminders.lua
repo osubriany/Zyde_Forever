@@ -433,17 +433,12 @@ end
 local function scanFood()
 	food, drink = 0, 0
 	local getSpell = (C_Item and C_Item.GetItemSpell) or GetItemSpell
-	for bag = 0, (NUM_BAG_SLOTS or 4) do
-		for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
-			local info = C_Container.GetContainerItemInfo(bag, slot)
-			if info and info.itemID then
-				local spell = plain(safe(getSpell, info.itemID))
-				if type(spell) == "string" then
-					local n = tonumber(info.stackCount) or 1
-					if spell == "Food" or spell == "Refreshment" or spell == "Food & Drink" then food = food + n end
-					if spell == "Drink" or spell == "Refreshment" or spell == "Food & Drink" then drink = drink + n end
-				end
-			end
+	for _, info in ipairs(ns.Bags.items()) do
+		local spell = plain(safe(getSpell, info.itemID))
+		if type(spell) == "string" then
+			local n = tonumber(info.stackCount) or 1
+			if spell == "Food" or spell == "Refreshment" or spell == "Food & Drink" then food = food + n end
+			if spell == "Drink" or spell == "Refreshment" or spell == "Food & Drink" then drink = drink + n end
 		end
 	end
 end

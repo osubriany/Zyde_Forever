@@ -84,17 +84,13 @@ local function collect()
 	end
 
 	-- Your bags.
-	local getLink = C_Container and C_Container.GetContainerItemLink or GetContainerItemLink
-	local getSlots = C_Container and C_Container.GetContainerNumSlots or GetContainerNumSlots
-	for bag = 0, (NUM_BAG_SLOTS or 4) do
-		for slot = 1, (ns.safe(getSlots, bag) or 0) do
-			local link = ns.safe(getLink, bag, slot)
-			if link and ns.Stats.isGear(link) then
-				local ok, r = pcall(ns.Score.compare, link)
-				if ok and r then
-					if r.kind == "loading" then c.loading = c.loading + 1
-					elseif r.kind == "upgrade" or r.kind == "future" then add(r, "in your bags") end
-				end
+	for _, info in ipairs(zyde.Bags.items()) do   -- Zyde's shared bag list (Bags.lua)
+		local link = info.hyperlink
+		if link and ns.Stats.isGear(link) then
+			local ok, r = pcall(ns.Score.compare, link)
+			if ok and r then
+				if r.kind == "loading" then c.loading = c.loading + 1
+				elseif r.kind == "upgrade" or r.kind == "future" then add(r, "in your bags") end
 			end
 		end
 	end

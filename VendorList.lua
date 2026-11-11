@@ -369,34 +369,26 @@ local function scan()
 	local missing = false
 	-- How many of each item across all stacks.
 	local totals, inAuctionList = {}, {}
-	for _, bag in ipairs(R.normalBags()) do
-		for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
-			local info = C_Container.GetContainerItemInfo(bag, slot)
-			if info and info.itemID then
-				local key = info.hyperlink or info.itemID
-				totals[key] = (totals[key] or 0) + R.slotCount(bag, slot, info)
-			end
-		end
+	local items = ns.Bags.items() -- your bags (0 to NUM_BAG_SLOTS), shared and read once per change
+	for _, info in ipairs(items) do
+		local key = info.hyperlink or info.itemID
+		totals[key] = (totals[key] or 0) + R.slotCount(info.bag, info.slot, info)
 	end
-	for _, bag in ipairs(R.normalBags()) do
-		for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
-			local info = C_Container.GetContainerItemInfo(bag, slot)
-			if info and info.itemID then
-				local v = verdict(bag, slot, info, totals[info.hyperlink or info.itemID])
-				if v == "retry" then
-					missing = true
-				elseif v then
-					v.bag, v.slot, v.icon = bag, slot, info.iconFileID
-					bySlot[bag .. ":" .. slot] = v
-					if v.link and not byLink[v.link] then byLink[v.link] = v end
-					if v.kind == "vendor" then sellList[#sellList + 1] = v end
-					-- One row per item at the AH: Max posts all its stacks together.
-					local key = v.link or v.itemID
-					if v.kind == "auction" and not inAuctionList[key] then
-						inAuctionList[key] = true
-						auctionList[#auctionList + 1] = v
-					end
-				end
+	for _, info in ipairs(items) do
+		local bag, slot = info.bag, info.slot
+		local v = verdict(bag, slot, info, totals[info.hyperlink or info.itemID])
+		if v == "retry" then
+			missing = true
+		elseif v then
+			v.bag, v.slot, v.icon = bag, slot, info.iconFileID
+			bySlot[bag .. ":" .. slot] = v
+			if v.link and not byLink[v.link] then byLink[v.link] = v end
+			if v.kind == "vendor" then sellList[#sellList + 1] = v end
+			-- One row per item at the AH: Max posts all its stacks together.
+			local key = v.link or v.itemID
+			if v.kind == "auction" and not inAuctionList[key] then
+				inAuctionList[key] = true
+				auctionList[#auctionList + 1] = v
 			end
 		end
 	end

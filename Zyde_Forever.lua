@@ -902,8 +902,7 @@ end
 local verdicts = {} -- guid -> reason or false (cleared when quests change)
 local function scanObjects()
 	local found = {}
-	for i = 1, 40 do
-		local unit = "nameplate" .. i
+	for _, unit in ipairs(ns.Plates.units()) do -- shared list (Plates.lua)
 		local rawGuid = safe(UnitGUID, unit)
 		if rawGuid ~= nil and isGameObject(unit) then
 			local guid = plainStr(rawGuid)
@@ -1962,23 +1961,21 @@ local function scanBagUpgrades()
 		local score = pct or gain or 0
 		if not cur or score > (cur.pct or cur.gain or 0) then bagUpgrades[slot] = { link = link, pct = pct, gain = gain } end
 	end
-	for bag = 0, (NUM_BAG_SLOTS or 4) do
-		for bslot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
-			local info = C_Container.GetContainerItemInfo(bag, bslot)
-			local link = info and info.hyperlink
-			local equipLoc = link and select(9, getInfo(link))
-			local slots = equipLoc and EQUIP_SLOTS[equipLoc]
-			if slots then
-				if GA and GA.Compare then
-					local r = GA.Compare(link)
-					if r and r.kind == "upgrade" and r.slot then record(r.slot, link, r.pct) end
-				elseif wearableNow(bag, bslot) then
-					local lvl = safe(getLevel, link)
-					if type(lvl) == "number" and not isSecret(lvl) then
-						for _, s in ipairs(slots) do
-							local cur = slotItemLevel(s) or 0
-							if lvl > cur then record(s, link, nil, lvl - cur) end
-						end
+	for _, info in ipairs(ns.Bags.items()) do -- shared bag list (Bags.lua)
+		local bag, bslot = info.bag, info.slot
+		local link = info and info.hyperlink
+		local equipLoc = link and select(9, getInfo(link))
+		local slots = equipLoc and EQUIP_SLOTS[equipLoc]
+		if slots then
+			if GA and GA.Compare then
+				local r = GA.Compare(link)
+				if r and r.kind == "upgrade" and r.slot then record(r.slot, link, r.pct) end
+			elseif wearableNow(bag, bslot) then
+				local lvl = safe(getLevel, link)
+				if type(lvl) == "number" and not isSecret(lvl) then
+					for _, s in ipairs(slots) do
+						local cur = slotItemLevel(s) or 0
+						if lvl > cur then record(s, link, nil, lvl - cur) end
 					end
 				end
 			end
@@ -2104,6 +2101,13 @@ gearEvents:SetScript("OnEvent", function(_, event)
 	-- Item info and bag changes only matter while the character window is open.
 	if (event == "GET_ITEM_INFO_RECEIVED" or event == "BAG_UPDATE_DELAYED")
 		and not (CharacterFrame and CharacterFrame:IsShown()) then return end
+	-- Item info arrives in bursts (one event per item): redraw once, a moment after.
+	if event == "GET_ITEM_INFO_RECEIVED" then
+		if gearEvents.pending then return end
+		gearEvents.pending = true
+		C_Timer.After(0.2, function() gearEvents.pending = nil updateAllGearBorders() end)
+		return
+	end
 	updateAllGearBorders()
 end)
 

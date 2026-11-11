@@ -110,3 +110,26 @@ else
 	events:SetScript("OnEvent", function() C_Timer.After(0, QuestRewards.refresh) end)
 end
 ns.onChange(function() QuestRewards.refresh() end)
+
+-- Zygor marks its own pick with a green arrow ("Highlight recommended quest rewards"). While our
+-- marks are on, that setting is turned off so there's one verdict. It comes back on only if we were
+-- the ones who turned it off (ns.db.zygorRewardsOff), when you turn our marks off with /ga quest.
+local function syncZygor()
+	local zgv = rawget(_G, "ZGV") or rawget(_G, "ZygorGuidesViewer")
+	local profile = type(zgv) == "table" and zgv.db and zgv.db.profile
+	if type(profile) ~= "table" or not ns.db then return end
+	if ns.db.questMarks then
+		if profile.questitemselector then
+			profile.questitemselector = false
+			ns.db.zygorRewardsOff = true
+		end
+	elseif ns.db.zygorRewardsOff then
+		profile.questitemselector = true
+		ns.db.zygorRewardsOff = nil
+	end
+end
+
+local zygorEvents = CreateFrame("Frame")
+zygorEvents:RegisterEvent("PLAYER_LOGIN")
+zygorEvents:SetScript("OnEvent", function() C_Timer.After(2, function() pcall(syncZygor) end) end)   -- Zygor sets up its settings late
+ns.onChange(function(reason) if reason == "questMarks" then pcall(syncZygor) end end)

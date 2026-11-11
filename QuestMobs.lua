@@ -106,23 +106,8 @@ local function mobName(unit, npcId)
 	return nil
 end
 
--- Nameplate unit tokens in use right now.
-local function plateUnits()
-	local units = {}
-	local plates = C_NamePlate and C_NamePlate.GetNamePlates and ns.safe(C_NamePlate.GetNamePlates)
-	if type(plates) == "table" and #plates > 0 then
-		for _, plate in ipairs(plates) do
-			local token = plate.namePlateUnitToken or (plate.UnitFrame and plate.UnitFrame.unit)
-			if type(token) == "string" then units[#units + 1] = token end
-		end
-	end
-	if #units == 0 then
-		for i = 1, 40 do
-			if UnitExists("nameplate" .. i) then units[#units + 1] = "nameplate" .. i end
-		end
-	end
-	return units
-end
+-- Nameplate unit tokens in use right now (the shared list in Plates.lua: read only).
+local function plateUnits() return ns.Plates.units() end
 
 -- Why a nameplate unit is or isn't a quest mob: true, or false + reason.
 -- Hidden ("secret") answers never rule a mob out; only a clear "no" does.

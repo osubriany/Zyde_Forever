@@ -8,8 +8,6 @@ local ns = zyde.GA
 local Toast = {}
 ns.Toast = Toast
 
-local containerLink = C_Container and C_Container.GetContainerItemLink or GetContainerItemLink
-local containerSlots = C_Container and C_Container.GetContainerNumSlots or GetContainerNumSlots
 local equipByName = (C_Item and C_Item.EquipItemByName) or EquipItemByName
 
 local function inCombat() return InCombatLockdown and InCombatLockdown() end
@@ -148,11 +146,9 @@ local quietUntil = 0   -- no popups before this time (bags fill in for a few sec
 local silentNext = false  -- next scan only remembers (you swapped gear: the old piece went to your bags)
 local function scan()
 	local now = {}
-	for bag = 0, (NUM_BAG_SLOTS or 4) do
-		for slot = 1, (ns.safe(containerSlots, bag) or 0) do
-			local link = ns.safe(containerLink, bag, slot)
-			if link then now[link] = (now[link] or 0) + 1 end
-		end
+	for _, info in ipairs(zyde.Bags.items()) do   -- Zyde's shared bag list (Bags.lua)
+		local link = info.hyperlink
+		if link then now[link] = (now[link] or 0) + 1 end
 	end
 	local first = known == nil
 	local before = known or {}
@@ -209,10 +205,8 @@ events:SetScript("OnEvent", function(_, event)
 	if event == "PLAYER_EQUIPMENT_CHANGED" and current then
 		-- You equipped it some other way: the popup has done its job.
 		local still = false
-		for bag = 0, (NUM_BAG_SLOTS or 4) do
-			for slot = 1, (ns.safe(containerSlots, bag) or 0) do
-				if ns.safe(containerLink, bag, slot) == current.link then still = true end
-			end
+		for _, info in ipairs(zyde.Bags.items()) do
+			if info.hyperlink == current.link then still = true break end
 		end
 		if not still then Toast.hide() end
 	end

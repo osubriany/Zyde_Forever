@@ -94,7 +94,7 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
 ### GearAdvisor (`/ga`)
 Scores gear for your class and spec.
 - A short verdict in item tooltips: upgrade %, or "can't wear until level N".
-- Upgrade marks on quest rewards and on items in your bags.
+- Upgrade marks on quest rewards and on items in your bags. While quest marks are on, Zygor's own quest reward arrow is turned off, and comes back if you turn them off (`/ga quest`).
 - Advice on loot rolls.
 - A popup when you loot an upgrade.
 - At the auction house: upgrade % on listings, and an Upgrades panel that opens when a search finds upgrades.

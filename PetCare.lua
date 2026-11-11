@@ -149,28 +149,23 @@ local function pickFood()
 	local family, L = petFamily(), learned()
 	local petLevel = plain(UnitLevel("pet")) or UnitLevel("player")
 	local best, bestScore
-	for bag = 0, (NUM_BAG_SLOTS or 4) do
-		for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
-			local info = C_Container.GetContainerItemInfo(bag, slot)
-			local id = info and info.itemID
-			if id then
-				local key = family .. "/" .. id
-				local name, _, _, itemLevel, _, _, _, _, _, _, sellPrice, classID = itemInfo(info.hyperlink or id)
-				local quest = C_Container.GetContainerItemQuestInfo and C_Container.GetContainerItemQuestInfo(bag, slot)
-				local isQuest = quest and (quest.isQuestItem or quest.questID)
-				if name and not isQuest and not L.bad[key] and not (L.low[id] and petLevel >= L.low[id]) then
-					local diet = guessDiet(id, name, classID)
-					if L.good[key] or (diet and (not diets or diets[diet])) then
-						local tier = foodTier(itemLevel, petLevel)
-						if tier then
-							local count = tonumber(info.stackCount) or 1
-							-- Best help first, then the cheapest, then the smallest stack.
-							-- Food it ate before beats a guess.
-							local score = tier * 1e9 + (L.good[key] and 5e8 or 0) - (sellPrice or 0) * 1000 - math.min(count, 999)
-							if not bestScore or score > bestScore then
-								best, bestScore = { bag = bag, slot = slot, id = id, link = info.hyperlink, count = count }, score
-							end
-						end
+	for _, info in ipairs(ns.Bags.items()) do
+		local bag, slot, id = info.bag, info.slot, info.itemID
+		local key = family .. "/" .. id
+		local name, _, _, itemLevel, _, _, _, _, _, _, sellPrice, classID = itemInfo(info.hyperlink or id)
+		local quest = C_Container.GetContainerItemQuestInfo and C_Container.GetContainerItemQuestInfo(bag, slot)
+		local isQuest = quest and (quest.isQuestItem or quest.questID)
+		if name and not isQuest and not L.bad[key] and not (L.low[id] and petLevel >= L.low[id]) then
+			local diet = guessDiet(id, name, classID)
+			if L.good[key] or (diet and (not diets or diets[diet])) then
+				local tier = foodTier(itemLevel, petLevel)
+				if tier then
+					local count = tonumber(info.stackCount) or 1
+					-- Best help first, then the cheapest, then the smallest stack.
+					-- Food it ate before beats a guess.
+					local score = tier * 1e9 + (L.good[key] and 5e8 or 0) - (sellPrice or 0) * 1000 - math.min(count, 999)
+					if not bestScore or score > bestScore then
+						best, bestScore = { bag = bag, slot = slot, id = id, link = info.hyperlink, count = count }, score
 					end
 				end
 			end

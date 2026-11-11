@@ -148,28 +148,29 @@ local function rank()
 	-- Group every stack of the same item: 46 Linen Cloth in three stacks is
 	-- valued as 46, not as each stack on its own.
 	local byItem, all, missing = {}, {}, false
+	-- Only ordinary bags: a quiver or ammo pouch only holds ammo, so
+	-- deleting from it never frees a slot for loot.
+	local ordinary = {}
 	for _, bag in ipairs(normalBags()) do
-		-- Only ordinary bags: a quiver or ammo pouch only holds ammo, so
-		-- deleting from it never frees a slot for loot.
 		local _, bagType = C_Container.GetContainerNumFreeSlots(bag)
-		local slots = (tonumber(bagType) or 0) == 0 and C_Container.GetContainerNumSlots(bag) or 0
-		for slot = 1, (slots or 0) do
-			local info = C_Container.GetContainerItemInfo(bag, slot)
-			if info and info.itemID then
-				local unit, retry = slotValue(bag, slot, info)
-				if retry then missing = true end
-				if unit then
-					local key = info.hyperlink or info.itemID
-					local count = slotCount(bag, slot, info)
-					local e = byItem[key]
-					if not e then
-						e = { link = info.hyperlink, itemID = info.itemID, unit = unit, icon = info.iconFileID, count = 0, slots = {} }
-						byItem[key] = e
-						all[#all + 1] = e
-					end
-					e.count = e.count + count
-					e.slots[#e.slots + 1] = { bag = bag, slot = slot, count = count }
+		ordinary[bag] = (tonumber(bagType) or 0) == 0
+	end
+	for _, info in ipairs(ns.Bags.items()) do
+		local bag, slot = info.bag, info.slot
+		if ordinary[bag] then
+			local unit, retry = slotValue(bag, slot, info)
+			if retry then missing = true end
+			if unit then
+				local key = info.hyperlink or info.itemID
+				local count = slotCount(bag, slot, info)
+				local e = byItem[key]
+				if not e then
+					e = { link = info.hyperlink, itemID = info.itemID, unit = unit, icon = info.iconFileID, count = 0, slots = {} }
+					byItem[key] = e
+					all[#all + 1] = e
 				end
+				e.count = e.count + count
+				e.slots[#e.slots + 1] = { bag = bag, slot = slot, count = count }
 			end
 		end
 	end

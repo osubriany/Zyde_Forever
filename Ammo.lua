@@ -72,11 +72,8 @@ local function equipped()
 	local id = GetInventoryItemID("player", INV_AMMO)
 	if not id then return nil, 0 end
 	local n = 0
-	for bag = 0, (NUM_BAG_SLOTS or 4) do
-		for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
-			local info = C_Container.GetContainerItemInfo(bag, slot)
-			if info and info.itemID == id then n = n + (tonumber(info.stackCount) or 1) end
-		end
+	for _, info in ipairs(ns.Bags.items()) do
+		if info.itemID == id then n = n + (tonumber(info.stackCount) or 1) end
 	end
 	return id, math.max(n, itemCount(id))
 end
@@ -84,15 +81,12 @@ end
 -- Ammo of the right kind in your bags that isn't the equipped item.
 local function spareAmmo(kind, skipID)
 	local total, byItem = 0, {}
-	for bag = 0, (NUM_BAG_SLOTS or 4) do
-		for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
-			local info = C_Container.GetContainerItemInfo(bag, slot)
-			local id = info and info.itemID
-			if id and id ~= skipID and projectileKind(id) == kind then
-				local n = tonumber(info.stackCount) or 1
-				total = total + n
-				byItem[id] = (byItem[id] or 0) + n
-			end
+	for _, info in ipairs(ns.Bags.items()) do
+		local id = info.itemID
+		if id ~= skipID and projectileKind(id) == kind then
+			local n = tonumber(info.stackCount) or 1
+			total = total + n
+			byItem[id] = (byItem[id] or 0) + n
 		end
 	end
 	return total, byItem
@@ -290,11 +284,10 @@ local function room(kind, id, stack)
 		elseif bagType == 0 then
 			normalFree = normalFree + (free or 0)
 		end
-		for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
-			local info = C_Container.GetContainerItemInfo(bag, slot)
-			if info and info.itemID == id then
-				n = n + math.max(0, stack - (tonumber(info.stackCount) or stack))
-			end
+	end
+	for _, info in ipairs(ns.Bags.items()) do
+		if info.itemID == id then
+			n = n + math.max(0, stack - (tonumber(info.stackCount) or stack))
 		end
 	end
 	if not hasAmmoBag then n = n + math.min(2, math.max(0, normalFree - 1)) * stack end

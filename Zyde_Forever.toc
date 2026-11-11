@@ -7,6 +7,8 @@
 ## OptionalDeps: Questie, AHledger, Baganator
 
 Zyde_Forever.lua
+Plates.lua
+Bags.lua
 UnitFrames.lua
 QuestieDrops.lua
 QuestMobs.lua

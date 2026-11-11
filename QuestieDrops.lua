@@ -190,10 +190,7 @@ local function refresh(token)
 end
 
 local function refreshAll()
-	for i = 1, 40 do
-		local token = "nameplate" .. i
-		if UnitExists(token) then refresh(token) end
-	end
+	for _, token in ipairs(ns.Plates.units()) do refresh(token) end
 	-- forget corpses older than 10 minutes
 	local now = GetTime()
 	for guid, t in pairs(counted) do
