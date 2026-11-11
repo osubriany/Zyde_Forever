@@ -89,13 +89,10 @@ end
 -- AHledger, Zygor) is off when that addon isn't loaded.
 ---------------------------------------------------------------------------
 local FEATURES = {
-	{ key = "shout", short = "buff missing icon", label = "Battle Shout reminder", desc = "Battle Shout icon in combat when the buff is missing (warriors)" },
-	{ key = "overpower", short = "ready-to-use icon", label = "Overpower reminder", desc = "Overpower icon when it's ready to use (warriors)" },
-	{ key = "aspect", short = "no aspect icon", label = "Aspect reminder", desc = "Aspect of the Hawk icon beside your character when no Aspect is on (hunters)" },
+	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "Icons to the right of your character: Battle Shout missing and Overpower ready (warriors), no Aspect on (hunters), and Well-Rested running low" },
 	{ key = "ammo", short = "count, refill, warning", label = "Hunter ammo", desc = "Arrows or bullets left and how long they last (in the XP readout), a warning when you leave town low, and a Fill quiver button at ammo vendors (hunters)" },
 	{ key = "petCare", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast warning in dungeons (hunters)" },
 	{ key = "markerWheel", short = "hold key, click marker", label = "Marker wheels", desc = "Hold a key for a wheel of target markers (skull, cross, moon...) or world markers, and click one to place it" },
-	{ key = "rested", short = "sleeping bag reminder", label = "Well-Rested reminder", desc = "Sleeping bag icon when Well-Rested is low or gone" },
 	{ key = "hideBars", short = "cleaner action bars", label = "Hide Blizzard bar art", desc = "Hides the action bar art, bag bar and micro menu", reload = true },
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames", reload = true },
@@ -152,8 +149,12 @@ local function featureBlocked(key)
 end
 ns.featureBlocked = featureBlocked
 
+-- The reminder icons used to be separate toggles; now one ("reminders") covers them.
+local REMINDER_KEYS = { shout = true, overpower = true, rested = true, aspect = true }
+
 -- Was turned on by the player (saved), regardless of other addons.
 local function featureWanted(key)
+	if REMINDER_KEYS[key] then key = "reminders" end
 	local saved = ZydeForeverDB and ZydeForeverDB.features
 	if saved and saved[key] ~= nil then return saved[key] end
 	-- Older toggles saved before the window existed.
@@ -1947,13 +1948,12 @@ local COL_W = 420    -- width of one column of features
 -- A feature missing here still shows, under "Other" at the end.
 local CATEGORIES = {
 	{
-		{ "Interface", { "unitFrames", "xp", "hideBars", "gear" } },
-		{ "Warrior", { "shout", "overpower" } },
-		{ "Hunter", { "aspect", "ammo", "petCare" } },
+		{ "Interface", { "unitFrames", "xp", "reminders", "hideBars", "gear" } },
+		{ "Hunter", { "ammo", "petCare" } },
 		{ "Groups", { "lfg", "markerWheel" } },
 	},
 	{
-		{ "Questing & leveling", { "questAlert", "questIcons", "questMobs", "questieDrops", "zygor", "rested" } },
+		{ "Questing & leveling", { "questAlert", "questIcons", "questMobs", "questieDrops", "zygor" } },
 		{ "Bags & vendors", { "scrap", "vendor" } },
 		{ "Travel & gathering", { "flight", "tracking", "fishing" } },
 	},
