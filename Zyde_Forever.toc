@@ -14,6 +14,7 @@ ScrapList.lua
 Ammo.lua
 PetCare.lua
 Reminders.lua
+Meter.lua
 MarkerWheel.lua
 VendorList.lua
 LFGHelper.lua
