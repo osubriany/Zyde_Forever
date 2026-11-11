@@ -36,10 +36,18 @@ local function npcFromGUID(guid)
 	return tonumber(npcId)
 end
 
--- Unfinished quest items this mob drops: { [itemId] = drop % }.
+-- Unfinished quest items this mob drops: { [itemId] = drop % }. Remembered per
+-- mob (callers only read it) until your quests change, and at least every 5 s,
+-- since Questie fills in its data some seconds after login.
+local dropCache = {}
+local NONE = {}
 local function questDrops(npcId)
+	if not npcId then return NONE end
+	local cached = dropCache[npcId]
+	if cached then return cached end
 	local out = {}
-	local tips = npcId and TT and TT.lookupByKey and TT.lookupByKey["m_" .. npcId]
+	dropCache[npcId] = out
+	local tips = TT and TT.lookupByKey and TT.lookupByKey["m_" .. npcId]
 	if not tips then return out end
 	for _, tip in pairs(tips) do
 		local obj = tip.objective
@@ -193,6 +201,16 @@ local function refreshAll()
 	end
 end
 
+-- Questie calls UpdateNameplate once per changed quest, several in a row:
+-- redraw once, a moment after the last one.
+local pending = false
+local function refreshAllSoon()
+	wipe(dropCache)
+	if pending then return end
+	pending = true
+	C_Timer.After(0.1, function() pending = false refreshAll() end)
+end
+
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")
 f:SetScript("OnEvent", function(_, event, token)
@@ -201,11 +219,15 @@ f:SetScript("OnEvent", function(_, event, token)
 		NP = QuestieLoader:ImportModule("QuestieNameplate")
 		TT = QuestieLoader:ImportModule("QuestieTooltips")
 		DB = QuestieLoader:ImportModule("QuestieDB")
-		if NP and NP.UpdateNameplate then hooksecurefunc(NP, "UpdateNameplate", refreshAll) end
-		for _, e in ipairs({ "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "UNIT_HEALTH", "LOOT_READY", "LOOT_OPENED" }) do
+		if NP and NP.UpdateNameplate then hooksecurefunc(NP, "UpdateNameplate", refreshAllSoon) end
+		for _, e in ipairs({ "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "UNIT_HEALTH", "LOOT_READY", "LOOT_OPENED",
+			"QUEST_LOG_UPDATE" }) do
 			pcall(f.RegisterEvent, f, e)
 		end
 		C_Timer.NewTicker(1, refreshAll) -- catches objective progress and reused frames
+		C_Timer.NewTicker(5, function() wipe(dropCache) end)
+	elseif event == "QUEST_LOG_UPDATE" then
+		wipe(dropCache)
 	elseif event == "LOOT_READY" or event == "LOOT_OPENED" then
 		onLoot()
 		refreshAll()

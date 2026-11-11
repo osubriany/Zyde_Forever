@@ -116,9 +116,28 @@ ns.FEATURES = FEATURES
 local FEATURE_BY_KEY = {}
 for _, f in ipairs(FEATURES) do FEATURE_BY_KEY[f.key] = f end
 
-local function addonOn(name)
-	local f = (C_AddOns and C_AddOns.IsAddOnLoaded) or IsAddOnLoaded
-	return f and safe(f, name) and true or false
+-- Is another addon loaded? Asked many times a second (feature checks), so the
+-- answer is remembered: "yes" for good (an addon can't unload), "no" until the
+-- next addon loads (ADDON_LOADED), since some load after Zyde or on demand.
+local addonOn
+do
+	local known = {}
+	local watcher = CreateFrame("Frame")
+	watcher:RegisterEvent("ADDON_LOADED")
+	watcher:SetScript("OnEvent", function()
+		for name, on in pairs(known) do
+			if not on then known[name] = nil end
+		end
+	end)
+	function addonOn(name)
+		local v = known[name]
+		if v == nil then
+			local f = (C_AddOns and C_AddOns.IsAddOnLoaded) or IsAddOnLoaded
+			v = f and safe(f, name) and true or false
+			known[name] = v
+		end
+		return v
+	end
 end
 ns.addonOn = addonOn
 
@@ -173,8 +192,12 @@ end
 ns.featureWanted = featureWanted
 
 -- On: wanted and nothing blocks it.
+-- (Same test as featureBlocked, without building its message: this runs often.)
 local function F(key)
-	return featureWanted(key) and not featureBlocked(key)
+	if not featureWanted(key) then return false end
+	local f = FEATURE_BY_KEY[key]
+	if f and ((f.needs and not addonOn(f.needs)) or (f.conflict and addonOn(f.conflict))) then return false end
+	return true
 end
 ns.F = F
 
@@ -298,16 +321,21 @@ ns.ResetReminderPosition = function()
 end
 end -- reminder dragging
 
+-- Stack the shown icons. Runs 10 times a second, so an icon is only moved
+-- when its place in the column changes.
 local function layout(states)
 	local n = 0
 	for _, icon in ipairs(icons) do
 		local f = icon.frame
 		if states[icon.key] then
-			f:ClearAllPoints()
-			f:SetPoint("TOP", anchor, "TOP", 0, -n * (ICON_SIZE + SPACING))
-			f:Show()
+			if f.zydeSlot ~= n or not f:IsShown() then
+				f.zydeSlot = n
+				f:ClearAllPoints()
+				f:SetPoint("TOP", anchor, "TOP", 0, -n * (ICON_SIZE + SPACING))
+				f:Show()
+			end
 			n = n + 1
-		else
+		elseif f:IsShown() then
 			f:Hide()
 		end
 	end
@@ -942,9 +970,11 @@ local function getMarker(plate)
 	return m
 end
 
-local function updateMarkers(objects)
-	local wanted = {}
-	for _, o in ipairs(objects) do
+local wantedPlates = {} -- reused by updateMarkers (no new table per scan)
+local function updateMarkers(objects) -- objects nil: hide them all
+	local wanted = wantedPlates
+	wipe(wanted)
+	for _, o in ipairs(objects or wanted) do
 		if o.reason then
 			local plate = C_NamePlate and C_NamePlate.GetNamePlateForUnit(o.unit)
 			if plate then wanted[plate] = true end
@@ -968,7 +998,7 @@ end
 local lastQuestGUID
 local function checkQuestObject()
 	local best
-	local objects = {}
+	local objects -- stays nil (no scan) while the alert is off or you're dead
 	if questAlertOn() and not UnitIsDeadOrGhost("player") then
 		objects = scanObjects()
 		for _, o in ipairs(objects) do
@@ -1012,6 +1042,16 @@ local function questDebug(p)
 	end
 end
 
+do -- own scope (200-local limit)
+-- Nameplates come and go in bursts (a crowd, a city): check once, a moment
+-- after the last event, instead of once per event.
+local checkPending = false
+local function checkSoon()
+	if checkPending then return end
+	checkPending = true
+	C_Timer.After(0.1, function() checkPending = false checkQuestObject() end)
+end
+
 local questEvents = CreateFrame("Frame")
 for _, e in ipairs({ "QUEST_LOG_UPDATE", "LOOT_READY", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED",
 	"NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "PLAYER_SOFT_INTERACT_CHANGED" }) do
@@ -1027,8 +1067,9 @@ questEvents:SetScript("OnEvent", function(_, event)
 		learnFromLoot()
 		wipe(verdicts)
 	end
-	checkQuestObject()
+	checkSoon()
 end)
+end -- quest object events
 C_Timer.NewTicker(0.5, checkQuestObject) -- backup for plates that change without an event
 ns.OnFeatureChanged(function(key)
 	if key == "questIcons" then applyQuestIcons() end
