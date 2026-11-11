@@ -1883,10 +1883,63 @@ end)
 ---------------------------------------------------------------------------
 local options
 local ROW = 24
+local HEAD = 28      -- height of a category heading
+local COL_W = 420    -- width of one column of features
+
+-- The window's categories: two columns, each a list of { heading, feature keys }.
+-- A feature missing here still shows, under "Other" at the end.
+local CATEGORIES = {
+	{
+		{ "Interface", { "unitFrames", "xp", "hideBars", "gear" } },
+		{ "Warrior", { "shout", "overpower" } },
+		{ "Hunter", { "ammo", "petCare" } },
+		{ "Groups", { "lfg", "markerWheel" } },
+	},
+	{
+		{ "Questing & leveling", { "questAlert", "questIcons", "questMobs", "questieDrops", "zygor", "rested" } },
+		{ "Bags & vendors", { "scrap", "vendor" } },
+		{ "Travel & gathering", { "flight", "tracking", "fishing" } },
+	},
+}
+
+-- Short names for "needs ..." notes (Zygor's folder name is long).
+local function addonTitle(name)
+	for _, a in ipairs(ns.ADDONS) do
+		if a.name == name then return a.title end
+	end
+	return name
+end
 
 local function buildOptions()
+	-- Anything not placed in a category goes under "Other" in the second column.
+	local placed, other = {}, {}
+	for _, col in ipairs(CATEGORIES) do
+		for _, cat in ipairs(col) do
+			for _, k in ipairs(cat[2]) do placed[k] = true end
+		end
+	end
+	for _, f in ipairs(FEATURES) do
+		if not placed[f.key] then other[#other + 1] = f.key end
+	end
+	if #other > 0 and not CATEGORIES.otherAdded then
+		CATEGORIES.otherAdded = true
+		table.insert(CATEGORIES[2], { "Other", other })
+	end
+
+	-- Height: the taller column.
+	local tallest = 0
+	for _, col in ipairs(CATEGORIES) do
+		local h = 0
+		for _, cat in ipairs(col) do
+			local n = 0
+			for _, k in ipairs(cat[2]) do if FEATURE_BY_KEY[k] then n = n + 1 end end
+			h = h + HEAD + n * ROW
+		end
+		tallest = math.max(tallest, h)
+	end
+
 	local o = CreateFrame("Frame", "ZydeForeverOptions", UIParent, "BackdropTemplate")
-	o:SetSize(820, 96 + #FEATURES * ROW)
+	o:SetSize(24 + 2 * COL_W + 250, 104 + tallest)
 	o:SetPoint("CENTER")
 	o:SetFrameStrata("DIALOG")
 	o:SetMovable(true)
@@ -1912,22 +1965,35 @@ local function buildOptions()
 	close:SetPoint("TOPRIGHT", 2, 2)
 
 	o.rows = {}
-	for i, feat in ipairs(FEATURES) do
+	local function heading(x, y, text)
+		local h = o:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		h:SetPoint("TOPLEFT", x + 4, y - 8)
+		h:SetText(text)
+		h:SetTextColor(0.69, 0.35, 1)
+		local line = o:CreateTexture(nil, "ARTWORK")
+		line:SetColorTexture(0.69, 0.35, 1, 0.35)
+		line:SetHeight(1)
+		line:SetPoint("TOPLEFT", h, "BOTTOMLEFT", 0, -3)
+		line:SetWidth(COL_W - 24)
+	end
+
+	local function featureRow(feat, x, y)
 		local cb = CreateFrame("CheckButton", nil, o, "UICheckButtonTemplate")
 		cb:SetSize(24, 24)
-		cb:SetPoint("TOPLEFT", 12, -46 - (i - 1) * ROW)
+		cb:SetPoint("TOPLEFT", x, y)
 		cb.label = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		cb.label:SetPoint("LEFT", cb, "RIGHT", 4, 0)
-		cb.label:SetWidth(200)
+		cb.label:SetWidth(180)
 		cb.label:SetJustifyH("LEFT")
 		cb.label:SetWordWrap(false)
-		-- A few words on what it does, in a column beside the name.
+		-- A few words on what it does beside the name; a note (needs an
+		-- addon / reload to apply) takes its place when there is one.
 		cb.short = cb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 		cb.short:SetPoint("LEFT", cb.label, "RIGHT", 8, 0)
+		cb.short:SetWidth(COL_W - 230)
+		cb.short:SetJustifyH("LEFT")
+		cb.short:SetWordWrap(false)
 		cb.short:SetTextColor(0.6, 0.6, 0.65)
-		cb.short:SetText(feat.short or "")
-		cb.note = cb:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-		cb.note:SetPoint("LEFT", cb.short, "RIGHT", 6, 0)
 		cb.feat = feat
 		cb:SetScript("OnClick", function(self)
 			setFeature(feat.key, self:GetChecked())
@@ -1944,7 +2010,22 @@ local function buildOptions()
 			GameTooltip:Show()
 		end)
 		cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
-		o.rows[i] = cb
+		o.rows[#o.rows + 1] = cb
+	end
+
+	for c, col in ipairs(CATEGORIES) do
+		local x, y = 12 + (c - 1) * COL_W, -46
+		for _, cat in ipairs(col) do
+			heading(x, y, cat[1])
+			y = y - HEAD
+			for _, k in ipairs(cat[2]) do
+				local feat = FEATURE_BY_KEY[k]
+				if feat then
+					featureRow(feat, x, y)
+					y = y - ROW
+				end
+			end
+		end
 	end
 
 	local reload = CreateFrame("Button", nil, o, "UIPanelButtonTemplate")
@@ -1959,7 +2040,7 @@ local function buildOptions()
 
 	-- Right side: the other addons some features use, and whether you have them.
 	local side = CreateFrame("Frame", nil, o, "BackdropTemplate")
-	side:SetPoint("TOPLEFT", o, "TOPLEFT", 570, -46)
+	side:SetPoint("TOPLEFT", o, "TOPLEFT", 12 + 2 * COL_W, -46)
 	side:SetPoint("BOTTOMRIGHT", o, "BOTTOMRIGHT", -12, 44)
 	side:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
 	side:SetBackdropColor(1, 1, 1, 0.04)
@@ -1996,13 +2077,14 @@ local function buildOptions()
 				cb:SetChecked(false)
 				cb:Disable()
 				cb.label:SetTextColor(0.5, 0.5, 0.5)
-				cb.note:SetText("(" .. blocked .. ")")
+				local note = feat.needs and not addonOn(feat.needs) and ("needs " .. addonTitle(feat.needs)) or blocked
+				cb.short:SetText("|cffff6650" .. note .. "|r")
 			else
 				cb:Enable()
 				cb:SetChecked(featureWanted(feat.key))
 				cb.label:SetTextColor(1, 1, 1)
 				local changed = feat.reload and self.startState[feat.key] ~= featureWanted(feat.key)
-				cb.note:SetText(changed and "|cffffd200(reload to apply)|r" or "")
+				cb.short:SetText(changed and "|cffffd200reload to apply|r" or (feat.short or ""))
 				needReload = needReload or changed
 			end
 		end
