@@ -241,22 +241,27 @@ function Loot.status()
 	}
 end
 
--- Ranked upgrades from one dungeon: list of { result, boss } (best first), and how many still loading.
+-- Ranked upgrades from one dungeon: list of { result, boss } (best first), how many still loading,
+-- the dungeon, and extra = { early = list of { result, boss } your class can wear but not for more
+-- than a few levels (no upgrade claim: shown for planning), items = how many items it has at all }.
 function Loot.upgradesIn(name)
 	local d = Loot.dungeon(name)
 	if not d then return nil end
 	local out, loading = {}, 0
+	local extra = { early = {}, items = 0 }
 	for _, b in ipairs(d.bosses) do
 		for _, id in ipairs(b.order) do
+			extra.items = extra.items + 1
 			local ok, r = pcall(ns.Score.compare, "item:" .. id)
 			if ok and r then
 				if r.kind == "loading" then loading = loading + 1
-				elseif r.kind == "upgrade" or r.kind == "future" then out[#out + 1] = { result = r, boss = b, dungeon = d } end
+				elseif r.kind == "upgrade" or r.kind == "future" then out[#out + 1] = { result = r, boss = b, dungeon = d }
+				elseif r.kind == "too early" and r.info then extra.early[#extra.early + 1] = { result = r, boss = b, dungeon = d } end
 			end
 		end
 	end
 	table.sort(out, function(a, b) return a.result.pct > b.result.pct end)
-	return out, loading, d
+	return out, loading, d, extra
 end
 
 ---------------------------------------------------------------------------------------------

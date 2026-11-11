@@ -98,10 +98,11 @@ local function collect()
 	-- Dungeons.
 	local ok, list = pcall(ns.Loot.dungeons)
 	for _, d in ipairs(ok and list or {}) do
-		local ok2, ups, loading = pcall(ns.Loot.upgradesIn, d.name)
+		local ok2, ups, loading, _, extra = pcall(ns.Loot.upgradesIn, d.name)
 		ups = ok2 and ups or {}
 		c.loading = c.loading + ((ok2 and loading) or 0)
-		c.dungeons[#c.dungeons + 1] = { d = d, ups = ups }
+		extra = ok2 and extra or { early = {}, items = 0 }
+		c.dungeons[#c.dungeons + 1] = { d = d, ups = ups, early = extra.early, items = extra.items }
 		for _, u in ipairs(ups) do add(u.result, u.boss.name .. " (" .. d.name .. ")") end
 	end
 
@@ -301,26 +302,50 @@ local function dungeonRows(e, grey)
 	if s.later > 0 then parts[#parts + 1] = "|cff66ccff" .. s.later .. " later|r" end
 	if s.odds then parts[#parts + 1] = "|cffaaaaaa" .. oddsText(s.odds) .. "|r" end
 	if s.best then parts[#parts + 1] = kindColour("upgrade") .. "best " .. pct(s.best) .. "|r" end
+	-- Lowest level its too-high gear needs (for "gear for level N+").
+	local earliest
+	for _, u in ipairs(e.early) do
+		local l = u.result.later
+		if l and (not earliest or l < earliest) then earliest = l end
+	end
+	local quiet
+	if e.items == 0 then quiet = "no loot data"
+	elseif earliest and #ups == 0 then quiet = "gear for level " .. earliest .. "+"
+	else quiet = "no upgrades" end
 	addRow({
 		left = (open and "|cffffd100-|r " or "|cffffd100+|r ") .. (grey and "|cff888888" or "|cffffffff") .. d.name .. "|r" .. levels,
-		right = #parts > 0 and table.concat(parts, "  ") or "|cff888888no upgrades|r",
+		right = #parts > 0 and table.concat(parts, "  ") or ("|cff888888" .. quiet .. "|r"),
 		onClick = function() expanded[d.name] = not expanded[d.name]; Window.refresh() end,
 	})
 	if not open then return end
-	if #ups == 0 then
+	if e.items == 0 then
+		addRow({ indent = 16, left = "|cff888888No loot data for this dungeon yet. Bosses you kill here are recorded.|r" })
+		return
+	end
+	if #ups == 0 and #e.early == 0 then
 		addRow({ indent = 16, left = "|cff888888Nothing here beats what you wear.|r" })
 		return
 	end
+	if #ups == 0 then
+		addRow({ indent = 16, left = "|cff888888Nothing you can wear yet. Its gear, for planning:|r" })
+	end
 	-- Under each boss (in the dungeon's order): what you can wear now, best first, then the
-	-- ones for a few levels from now, soonest first, marked with the level they need.
+	-- ones for a few levels from now, soonest first, marked with the level they need; then gear
+	-- for well above your level (no upgrade %: you'll have outlevelled your gear by then).
 	for _, b in ipairs(d.bosses) do
-		local mine = {}
+		local mine, later = {}, {}
 		for _, u in ipairs(ups) do if u.boss == b then mine[#mine + 1] = u end end
-		if #mine > 0 then
+		for _, u in ipairs(e.early) do if u.boss == b then later[#later + 1] = u end end
+		if #mine + #later > 0 then
 			table.sort(mine, function(x, y)
 				local lx, ly = x.result.later or 0, y.result.later or 0
 				if lx ~= ly then return lx < ly end
 				return x.result.pct > y.result.pct
+			end)
+			table.sort(later, function(x, y)
+				local lx, ly = x.result.later or 0, y.result.later or 0
+				if lx ~= ly then return lx < ly end
+				return (x.result.info.name or "") < (y.result.info.name or "")
 			end)
 			addRow({ indent = 16, left = "|cffffd100" .. b.name .. "|r" .. (b.level and (" |cffaaaaaaLv " .. b.level .. "|r") or "") })
 			for _, u in ipairs(mine) do
@@ -328,6 +353,12 @@ local function dungeonRows(e, grey)
 				local req = r.later and (" |cffff4444req " .. r.later .. "|r") or ""
 				addRow({ indent = 32, icon = true, link = r.info.link, left = nameOf(r.info) .. req,
 					right = chanceText(chanceOf(u)) .. "   " .. kindColour(r.kind) .. pct(r.pct) .. "|r" })
+			end
+			for _, u in ipairs(later) do
+				local r = u.result
+				addRow({ indent = 32, icon = true, link = r.info.link,
+					left = nameOf(r.info) .. (r.later and (" |cff888888req " .. r.later .. "|r") or ""),
+					right = chanceText(chanceOf(u)) .. "   |cff888888for later|r" })
 			end
 		end
 	end
