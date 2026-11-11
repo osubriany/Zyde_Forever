@@ -184,7 +184,23 @@ local FONTS = {
 	[14] = "GameFontNormalLarge", [13] = "GameFontHighlight", [12] = "GameFontNormal",
 	[11] = "GameFontHighlightSmall", [10] = "GameFontHighlightSmall",
 }
-local function font(fs, size) fs:SetFontObject(FONTS[size] or "GameFontHighlight") return fs end
+-- Text size (the slider in /zyde): the tracker's own copies of those fonts, scaled
+-- from 13 (the quest titles' size); spacing and width scale with them.
+local BASE_FONT = 13
+local fontObjs = {}
+local function fontSize() return tonumber(db().questTrackerFont) or BASE_FONT end
+local scale = 1 -- (set by applyFonts)
+local function Q(n) return math.floor(n * scale + 0.5) end
+local function font(fs, size)
+	local fo = fontObjs[size]
+	if not fo then
+		fo = CreateFont("ZydeForeverQuestFont" .. size)
+		fo:CopyFontObject(FONTS[size] or "GameFontHighlight")
+		fontObjs[size] = fo
+	end
+	fs:SetFontObject(fo)
+	return fs
+end
 local GOLD = { 1, 0.82, 0 }
 
 local frame = CreateFrame("Frame", "ZydeForeverQuestTracker", UIParent)
@@ -298,7 +314,6 @@ local function headRow(i)
 	local h = heads[i]
 	if h then return h end
 	h = CreateFrame("Button", nil, content)
-	h:SetHeight(18)
 	h.text = font(h:CreateFontString(nil, "OVERLAY"), 12)
 	h.text:SetPoint("LEFT", 6, 0)
 	h:SetScript("OnClick", function(self) setFold(self.key, not folded(self.key)) refresh() end)
@@ -429,6 +444,7 @@ refresh = function()
 			if isFolded == nil then isFolded = g.foldByDefault or false end
 			h.text:SetFormattedText("%s %s (%d)", isFolded and "+" or "-", g.label, #list)
 			h.text:SetTextColor(g.color[1], g.color[2], g.color[3])
+			h:SetHeight(Q(18))
 			h:ClearAllPoints()
 			h:SetPoint("TOPLEFT", content, "TOPLEFT", 0, y)
 			h:SetPoint("RIGHT", content, "RIGHT")
@@ -439,7 +455,7 @@ refresh = function()
 				refresh()
 			end)
 			h:Show()
-			y = y - 18
+			y = y - Q(18)
 			if not isFolded then
 				for _, q in ipairs(list) do
 					ri = ri + 1
@@ -452,21 +468,22 @@ refresh = function()
 					r.badge:SetColorTexture(lr * 0.75, lg * 0.75, lb * 0.75, 0.9)
 					r.badgeText:SetText(q.level and tostring(q.level) or "?")
 					r.title:SetText(q.title)
-					local ly, shown = -15, 0
+					r.badge:SetSize(Q(20), Q(13))
+					local ly, shown, lineH = -Q(15), 0, Q(12)
 					for _, o in ipairs(q.objectives) do
 						if not o.done and not q.ready then
 							shown = shown + 1
 							local fs = lineOf(r, shown)
 							fs:ClearAllPoints()
-							fs:SetPoint("TOPLEFT", r, "TOPLEFT", 36, ly)
+							fs:SetPoint("TOPLEFT", r, "TOPLEFT", Q(20) + 16, ly)
 							fs:SetPoint("RIGHT", r, "RIGHT", -4, 0)
 							fs:SetText("- " .. o.text)
 							fs:Show()
-							ly = ly - 12
+							ly = ly - lineH
 						end
 					end
 					for j = shown + 1, #r.lines do r.lines[j]:Hide() end
-					local height = 15 + shown * 12 + 4
+					local height = Q(15) + shown * lineH + 4
 					r:SetHeight(height)
 					r:ClearAllPoints()
 					r:SetPoint("TOPLEFT", content, "TOPLEFT", 0, y)
@@ -487,6 +504,23 @@ refresh = function()
 	frame:SetHeight(TOP_GAP + view + 4)
 	scrollTo(scroll:GetVerticalScroll()) -- (keep the place, within the new length)
 	frame:SetShown(total > 0)
+end
+
+---------------------------------------------------------------------------
+-- Text size: the fonts, then everything sized from them.
+local function applyFonts()
+	scale = fontSize() / BASE_FONT
+	for size, fo in pairs(fontObjs) do
+		local src = _G[FONTS[size] or "GameFontHighlight"]
+		local path, _, flags = src and src:GetFont()
+		if path then fo:SetFont(path, Q(size), flags or "") end
+	end
+	title:SetHeight(Q(20))
+	TOP_GAP = Q(20) + 4
+	scroll:SetPoint("TOPLEFT", 0, -TOP_GAP)
+	scroll:SetPoint("TOPRIGHT", 0, -TOP_GAP)
+	frame:SetWidth(Q(WIDTH))
+	content:SetWidth(Q(WIDTH))
 end
 
 ---------------------------------------------------------------------------
@@ -562,6 +596,7 @@ ev:SetScript("OnEvent", function(_, event)
 			if type(DB) ~= "table" then DB = nil end
 			if type(ZDB) ~= "table" then ZDB = nil end
 		end
+		applyFonts()
 		if not on() then return end
 		place()
 		for _, e in ipairs({ "QUEST_LOG_UPDATE", "QUEST_WATCH_UPDATE", "UNIT_QUEST_LOG_CHANGED", "ZONE_CHANGED_NEW_AREA",
@@ -585,6 +620,13 @@ ns.OnFeatureChanged(function(key)
 end)
 
 ns.QuestTracker = {
+	-- The /zyde window's text size slider.
+	GetFontSize = fontSize,
+	SetFontSize = function(size)
+		db().questTrackerFont = (size ~= BASE_FONT) and size or nil
+		applyFonts()
+		if on() then refresh() end
+	end,
 	-- /zyde questheight <pixels>: the tallest the list gets before it scrolls (0 = down to the screen's bottom).
 	SetMaxHeight = function(px)
 		if not px then

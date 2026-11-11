@@ -53,16 +53,36 @@ local function ready(ids)
 	return true
 end
 
--- Your auras / your debuffs on a unit, by spell ID set. Returns found, unknown
--- (unknown = the game hid the details, so we can't tell).
+-- The spells' names, for matching auras by name: on Forever a debuff can carry
+-- a different spell ID than the spell that put it there (Sunder Armor's debuff
+-- is 58567 whatever rank you cast). Looked up on first use, kept per ID set.
+local namesOf = setmetatable({}, { __mode = "k" })
+local function spellNames(idSet)
+	local names = namesOf[idSet]
+	if names then return names end
+	names = {}
+	for id in pairs(idSet) do
+		local n = (C_Spell and C_Spell.GetSpellName and safe(C_Spell.GetSpellName, id))
+			or (GetSpellInfo and safe(GetSpellInfo, id))
+		n = plain(n)
+		if type(n) == "string" and n ~= "" then names[n] = true end
+	end
+	if next(names) then namesOf[idSet] = names end -- (spell data can be late: try again next time)
+	return names
+end
+
+-- Your auras / debuffs on a unit, by spell ID set (or those spells' names).
+-- Returns found, unknown (unknown = the game hid the details, so we can't tell).
 local function hasAura(unit, filter, idSet)
 	if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return false, true end
+	local names = spellNames(idSet)
 	local hidden = false
 	for i = 1, 40 do
 		local a = safe(C_UnitAuras.GetAuraDataByIndex, unit, i, filter)
 		if not a then break end
-		local id = plain(a.spellId)
-		if id == nil then hidden = true elseif idSet[id] then return true, false, a end
+		local id, name = plain(a.spellId), plain(a.name)
+		if (id and idSet[id]) or (name and names[name]) then return true, false, a end
+		if id == nil and name == nil then hidden = true end
 	end
 	return false, hidden
 end
@@ -94,6 +114,7 @@ local EXECUTE = { 5308, 20658, 20660, 20661, 20662 }
 local REVENGE = { 6572, 6574, 7379, 11600, 11601, 25288 }
 local SUNDER  = { 7386, 7405, 8380, 11596, 11597 }
 local SUNDER_SET = set(SUNDER)
+SUNDER_SET[58567] = true -- (the Sunder Armor debuff itself on newer clients)
 local BATTLE_STANCE, DEFENSIVE_STANCE = 2457, 71
 local BATTLE_STANCE_IDS, DEFENSIVE_STANCE_IDS = { BATTLE_STANCE }, { DEFENSIVE_STANCE } -- (knownRank caches by table)
 local VICTORY_RUSH = { 34428 }
@@ -146,7 +167,8 @@ if WARRIOR then
 		if not knownRank(SUNDER) then return false end
 		local found, hidden, a = hasAura("target", "HARMFUL", SUNDER_SET)
 		if hidden and not found then return false end -- can't tell: stay quiet
-		local stacks = found and (plain(a.applications) or 1) or 0
+		-- (one Sunder can read as 0 applications: stacks only count from 2)
+		local stacks = found and math.max(1, plain(a.applications) or 1) or 0
 		if stacks >= 5 then return false end
 		return true, ("Sunder %d/5"):format(stacks)
 	end)
@@ -194,11 +216,12 @@ if HUNTER then
 		if spellID and ASPECT_SET[spellID] then lastAspect = spellID end
 	end)
 
+	local FAST_SET = set({ CHEETAH, PACK })
 	local cheetahTile
 	cheetahTile = ns.AddReminder("cheetah", "ZydeForeverCheetah", ns.spellTexture(CHEETAH, "Interface\\Icons\\Ability_Mount_JungleTiger"), function(preview)
 		if preview then return true, "Cheetah on!" end
 		if not on() or not inCombat() then return false end
-		local found, hidden, a = hasAura("player", "HELPFUL", set({ CHEETAH, PACK }))
+		local found, hidden, a = hasAura("player", "HELPFUL", FAST_SET)
 		local which = found and plain(a.spellId)
 		if not found and hidden then which = (lastAspect == CHEETAH or lastAspect == PACK) and lastAspect or nil end
 		if not which then return false end
@@ -481,3 +504,21 @@ foodTile = ns.AddReminder("food", "ZydeForeverFood", "Interface\\Icons\\INV_Misc
 	if lowDrink then parts[#parts + 1] = "Water " .. drink end
 	return true, table.concat(parts, ", ")
 end)
+
+-- /zyde auradebug: what the game says about your target's debuffs (name, spell ID,
+-- stacks, yours or not), to check the Sunder and Thunder Clap tiles against.
+ns.AuraDebug = function()
+	local P = "|cff66ccffZyde_Forever|r: "
+	if not UnitExists("target") then print(P .. "target something first") return end
+	if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then print(P .. "this client has no aura data") return end
+	local n = 0
+	for i = 1, 40 do
+		local a = safe(C_UnitAuras.GetAuraDataByIndex, "target", i, "HARMFUL")
+		if not a then break end
+		n = n + 1
+		local function show(v) if isSecret(v) then return "hidden" end return tostring(v) end
+		print(("%s%d. %s  id %s  stacks %s  yours %s"):format(P, i, show(a.name), show(a.spellId),
+			show(a.applications), show(a.isFromPlayerOrPlayerPet)))
+	end
+	if n == 0 then print(P .. "no debuffs on your target") end
+end

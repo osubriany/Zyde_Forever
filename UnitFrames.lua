@@ -5,8 +5,9 @@
 -- Raid: 8 columns (one per raid group) of small boxes, shown only in a raid;
 -- party frames hide while you're in a raid.
 --
--- /zyde unlock       - show and drag the frames
--- /zyde lock         - lock them again (also happens when combat starts)
+-- Shift-drag any frame to move it (out of combat).
+-- /zyde unlock       - show and drag the frames (also the empty ones)
+-- /zyde lock        - lock them again (also happens when combat starts)
 -- /zyde resetframes  - back to default spots
 
 local ADDON, ns = ...
@@ -26,7 +27,9 @@ local LAYOUT = {
 	target = { w = 240, h = 40, power = 6, font = 16, point = "CENTER", x = 210, y = -170 },
 	-- Under the player frame, lined up with its left edge.
 	pet    = { w = 150, h = 20, power = 4, font = 12, point = "CENTER", x = -255, y = -213 },
-	party  = { w = 170, h = 32, power = 4, font = 13, point = "LEFT", x = 40, y = 120, gap = 12 },
+	-- Beside the target frame, top edges lined up.
+	tot    = { w = 150, h = 20, power = 4, font = 12, point = "CENTER", x = 415, y = -159 },
+	party  = { w = 170, h = 32, power = 9, font = 13, point = "LEFT", x = 40, y = 120, gap = 12 },
 	raid   = { w = 80, h = 30, power = 3, font = 11, point = "LEFT", x = 20, y = 120, gap = 4 },
 }
 
@@ -310,7 +313,13 @@ local function updatePower(f, snap)
 	end
 	col = col or POWER_COLORS.MANA
 	f.power:SetStatusBarColor(col[1], col[2], col[3])
-	setBar(f.power, UnitPower(unit), UnitPowerMax(unit), snap)
+	local cur, maxv = UnitPower(unit), UnitPowerMax(unit)
+	setBar(f.power, cur, maxv, snap)
+	if f.ptext then
+		-- Party: the number on the bar (mana, rage or energy).
+		if plain(maxv) == 0 or isDead(unit) or isOffline(unit) then f.ptext:SetText("")
+		elseif not pcall(f.ptext.SetFormattedText, f.ptext, "%s", cur) then f.ptext:SetText("") end
+	end
 end
 
 -- Hunter pet happiness (Classic): name color red / yellow / green.
@@ -553,116 +562,179 @@ end
 castEvents:SetScript("OnEvent", updateCast)
 
 ---------------------------------------------------------------------------
--- Your own debuffs on the target (Hunter's Mark, Serpent Sting, Rend,
--- Sunder Armor...): icons under the target frame with time left and stacks.
+-- Buffs and debuffs, like the game's own frames show them:
+--   target: its debuffs under the frame (yours first), its buffs above its name
+--   player: your debuffs above your frame, your buffs above those
+-- Icons show time left and stacks; hover one for the game's tooltip.
 ---------------------------------------------------------------------------
-local DEBUFF_SIZE, DEBUFF_MAX = 24, 8
-
--- Debuff type colors for the icon edge (yours on the target stay black).
+-- Debuff type colors for the icon edge.
 local DISPEL = {
 	Magic = { 0.2, 0.6, 1 }, Curse = { 0.6, 0, 1 }, Disease = { 0.6, 0.4, 0 }, Poison = { 0, 0.6, 0 },
 }
 
-local function debuffButton(owner, unit, filter, place)
-	local b = CreateFrame("Frame", nil, owner)
-	b.unit, b.filter = unit, filter
-	b:SetSize(DEBUFF_SIZE, DEBUFF_SIZE)
-	place(b)
-	b.border = b:CreateTexture(nil, "BACKGROUND")
-	b.border:SetPoint("TOPLEFT", -1, 1)
-	b.border:SetPoint("BOTTOMRIGHT", 1, -1)
-	b.border:SetColorTexture(0, 0, 0, 1)
-	b.icon = b:CreateTexture(nil, "ARTWORK")
-	b.icon:SetAllPoints()
-	b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-	b.cd = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
-	b.cd:SetAllPoints()
-	b.cd:SetDrawEdge(false)
-	b.cd:SetReverse(true)
-	if b.cd.SetHideCountdownNumbers then b.cd:SetHideCountdownNumbers(true) end
-	b.time = makeText(b, 11)
-	b.time:SetPoint("TOP", b, "BOTTOM", 0, -1)
-	b.count = makeText(b, 11)
-	b.count:SetPoint("BOTTOMRIGHT", 2, -1)
-	b:EnableMouse(true)
-	b:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
-		local ok = self.auraID and GameTooltip.SetUnitDebuffByAuraInstanceID
-			and pcall(GameTooltip.SetUnitDebuffByAuraInstanceID, GameTooltip, self.unit, self.auraID)
-		if not ok and GameTooltip.SetUnitAura then pcall(GameTooltip.SetUnitAura, GameTooltip, self.unit, self.index, self.filter) end
-		GameTooltip:Show()
-	end)
-	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	b:SetScript("OnUpdate", function(self, elapsed)
-		self.tick = (self.tick or 0) + elapsed
-		if self.tick < 0.1 then return end
-		self.tick = 0
-		if not self.expires then self.time:SetText("") return end
-		local left = self.expires - GetTime()
-		if left <= 0 then self.time:SetText("")
-		elseif left < 10 then self.time:SetFormattedText("%.1f", left) self.time:SetTextColor(1, 0.3, 0.25)
-		elseif left < 60 then self.time:SetFormattedText("%d", left) self.time:SetTextColor(1, 1, 1)
-		else self.time:SetFormattedText("%dm", math.ceil(left / 60)) self.time:SetTextColor(1, 1, 1) end
-	end)
-	b:Hide()
-	return b
-end
-local function debuffRow(owner, unit, filter, place)
-	local row = { unit = unit, filter = filter }
-	for i = 1, DEBUFF_MAX do row[i] = debuffButton(owner, unit, filter, function(b) place(b, i) end) end
-	return row
+local function auraTime(self, elapsed)
+	self.tick = (self.tick or 0) + elapsed
+	if self.tick < 0.1 then return end
+	self.tick = 0
+	if not self.expires then self.time:SetText("") return end
+	local left = self.expires - GetTime()
+	if left <= 0 then self.time:SetText("")
+	elseif left < 10 then self.time:SetFormattedText("%.1f", left) self.time:SetTextColor(1, 0.3, 0.25)
+	elseif left < 60 then self.time:SetFormattedText("%d", left) self.time:SetTextColor(1, 1, 1)
+	elseif left < 3600 then self.time:SetFormattedText("%dm", math.ceil(left / 60)) self.time:SetTextColor(1, 1, 1)
+	else self.time:SetFormattedText("%dh", math.ceil(left / 3600)) self.time:SetTextColor(1, 1, 1) end
 end
 
--- Target: under the cast bar's spot, so they don't jump when a cast starts.
-local targetDebuffs = debuffRow(target, "target", "HARMFUL|PLAYER", function(b, i)
-	b:SetPoint("TOPLEFT", target, "BOTTOMLEFT", 1 + (i - 1) * (DEBUFF_SIZE + 4), -(CAST_H + 9))
-end)
--- Player: every debuff on you (DoTs, poisons, curses...), above your frame
--- (the pet frame sits below it). The time sits between icon and frame.
-local playerDebuffs = debuffRow(player, "player", "HARMFUL", function(b, i)
-	b:SetPoint("BOTTOMLEFT", player, "TOPLEFT", 1 + (i - 1) * (DEBUFF_SIZE + 4), 16)
-end)
+local function auraTooltip(self)
+	GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
+	local fn = self.harmful and GameTooltip.SetUnitDebuffByAuraInstanceID or GameTooltip.SetUnitBuffByAuraInstanceID
+	local ok = self.auraID and fn and pcall(fn, GameTooltip, self.grid.unit, self.auraID)
+	if not ok and GameTooltip.SetUnitAura then
+		pcall(GameTooltip.SetUnitAura, GameTooltip, self.grid.unit, self.index, self.harmful and "HARMFUL" or "HELPFUL")
+	end
+	GameTooltip:Show()
+end
 
-local function updateDebuffRow(row)
-	local n, unit = 0, row.unit
-	if UnitExists(unit) and C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
-		for i = 1, 40 do
-			if n >= DEBUFF_MAX then break end
-			local a = safe(C_UnitAuras.GetAuraDataByIndex, unit, i, row.filter)
-			if not a then break end
-			n = n + 1
-			local b = row[n]
-			b.index, b.auraID = i, plain(a.auraInstanceID)
-			local dc = unit ~= "target" and DISPEL[plain(a.dispelName) or ""]
-			if dc then b.border:SetColorTexture(dc[1], dc[2], dc[3], 1)
-			elseif unit ~= "target" then b.border:SetColorTexture(0.8, 0.1, 0.1, 1)
-			else b.border:SetColorTexture(0, 0, 0, 1) end
-			if not pcall(b.icon.SetTexture, b.icon, a.icon) then b.icon:SetTexture(134400) end
-			local stacks = plain(a.applications)
-			b.count:SetText((stacks and stacks > 1) and stacks or "")
-			local exp, dur = plain(a.expirationTime), plain(a.duration)
-			if exp and dur and exp > 0 and dur > 0 then
-				b.expires = exp
-				b.cd:SetCooldown(exp - dur, dur)
-				b.cd:Show()
-			else
-				b.expires = nil
-				b.time:SetText("")
-				-- Times hidden in combat: the game can still run the swipe itself.
-				local d = b.auraID and C_UnitAuras.GetAuraDuration and safe(C_UnitAuras.GetAuraDuration, unit, b.auraID)
-				if d and b.cd.SetCooldownFromDurationObject and pcall(b.cd.SetCooldownFromDurationObject, b.cd, d) then
-					b.cd:Show()
-				else
-					b.cd:Hide()
-				end
-			end
-			b:Show()
+-- A grid of icons beside a frame. Big icons have the time under them; small
+-- ones (buffs) have it inside, at the bottom.
+--   up: grows upward from the frame's top edge, else downward from its bottom
+local function auraGrid(owner, unit, harmful, size, perRow, max, up)
+	local small = size < 22
+	local grid = {
+		owner = owner, unit = unit, harmful = harmful, size = size, perRow = perRow, max = max, up = up,
+		filter = harmful and "HARMFUL" or "HELPFUL",
+		rowH = size + (small and 4 or 16), -- (room for the time under big icons)
+		buttons = {},
+	}
+	for i = 1, max do
+		local b = CreateFrame("Frame", nil, owner)
+		b.grid = grid
+		b:SetSize(size, size)
+		b.border = b:CreateTexture(nil, "BACKGROUND")
+		b.border:SetPoint("TOPLEFT", -1, 1)
+		b.border:SetPoint("BOTTOMRIGHT", 1, -1)
+		b.border:SetColorTexture(0, 0, 0, 1)
+		b.icon = b:CreateTexture(nil, "ARTWORK")
+		b.icon:SetAllPoints()
+		b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+		b.cd = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
+		b.cd:SetAllPoints()
+		b.cd:SetDrawEdge(false)
+		b.cd:SetReverse(true)
+		if b.cd.SetHideCountdownNumbers then b.cd:SetHideCountdownNumbers(true) end
+		-- (text on a frame above the swipe, so the swipe doesn't darken it)
+		local top = CreateFrame("Frame", nil, b)
+		top:SetAllPoints()
+		top:SetFrameLevel(b.cd:GetFrameLevel() + 2)
+		b.time = makeText(top, small and 9 or 11)
+		b.count = makeText(top, small and 9 or 11)
+		if small then
+			b.time:SetPoint("BOTTOM", b, "BOTTOM", 1, 1)
+			b.count:SetPoint("TOPRIGHT", b, "TOPRIGHT", 2, 1)
+		else
+			b.time:SetPoint("TOP", b, "BOTTOM", 0, -1)
+			b.count:SetPoint("BOTTOMRIGHT", 2, -1)
+		end
+		b:EnableMouse(true)
+		b:SetScript("OnEnter", auraTooltip)
+		b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		b:SetScript("OnUpdate", auraTime)
+		b:Hide()
+		grid.buttons[i] = b
+	end
+	return grid
+end
+
+local function showAura(grid, n, a, index, mine)
+	local b = grid.buttons[n]
+	b.index, b.auraID, b.harmful = index, plain(a.auraInstanceID), grid.harmful
+	if grid.harmful then
+		local dc = DISPEL[plain(a.dispelName) or ""]
+		if dc then b.border:SetColorTexture(dc[1], dc[2], dc[3], 1)
+		elseif grid.unit == "player" then b.border:SetColorTexture(0.8, 0.1, 0.1, 1)
+		else b.border:SetColorTexture(0, 0, 0, 1) end
+		-- Someone else's debuff on your target: a little faded, like the game's.
+		b:SetAlpha((grid.unit == "target" and not mine) and 0.7 or 1)
+	end
+	if not pcall(b.icon.SetTexture, b.icon, a.icon) then b.icon:SetTexture(134400) end
+	local stacks = plain(a.applications)
+	b.count:SetText((stacks and stacks > 1) and stacks or "")
+	local exp, dur = plain(a.expirationTime), plain(a.duration)
+	if exp and dur and exp > 0 and dur > 0 then
+		b.expires = exp
+		b.cd:SetCooldown(exp - dur, dur)
+		b.cd:Show()
+	else
+		b.expires = nil
+		b.time:SetText("")
+		-- Times hidden in combat: the game can still run the swipe itself.
+		local d = b.auraID and C_UnitAuras.GetAuraDuration and safe(C_UnitAuras.GetAuraDuration, grid.unit, b.auraID)
+		if d and b.cd.SetCooldownFromDurationObject and pcall(b.cd.SetCooldownFromDurationObject, b.cd, d) then
+			b.cd:Show()
+		else
+			b.cd:Hide()
 		end
 	end
-	for i = n + 1, DEBUFF_MAX do row[i]:Hide() end
+	b:Show()
 end
-local function updateTargetDebuffs() updateDebuffRow(targetDebuffs) end
-local function updatePlayerDebuffs() updateDebuffRow(playerDebuffs) end
+
+-- Fill the grid: on the target, your own debuffs come first. `base` is the
+-- gap between the frame's edge and the first row. Returns the room it took.
+local others, othersAt = {}, {}
+local function fillGrid(grid, base)
+	local n, unit = 0, grid.unit
+	wipe(others)
+	if UnitExists(unit) and C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+		local ownFirst = grid.harmful and unit == "target"
+		for i = 1, 40 do
+			local a = safe(C_UnitAuras.GetAuraDataByIndex, unit, i, grid.filter)
+			if not a then break end
+			if ownFirst and not plain(a.isFromPlayerOrPlayerPet) then
+				others[#others + 1], othersAt[#others + 1] = a, i
+			elseif n < grid.max then
+				n = n + 1
+				showAura(grid, n, a, i, true)
+			end
+		end
+		for k, a in ipairs(others) do
+			if n >= grid.max then break end
+			n = n + 1
+			showAura(grid, n, a, othersAt[k], false)
+		end
+	end
+	wipe(others)
+	for i = n + 1, grid.max do grid.buttons[i]:Hide() end
+	-- Place them (the base moves when the grid below grows).
+	local step = grid.size + 4
+	for i = 1, n do
+		local b = grid.buttons[i]
+		local col, row = (i - 1) % grid.perRow, math.floor((i - 1) / grid.perRow)
+		b:ClearAllPoints()
+		if grid.up then
+			b:SetPoint("BOTTOMLEFT", grid.owner, "TOPLEFT", 1 + col * step, base + row * grid.rowH)
+		else
+			b:SetPoint("TOPLEFT", grid.owner, "BOTTOMLEFT", 1 + col * step, -(base + row * grid.rowH))
+		end
+	end
+	return n > 0 and math.ceil(n / grid.perRow) * grid.rowH or 0
+end
+
+-- Target: debuffs under the cast bar's spot (so they don't jump when a cast
+-- starts), buffs above its name.
+local targetDebuffs = auraGrid(target, "target", true, 24, 8, 16, false)
+local targetBuffs = auraGrid(target, "target", false, 20, 10, 20, true)
+-- Player: debuffs above your frame (the pet frame sits below it), buffs above those.
+local playerDebuffs = auraGrid(player, "player", true, 24, 8, 16, true)
+local playerBuffs = auraGrid(player, "player", false, 20, 10, 20, true)
+
+local function updateTargetDebuffs()
+	fillGrid(targetDebuffs, CAST_H + 9)
+	fillGrid(targetBuffs, 22) -- (the name sits just above the frame)
+end
+local function updatePlayerDebuffs()
+	local used = fillGrid(playerDebuffs, 16)
+	fillGrid(playerBuffs, used + 4) -- (used includes the time under the top row)
+end
 
 -- Pet: a smaller box, shown only while you have a pet out.
 local pet = createUnitFrame("ZydeForeverPetFrame", "pet", LAYOUT.pet)
@@ -819,6 +891,35 @@ local function updatePetAuras()
 end
 pet:HookScript("OnShow", function() updatePetAuras() updatePetXP() end)
 
+-- Target of target: a small box beside the target frame (an option in /zyde).
+-- The game sends no events for it, so it re-reads itself a few times a second.
+local tot = createUnitFrame("ZydeForeverTargetTargetFrame", "targettarget", LAYOUT.tot)
+tot.watched, tot.compact, tot.dummyName = true, true, "Target of target"
+tot.name = makeText(tot.hp, 11)
+tot.name:SetPoint("LEFT", tot.hp, "LEFT", 6, 0)
+tot.name:SetPoint("RIGHT", tot.text, "LEFT", -6, 0)
+tot.name:SetJustifyH("LEFT")
+tot.name:SetWordWrap(false)
+tot.text:SetPoint("RIGHT", tot.hp, "RIGHT", -6, 0)
+tot:SetMovable(true)
+tot:HookScript("OnUpdate", function(self, elapsed)
+	self.tick = (self.tick or 0) + elapsed
+	if self.tick < 0.2 or unlocked then return end
+	self.tick = 0
+	updateAll(self, false)
+end)
+
+-- On or off from the /zyde window (waits for the end of a fight: it's a secure frame).
+local function applyTot()
+	if UF.disabled then return end
+	if InCombatLockdown() then UF.pendingTot = true return end
+	UF.pendingTot = nil
+	local want = ns.F("targetTarget")
+	tot.off, tot.watched = not want, want
+	if unlocked then return end
+	if want then RegisterUnitWatch(tot) else UnregisterUnitWatch(tot) tot:Hide() end
+end
+
 local partyHolder = CreateFrame("Frame", "ZydeForeverPartyHolder", UIParent)
 local pcfg = LAYOUT.party
 local pheight = pcfg.h + pcfg.power + 1
@@ -836,6 +937,8 @@ for i = 1, 4 do
 	f.name:SetPoint("RIGHT", f.text, "LEFT", -6, 0)
 	f.name:SetJustifyH("LEFT")
 	f.name:SetWordWrap(false)
+	f.ptext = makeText(f.power, 9)
+	f.ptext:SetPoint("RIGHT", f.power, "RIGHT", -4, 0)
 	party[i] = f
 end
 
@@ -936,6 +1039,12 @@ local function styleRaidButton(b)
 		if self.unit then updateAll(self, true) end
 	end)
 	b:HookScript("OnHide", rebuildRaidMap)
+	-- Shift-drag moves the whole raid (buttons are styled out of combat).
+	if not InCombatLockdown() then
+		b:RegisterForDrag("LeftButton")
+		b:SetScript("OnDragStart", UF.startDrag)
+		b:SetScript("OnDragStop", UF.stopDrag)
+	end
 	b.unit = b:GetAttribute("unit")
 	raidButtons[#raidButtons + 1] = b
 end
@@ -973,6 +1082,7 @@ local movers = {
 	player = { frame = player, cfg = LAYOUT.player, label = "Player" },
 	target = { frame = target, cfg = LAYOUT.target, label = "Target" },
 	pet    = { frame = pet, cfg = LAYOUT.pet, label = "Pet" },
+	tot    = { frame = tot, cfg = LAYOUT.tot, label = "Target of target" },
 	party  = { frame = partyHolder, cfg = LAYOUT.party, label = "Party" },
 	raid   = { frame = raidHolder, cfg = LAYOUT.raid, label = "Raid" },
 }
@@ -1031,9 +1141,10 @@ local function moverOverlay(m)
 	return o
 end
 
+-- Shift-drag moves a frame any time out of combat; /zyde unlock without Shift.
 local function startDrag(self)
-	if not unlocked or InCombatLockdown() then return end
-	local holder = self.isParty and partyHolder or self
+	if InCombatLockdown() or not (unlocked or IsShiftKeyDown()) then return end
+	local holder = (self.isParty and partyHolder) or (self.isRaid and raidHolder) or self
 	holder:StartMoving()
 	UF.dragging = holder
 end
@@ -1052,6 +1163,7 @@ for _, f in ipairs(frames) do
 	f:SetScript("OnDragStart", startDrag)
 	f:SetScript("OnDragStop", stopDrag)
 end
+UF.startDrag, UF.stopDrag = startDrag, stopDrag
 
 -- Fill an empty frame (no target / no party member) so it can be seen while moving.
 local function dummy(f)
@@ -1077,13 +1189,17 @@ function UF.Unlock()
 	raidHolder:Show()
 	partyHolder:Show()
 	for _, f in ipairs(frames) do
-		if f.watched then UnregisterUnitWatch(f) end
-		f:Show()
-		f:SetAlpha(1)
-		if not UnitExists(f.unit) then dummy(f) end
+		if not f.off then -- (target of target turned off)
+			if f.watched then UnregisterUnitWatch(f) end
+			f:Show()
+			f:SetAlpha(1)
+			if not UnitExists(f.unit) then dummy(f) end
+		end
 	end
-	for _, m in pairs(movers) do moverOverlay(m):Show() end
-	print("|cff66ccffZyde_Forever|r: frames unlocked - drag them, then /zyde lock")
+	for _, m in pairs(movers) do
+		if not m.frame.off then moverOverlay(m):Show() end
+	end
+	print("|cff66ccffZyde_Forever|r: frames unlocked - drag them, then /zyde lock (Shift-drag also moves them while locked)")
 end
 
 function UF.Lock(quiet)
@@ -1151,7 +1267,7 @@ for _, e in ipairs({
 	"UNIT_POWER_UPDATE", "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER",
 	"UNIT_CONNECTION", "UNIT_NAME_UPDATE", "UNIT_LEVEL", "UNIT_FACTION", "UNIT_FLAGS",
 	"UNIT_CLASSIFICATION_CHANGED", "PLAYER_UPDATE_RESTING", "PLAYER_LEVEL_UP",
-	"UNIT_PET", "UNIT_HAPPINESS", "PET_UI_UPDATE", "UNIT_AURA", "UNIT_PET_EXPERIENCE",
+	"UNIT_PET", "UNIT_HAPPINESS", "PET_UI_UPDATE", "UNIT_AURA", "UNIT_PET_EXPERIENCE", "UNIT_TARGET",
 }) do
 	pcall(ev.RegisterEvent, ev, e) -- some events don't exist on every client
 end
@@ -1191,6 +1307,7 @@ ev:SetScript("OnEvent", function(_, event, unit)
 	if event == "PLAYER_LOGIN" then
 		if not ns.F("unitFrames") then disableUnitFrames() return end
 		placeAll()
+		applyTot()
 		buildRaid()
 		hideBlizzardUnitFrames()
 		for _, f in ipairs(frames) do updateAll(f, true) end
@@ -1208,6 +1325,7 @@ ev:SetScript("OnEvent", function(_, event, unit)
 		C_Timer.After(0.5, updateResting)
 	elseif event == "PLAYER_TARGET_CHANGED" then
 		updateAll(target, true)
+		updateAll(tot, true)
 		updateTargetDebuffs()
 		updateCast()
 	elseif event == "UNIT_PET" or event == "PET_UI_UPDATE" then
@@ -1223,9 +1341,12 @@ ev:SetScript("OnEvent", function(_, event, unit)
 		UF.Lock(true) -- frames can't move in combat
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		if UF.pendingPlace then placeAll() end
+		if UF.pendingTot then applyTot() end
 		buildRaid()
 		hideBlizzardUnitFrames()
 		updateRaid(true)
+	elseif event == "UNIT_TARGET" then
+		if unit == "target" then updateAll(tot, true) end
 	elseif unit then
 		local f = byUnit[unit]
 		if f then dispatch(f, event) end
@@ -1247,3 +1368,8 @@ if C_Timer and C_Timer.NewTicker then
 		if pet:IsShown() and UnitExists("pet") and not unlocked then updateName(pet) updatePetXP() end
 	end)
 end
+
+-- The target of target frame turns on and off right away from the /zyde window.
+ns.OnFeatureChanged(function(key)
+	if key == "targetTarget" then applyTot() end
+end)

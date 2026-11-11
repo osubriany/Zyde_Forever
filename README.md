@@ -26,7 +26,10 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
 
 ### Interface
 - **Unit frames**: flat, clean player, target, pet, party and raid frames.
-  - Your debuffs on the target and all debuffs on you, with time left.
+  - Buffs and debuffs like the game's own frames: the target's debuffs (yours first) and buffs, your debuffs and buffs, with time left.
+  - Party frames show each member's mana, rage or energy.
+  - Optional target of target frame (on in the `/zyde` window).
+  - Shift-drag any frame to move it (out of combat).
   - The target's cast bar.
   - Hunters get a pet frame with a happiness face, the pet's buffs and an XP bar.
 - **XP readout**: a small, draggable XP % in place of the XP bar, showing rested XP and time to level. Hunters also see their arrow or bullet count here.
@@ -76,6 +79,7 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
   - Click a quest to track it on the map; right-click opens the quest log.
   - Questie's own quest tracker is turned off while this one is on, and comes back if you turn this off.
   - A long list scrolls with the mouse wheel once it reaches the bottom of the screen (`/zyde questheight <pixels>` caps it lower).
+  - Text size slider in the `/zyde` window.
 - **Quest object alert**: a glow, a bobbing **!** and a ping on nearby objects you need to pick up for a quest. Loot from mobs you kill for a quest isn't marked.
 - **Icons over nearby objects**: the game's interact icons over herbs, ore and chests, spotted from further away.
 - **Quest mobs nearby** (Questie): a gold edge on quest mobs' nameplates, a count of them near you, and a key to target one.
@@ -124,7 +128,7 @@ Set these under **Game Menu → Options → Keybindings → AddOns → Zyde Fore
 
 | Command | What it does |
 |---|---|
-| `/zyde unlock` / `lock` | Unlock the unit frames to drag them, then lock them again (they also lock when combat starts) |
+| `/zyde unlock` / `lock` | Unlock the unit frames to drag them, empty ones included (Shift-drag works without unlocking), then lock them again (they also lock when combat starts) |
 | `/zyde resetframes` | Put the unit frames back in their default spots |
 | `/zyde resetxp` | Move the XP readout back to the top of the screen |
 | `/zyde resetquests` | Move the quest tracker back to its default spot |
@@ -150,6 +154,7 @@ Troubleshooting:
 |---|---|
 | `/zyde petdebug` | Your pet's mood, buffs and food, as the game reports them |
 | `/zyde rangedebug` | Your target's range readings (Auto Shot, Wing Clip, ~10 yd) |
+| `/zyde auradebug` | Your target's debuffs as the game reports them (name, spell ID, stacks) |
 | `/zyde mobsdebug` | Nearby nameplates, and why each is or isn't counted as a quest mob |
 | `/zyde questdebug` | Why the quest object you're facing is or isn't detected |
 

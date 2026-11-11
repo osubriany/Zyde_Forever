@@ -95,7 +95,8 @@ local FEATURES = {
 	{ key = "markerWheel", short = "hold key, click marker", label = "Marker wheels", desc = "Hold a key for a wheel of target markers (skull, cross, moon...) or world markers, and click one to place it" },
 	{ key = "hideBars", short = "cleaner action bars", label = "Hide Blizzard bar art", desc = "Hides the action bar art, bag bar and micro menu", reload = true },
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
-	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames", reload = true },
+	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames with buffs and debuffs, mana / rage / energy on party frames. Shift-drag a frame to move it", reload = true },
+	{ key = "targetTarget", short = "small frame by target", label = "Target of target", desc = "A small frame beside the target frame showing who your target is targeting (with the Zyde unit frames on). Shift-drag it to move it" },
 	{ key = "barTidy", short = "short keys, no empty slots", label = "Tidy action bars", desc = "Short keybind labels on action buttons (a-1 becomes A1, Mouse Button 4 becomes M4) and empty slots hidden - they show again while you drag a spell or item" },
 	{ key = "gear", short = "borders, item levels", label = "Character screen gear", desc = "Rarity borders and item levels; a green arrow when your bags hold an upgrade for a slot (scored by GearAdvisor if loaded), empty slots quiet gray unless your bags can fill them, and your average item level in the header", reload = true },
 	{ key = "fishing", short = "one-key fishing", label = "One Button Fishing", desc = "Same key casts and reels in (set the key in Keybindings)" },
@@ -2258,12 +2259,12 @@ local COL_W = 420    -- width of one column of features
 -- A feature missing here still shows, under "Other" at the end.
 local CATEGORIES = {
 	{
-		{ "Interface", { "unitFrames", "xp", "reminders", "hideBars", "barTidy", "gear" } },
+		{ "Interface", { "unitFrames", "targetTarget", "xp", "reminders", "hideBars", "barTidy", "gear" } },
 		{ "Hunter", { "ammo", "petCare" } },
 		{ "Groups", { "lfg", "guildRoster", "markerWheel" } },
 	},
 	{
-		{ "Questing & leveling", { "questTracker", "questAlert", "questIcons", "questMobs", "questieDrops", "zygor" } },
+		{ "Questing & leveling", { "questTracker", "questFont", "questAlert", "questIcons", "questMobs", "questieDrops", "zygor" } },
 		{ "Bags & vendors", { "scrap", "vendor" } },
 		{ "Travel & gathering", { "flight", "tracking", "fishing" } },
 	},
@@ -2278,6 +2279,17 @@ local function addonTitle(name)
 end
 
 local function buildOptions()
+	-- Sliders that sit in the feature lists like a feature row (by key in CATEGORIES).
+	local SLIDERS = {
+		questFont = {
+			label = "Quest tracker text size", min = 10, max = 20,
+			desc = "How big the quest tracker's text is (13 is the normal size). The tracker grows with it.",
+			get = function() return ns.QuestTracker and ns.QuestTracker.GetFontSize() or 13 end,
+			set = function(v) if ns.QuestTracker then ns.QuestTracker.SetFontSize(v) end end,
+			enabled = function() return F("questTracker") end,
+		},
+	}
+
 	-- Anything not placed in a category goes under "Other" in the second column.
 	local placed, other = {}, {}
 	for _, col in ipairs(CATEGORIES) do
@@ -2299,7 +2311,7 @@ local function buildOptions()
 		local h = 0
 		for _, cat in ipairs(col) do
 			local n = 0
-			for _, k in ipairs(cat[2]) do if FEATURE_BY_KEY[k] then n = n + 1 end end
+			for _, k in ipairs(cat[2]) do if FEATURE_BY_KEY[k] or SLIDERS[k] then n = n + 1 end end
 			h = h + HEAD + n * ROW
 		end
 		tallest = math.max(tallest, h)
@@ -2380,6 +2392,49 @@ local function buildOptions()
 		o.rows[#o.rows + 1] = cb
 	end
 
+	-- A slider row: name where a feature's name goes, the slider beside it.
+	o.sliders = {}
+	local function sliderRow(def, x, y)
+		local s = CreateFrame("Slider", nil, o, "BackdropTemplate")
+		s.def = def
+		s.label = o:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+		s.label:SetPoint("TOPLEFT", x + 28, y - 5)
+		s.label:SetText(def.label)
+		s:SetOrientation("HORIZONTAL")
+		s:SetSize(150, 10)
+		s:SetPoint("TOPLEFT", x + 212, y - 7)
+		s:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+		s:SetBackdropColor(0, 0, 0, 0.6)
+		s:SetBackdropBorderColor(0.69, 0.35, 1, 0.5)
+		s:SetThumbTexture("Interface\\Buttons\\WHITE8X8")
+		local thumb = s:GetThumbTexture()
+		thumb:SetSize(8, 16)
+		thumb:SetVertexColor(0.69, 0.35, 1)
+		s:SetMinMaxValues(def.min, def.max)
+		s:SetValueStep(1)
+		if s.SetObeyStepOnDrag then s:SetObeyStepOnDrag(true) end
+		s.value = o:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		s.value:SetPoint("LEFT", s, "RIGHT", 8, 0)
+		s:SetScript("OnValueChanged", function(self, v)
+			v = math.floor(v + 0.5)
+			self.value:SetText(v)
+			if self.loading or v == self.last then return end
+			self.last = v
+			def.set(v)
+		end)
+		s:EnableMouseWheel(true)
+		s:SetScript("OnMouseWheel", function(self, d) if self:IsEnabled() then self:SetValue(self:GetValue() + d) end end)
+		s:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:AddLine(def.label)
+			GameTooltip:AddLine(def.desc, 1, 1, 1, true)
+			GameTooltip:AddLine("Drag, or use the mouse wheel over it.", 0.7, 0.7, 0.7, true)
+			GameTooltip:Show()
+		end)
+		s:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		o.sliders[#o.sliders + 1] = s
+	end
+
 	for c, col in ipairs(CATEGORIES) do
 		local x, y = 12 + (c - 1) * COL_W, -46
 		for _, cat in ipairs(col) do
@@ -2389,6 +2444,9 @@ local function buildOptions()
 				local feat = FEATURE_BY_KEY[k]
 				if feat then
 					featureRow(feat, x, y)
+					y = y - ROW
+				elseif SLIDERS[k] then
+					sliderRow(SLIDERS[k], x, y)
 					y = y - ROW
 				end
 			end
@@ -2456,6 +2514,18 @@ local function buildOptions()
 			end
 		end
 		self.reloadHint:SetShown(needReload)
+		for _, s in ipairs(self.sliders) do
+			local v = s.def.get()
+			s.loading = true
+			s:SetValue(v)
+			s.loading = false
+			s.last = v
+			s.value:SetText(v)
+			local live = s.def.enabled()
+			if live then s:Enable() else s:Disable() end
+			s.label:SetTextColor(live and 1 or 0.5, live and 1 or 0.5, live and 1 or 0.5)
+			s:SetAlpha(live and 1 or 0.5)
+		end
 		for _, r in ipairs(self.addonRows) do
 			local state = ns.addonState(r.addon.name)
 			if state == "on" then
@@ -2566,6 +2636,8 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		ns.MarkerWheel.ToggleDebug()
 	elseif msg == "rangedebug" then
 		if ns.RangeDebug then ns.RangeDebug() else print("|cff66ccffZyde_Forever|r: the range check is for hunters") end
+	elseif msg == "auradebug" then
+		ns.AuraDebug()
 	elseif msg == "petdebug" then
 		if ns.PetCare then ns.PetCare.Debug()
 		else print("|cff66ccffZyde_Forever|r: pet care isn't loaded - restart the game fully (a /reload doesn't load new files)") end
@@ -2601,6 +2673,7 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "errors", "show the last Lua errors (from any addon), even with error pop-ups turned off" },
 			{ "petdebug", "hunters: show what the game reports about your pet's mood, buffs and food" },
 			{ "rangedebug", "hunters: show what the game says about your target's range (Auto Shot, Wing Clip, ~10 yd)" },
+			{ "auradebug", "list your target's debuffs as the game reports them (for the Sunder and Thunder Clap tiles)" },
 			{ "mobsdebug", "list nearby nameplates and why each is or isn't counted as a quest mob" },
 			{ "test", "preview the Battle Shout, Overpower and quest item icons" },
 			{ "questalert", "turn the quest item nearby alert on or off" },
