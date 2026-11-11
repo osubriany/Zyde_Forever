@@ -21,6 +21,7 @@ Guild.lua
 VendorList.lua
 LFGHelper.lua
 ZygorRoute.lua
+GPSArrow.lua
 
 # GearAdvisor (gear upgrade scoring, /ga), merged in 2026-11-11. Its own private table, zyde.GA.
 GearAdvisor\Config.lua
