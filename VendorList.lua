@@ -1,6 +1,7 @@
 -- Zyde_Forever: what in your bags is safe to sell to a vendor.
--- Every bag item gets a verdict, shown as a "Zyde:" line in its tooltip
--- (works with any bag addon):
+-- Every bag item gets a verdict, shown as one colored "Zyde:" line in its
+-- tooltip (works with any bag addon); hold Shift for the reasons and numbers.
+-- The tooltip's edge takes the same color:
 --   Vendor it  - junk, or the auction house isn't worth it
 --   Auction it - the AH pays clearly more AND it's likely to sell
 --   Keep       - an exception (upgrade, on your bars, quest item, ...)
@@ -34,12 +35,16 @@ local function minGain() return math.max(50, (UnitLevel("player") or 1) * 5) end
 local UNKNOWN_ODDS = 0.4      -- sell odds when AHledger has no sales estimate
 local SELL_BATCH = 12         -- the merchant's buyback holds 12
 
+-- Green = auction it, gold = vendor it, blue = keep (also the tooltip's edge).
 local COLORS = {
-	vendor = { 0.35, 1, 0.35 },
-	auction = { 1, 0.82, 0.2 },
-	keep = { 0.55, 0.8, 1 },
+	auction = { 0.35, 1, 0.35 },
+	vendor = { 1, 0.82, 0.2 },
+	keep = { 0.4, 0.7, 1 },
 	check = { 1, 0.55, 0.25 },
 }
+-- Gear you can't wear yet: keep it if you'll be able to within this many
+-- levels, otherwise judge it for selling (and say when you could wear it).
+local KEEP_WITHIN = 3
 local LABEL = { vendor = "Vendor it", auction = "Auction it", keep = "Keep", check = "Check first" }
 
 -- Equip location -> character slots it could replace.
@@ -138,6 +143,20 @@ local function armorFit(classID, subclassID, equipLoc)
 	return nil
 end
 
+-- The level you could wear this gear at, when you can't yet (its required
+-- level, or 40 for the armor type you move up to), else nil.
+local function wearLevel(bag, slot, equipLoc, minLevel, classID, subclassID)
+	if not SLOTS[equipLoc] then return nil end
+	local level = UnitLevel("player") or 1
+	local need
+	local fit = armorFit(classID, subclassID, equipLoc)
+	if fit == "wrong" then return nil end
+	if fit == "later" then need = 40 end
+	if type(minLevel) == "number" and minLevel > level then need = math.max(need or 0, minLevel) end
+	if not need and usability(bag, slot) == "later" then need = level + 1 end -- red text, level unknown
+	return need
+end
+
 -- "possible upgrade" / "future upgrade" reason, or nil.
 local function upgradeReason(bag, slot, link, equipLoc, quality, classID, subclassID)
 	local slots = SLOTS[equipLoc]
@@ -221,7 +240,7 @@ local barIDs, barNames = {}, {}
 local function verdict(bag, slot, info, total)
 	local id = info.itemID
 	local link = info.hyperlink
-	local name, _, quality, _, _, _, _, _, equipLoc, _, sellPrice, classID, subclassID = getInfo(link or id)
+	local name, _, quality, _, minLevel, _, _, _, equipLoc, _, sellPrice, classID, subclassID = getInfo(link or id)
 	if not name then return "retry" end
 	local count = R.slotCount(bag, slot, info)
 	total = math.max(total or count, count)
@@ -244,7 +263,15 @@ local function verdict(bag, slot, info, total)
 	if quality ~= 0 then
 		if COSMETIC[equipLoc] then return keep("shirt or tabard (cosmetic)") end
 		local up = upgradeReason(bag, slot, link, equipLoc, quality, classID, subclassID)
-		if up then return keep(up) end
+		local need = wearLevel(bag, slot, equipLoc, minLevel, classID, subclassID)
+		if need then
+			-- Can't wear it yet: worth keeping only if that's soon.
+			local away = need - (UnitLevel("player") or 1)
+			if up and away <= KEEP_WITHIN then return keep(("you can wear it at level %d"):format(need)) end
+			v.note = ("you can't wear it until level %d"):format(need)
+		elseif up then
+			return keep(up)
+		end
 		-- Consumables: kept unless you can't use them (another class's item,
 		-- red text in the tooltip, or caster-only and you have no mana).
 		if classID == 0 then
@@ -388,17 +415,28 @@ end
 ---------------------------------------------------------------------------
 -- Tooltip line
 ---------------------------------------------------------------------------
+-- One colored verdict line (plus "can't wear it until..." when that matters).
+-- Holding Shift adds the reasons and numbers behind it.
+local DIVIDER = "|TInterface\\Buttons\\WHITE8X8:1:170:0:0:8:8:0:8:0:8:110:110:120|t"
+
 local function addVerdict(tooltip, v)
 	local c = COLORS[v.kind]
 	local money = R.money
 	local head = "Zyde: " .. LABEL[v.kind]
 	if v.kind == "vendor" then
-		head = head .. " - " .. money(v.vendorTotal)
+		head = head .. " " .. money(v.vendorTotal)
 	elseif v.kind == "auction" then
-		head = head .. " - ~" .. money(math.floor(v.ahNet)) .. " (vendor " .. money(v.vendorTotal) .. ")"
+		head = head .. " ~" .. money(math.floor(v.ahNet)) .. " |cff999999(vendor " .. money(v.vendorTotal) .. ")|r"
 	end
+	-- A thin line above, unless GearAdvisor's gear answer sits just above us
+	-- (then the two read as one block).
+	if not (ns.addonOn and ns.addonOn("GearAdvisor")) then tooltip:AddLine(DIVIDER) end
 	tooltip:AddLine(head, c[1], c[2], c[3])
-	if v.reason then tooltip:AddLine("   " .. v.reason, 0.7, 0.7, 0.7, true) end
+	if v.note then tooltip:AddLine("   " .. v.note, 0.75, 0.75, 0.75) end
+	-- Keep: the reason is the answer, so it always shows.
+	if v.kind == "keep" and v.reason then tooltip:AddLine("   " .. v.reason, 0.7, 0.7, 0.7, true) end
+	if not IsShiftKeyDown() then return end
+	if v.kind ~= "keep" and v.reason then tooltip:AddLine("   " .. v.reason, 0.7, 0.7, 0.7, true) end
 	if v.kind == "auction" then
 		tooltip:AddLine(("   Post at %s each, %dh. Listing costs ~%s (refunded if it sells).")
 			:format(money(v.postEach), LISTING_HOURS, money(v.deposit)), 0.7, 0.7, 0.7, true)
@@ -410,12 +448,50 @@ local function addVerdict(tooltip, v)
 	end
 end
 
+-- The tooltip's edge takes the verdict's color; back to normal when it
+-- shows something else.
+local tinted = false -- kept here, not on the game's tooltip frame
+local function tintEdge(tooltip, c)
+	local ns9 = tooltip.NineSlice
+	if ns9 and ns9.SetBorderColor then
+		pcall(ns9.SetBorderColor, ns9, c[1], c[2], c[3], 1)
+		tinted = true
+	end
+end
+local function untint(tooltip)
+	if not tinted then return end
+	tinted = false
+	local ns9 = tooltip.NineSlice
+	local d = TOOLTIP_DEFAULT_COLOR
+	if ns9 and ns9.SetBorderColor then
+		pcall(ns9.SetBorderColor, ns9, d and d.r or 1, d and d.g or 1, d and d.b or 1, 1)
+	end
+end
+
 local function tooltipHook(tooltip)
-	if not on() or tooltip ~= GameTooltip or not tooltip.GetItem then return end
+	if tooltip ~= GameTooltip then return end
+	untint(tooltip)
+	if not on() or not tooltip.GetItem then return end
 	local _, link = tooltip:GetItem()
 	local v = link and byLink[link]
-	if v then addVerdict(tooltip, v) end
+	if v then
+		addVerdict(tooltip, v)
+		tintEdge(tooltip, COLORS[v.kind])
+	end
 end
+GameTooltip:HookScript("OnHide", untint)
+pcall(GameTooltip.HookScript, GameTooltip, "OnTooltipCleared", untint) -- moved on to another thing
+
+-- Pressing or letting go of Shift redraws the item tooltip with / without details.
+local shiftWatch = CreateFrame("Frame")
+shiftWatch:RegisterEvent("MODIFIER_STATE_CHANGED")
+shiftWatch:SetScript("OnEvent", function(_, _, key)
+	if not (key == "LSHIFT" or key == "RSHIFT") or not on() then return end
+	if GameTooltip:IsShown() and GameTooltip.GetItem and GameTooltip.RefreshData then
+		local _, link = GameTooltip:GetItem()
+		if link and byLink[link] then pcall(GameTooltip.RefreshData, GameTooltip) end
+	end
+end)
 
 ---------------------------------------------------------------------------
 -- Blizzard's own bag windows: a gold coin on "Vendor it" items, an
