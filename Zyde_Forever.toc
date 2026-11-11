@@ -10,6 +10,7 @@ Zyde_Forever.lua
 UnitFrames.lua
 QuestieDrops.lua
 QuestMobs.lua
+QuestTracker.lua
 ScrapList.lua
 Ammo.lua
 PetCare.lua

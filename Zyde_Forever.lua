@@ -100,6 +100,7 @@ local FEATURES = {
 	{ key = "fishing", short = "one-key fishing", label = "One Button Fishing", desc = "Same key casts and reels in (set the key in Keybindings)" },
 	{ key = "flight", short = "skip flight chat", label = "Flight master shortcut", desc = "Flight masters open the map directly (hold Shift to talk)" },
 	{ key = "tracking", short = "re-enable after death", label = "Keep tracking after death", desc = "Turns Find Minerals, Find Herbs... back on after you die" },
+	{ key = "questTracker", short = "ready first, nearest first", label = "Quest tracker", desc = "Replaces the game's quest tracker: quests ready to turn in at the top, then this zone's quests nearest first, other zones folded away; finished objective lines hidden", reload = true },
 	{ key = "questAlert", short = "glow on quest objects", label = "Quest object alert", desc = "Glow, ! and ping on nearby quest objects" },
 	{ key = "questIcons", short = "icons over nodes", label = "Icons over nearby objects", desc = "The game's interact icons over herbs, ore and chests" },
 	{ key = "lfg", short = "groups that fit you", label = "Group finder helper", desc = "Beside Looking For Group: groups with room for your role first, one-click whisper to the leader" },
@@ -1984,7 +1985,7 @@ local CATEGORIES = {
 		{ "Groups", { "lfg", "markerWheel" } },
 	},
 	{
-		{ "Questing & leveling", { "questAlert", "questIcons", "questMobs", "questieDrops", "zygor" } },
+		{ "Questing & leveling", { "questTracker", "questAlert", "questIcons", "questMobs", "questieDrops", "zygor" } },
 		{ "Bags & vendors", { "scrap", "vendor" } },
 		{ "Travel & gathering", { "flight", "tracking", "fishing" } },
 	},
@@ -2286,6 +2287,8 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 	elseif msg == "petdebug" then
 		if ns.PetCare then ns.PetCare.Debug()
 		else print("|cff66ccffZyde_Forever|r: pet care isn't loaded - restart the game fully (a /reload doesn't load new files)") end
+	elseif msg == "resetquests" and ns.QuestTracker then
+		ns.QuestTracker.ResetPosition()
 	elseif msg == "resetmobs" and ns.QuestMobs then
 		ns.QuestMobs.ResetPosition()
 	elseif msg == "ammovendor" and ns.Ammo then
@@ -2308,6 +2311,7 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "lock", "lock those frames in place (also happens when combat starts)" },
 			{ "resetframes", "put the unit frames back in their default spots" },
 			{ "resetxp", "move the XP % readout back to the top of the screen" },
+			{ "resetquests", "move the quest tracker back to its default spot" },
 			{ "resetmobs", "move the quest mob count back to its default spot" },
 			{ "errors", "show the last Lua errors (from any addon), even with error pop-ups turned off" },
 			{ "petdebug", "hunters: show what the game reports about your pet's mood, buffs and food" },
