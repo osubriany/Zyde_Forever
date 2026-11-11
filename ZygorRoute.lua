@@ -144,7 +144,9 @@ local function tick()
 	if t and not same(t, last) and routeIsOurs() then
 		if send(t) then last = t end
 	end
-	setZygorArrowHidden(hideArrowWanted() and t ~= nil and hasOurStop())
+	-- (a short hop, under /zyde gpsmin's seconds: Zygor's own arrow leads; GPSArrow.lua decides)
+	local shortHop = ns.GPSShortHop and ns.GPSShortHop()
+	setZygorArrowHidden(hideArrowWanted() and t ~= nil and hasOurStop() and not shortHop)
 end
 
 local ticker
