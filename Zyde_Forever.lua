@@ -96,7 +96,6 @@ local FEATURES = {
 	{ key = "hideBars", short = "cleaner action bars", label = "Hide Blizzard bar art", desc = "Hides the action bar art, bag bar and micro menu", reload = true },
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames", reload = true },
-	{ key = "meterSkin", short = "slim, fades out of combat", label = "Damage meter look", desc = "The game's damage meter: smaller, see-through with a thin edge, flat bars and the unit frames' font. Shows in combat, for 5 seconds after, in a group, or when you mouse over it", reload = true },
 	{ key = "gear", short = "borders, item levels", label = "Character screen gear", desc = "Rarity borders, item levels and upgrade flags", reload = true },
 	{ key = "fishing", short = "one-key fishing", label = "One Button Fishing", desc = "Same key casts and reels in (set the key in Keybindings)" },
 	{ key = "flight", short = "skip flight chat", label = "Flight master shortcut", desc = "Flight masters open the map directly (hold Shift to talk)" },
@@ -1974,7 +1973,7 @@ local COL_W = 420    -- width of one column of features
 -- A feature missing here still shows, under "Other" at the end.
 local CATEGORIES = {
 	{
-		{ "Interface", { "unitFrames", "xp", "reminders", "meterSkin", "hideBars", "gear" } },
+		{ "Interface", { "unitFrames", "xp", "reminders", "hideBars", "gear" } },
 		{ "Hunter", { "ammo", "petCare" } },
 		{ "Groups", { "lfg", "markerWheel" } },
 	},
@@ -2276,8 +2275,6 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 				print(("  |cffff6650%s%s|r %s"):format(e.at, e.count > 1 and (" x" .. e.count) or "", e.text))
 			end
 		end
-	elseif msg == "meterdebug" and ns.Meter then
-		ns.Meter.Debug()
 	elseif msg == "wheeldebug" and ns.MarkerWheel then
 		ns.MarkerWheel.ToggleDebug()
 	elseif msg == "petdebug" then
@@ -2307,7 +2304,6 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "resetxp", "move the XP % readout back to the top of the screen" },
 			{ "resetmobs", "move the quest mob count back to its default spot" },
 			{ "errors", "show the last Lua errors (from any addon), even with error pop-ups turned off" },
-			{ "meterdebug", "show what was found of the game's damage meter (if its new look doesn't apply)" },
 			{ "petdebug", "hunters: show what the game reports about your pet's mood, buffs and food" },
 			{ "mobsdebug", "list nearby nameplates and why each is or isn't counted as a quest mob" },
 			{ "test", "preview the Battle Shout, Overpower and quest item icons" },
