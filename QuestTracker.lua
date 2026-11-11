@@ -3,8 +3,8 @@
 --   This zone         - quests with an objective here, nearest first
 --   Other zones       - everything else, folded away (click the heading)
 -- Finished objective lines are hidden; only what's left to do shows.
--- Each quest: a level badge in its difficulty color, and the distance to
--- its nearest spot. Dims in combat.
+-- Each quest has a level badge in its difficulty color.
+-- Dims in combat.
 -- "Nearest" uses Questie's locations of the mobs, objects and turn-in NPCs
 -- (falls back to the quest log's zone headings without Questie).
 -- Click a quest to follow it (like the game's own "..." button: map
@@ -154,7 +154,7 @@ local function readLog()
 			local dist, pt = questDistance(questID, ready, area, px, py, w, h)
 			quests[#quests + 1] = {
 				index = i, questID = questID, title = title, level = level, ready = ready,
-				objectives = objectives, dist = dist, yards = (w and h) and dist or nil, map = pt and map, x = pt and pt[1], y = pt and pt[2],
+				objectives = objectives, dist = dist, map = pt and map, x = pt and pt[1], y = pt and pt[2],
 				here = dist ~= nil or (header ~= nil and header == zoneName),
 			}
 		end
@@ -318,13 +318,9 @@ local function questRow(i)
 	r.badgeText = font(r:CreateFontString(nil, "OVERLAY"), 10)
 	r.badgeText:SetPoint("CENTER", r.badge, "CENTER", 0, 0)
 	r.badgeText:SetTextColor(1, 1, 1)
-	-- Distance at the right ("120 yd").
-	r.dist = font(r:CreateFontString(nil, "OVERLAY"), 10)
-	r.dist:SetPoint("TOPRIGHT", -6, -1)
-	r.dist:SetTextColor(0.6, 0.6, 0.65)
 	r.title = font(r:CreateFontString(nil, "OVERLAY"), 13)
 	r.title:SetPoint("TOPLEFT", r.badge, "TOPRIGHT", 5, 0)
-	r.title:SetPoint("RIGHT", r.dist, "LEFT", -4, 0)
+	r.title:SetPoint("RIGHT", -6, 0)
 	r.title:SetJustifyH("LEFT")
 	r.title:SetWordWrap(false)
 	r.title:SetTextColor(1, 1, 1)
@@ -361,12 +357,6 @@ local function levelColor(level)
 	local c = level and GetQuestDifficultyColor and GetQuestDifficultyColor(level)
 	if c then return c.r, c.g, c.b end
 	return 1, 0.82, 0
-end
-
-local function yardsText(d)
-	if not d then return "" end
-	if d >= 1000 then return ("%.1fk yd"):format(d / 1000) end
-	return ("%d yd"):format(math.floor(d / 10 + 0.5) * 10) -- to the nearest 10
 end
 
 local GROUPS = {
@@ -415,7 +405,6 @@ refresh = function()
 					r.badge:SetColorTexture(lr * 0.75, lg * 0.75, lb * 0.75, 0.9)
 					r.badgeText:SetText(q.level and tostring(q.level) or "?")
 					r.title:SetText(q.title)
-					r.dist:SetText(g.key ~= "other" and yardsText(q.yards) or "")
 					local ly, shown = -15, 0
 					for _, o in ipairs(q.objectives) do
 						if not o.done and not q.ready then
