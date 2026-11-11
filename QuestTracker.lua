@@ -5,7 +5,8 @@
 -- Finished objective lines are hidden; only what's left to do shows.
 -- "Nearest" uses Questie's locations of the mobs, objects and turn-in NPCs
 -- (falls back to the quest log's zone headings without Questie).
--- Click a quest to open it in the quest log. Shift-drag the title to move.
+-- Click a quest to follow it (like the game's own "..." button: map
+-- highlight); right-click opens it in the quest log. Shift-drag the title to move.
 
 local ADDON, ns = ...
 
@@ -206,7 +207,7 @@ end)
 title:SetScript("OnEnter", function(self)
 	GameTooltip:SetOwner(self, "ANCHOR_LEFT")
 	GameTooltip:AddLine("Quests")
-	GameTooltip:AddLine("Click a quest to open it. Click a group heading to fold it.", 1, 1, 1, true)
+	GameTooltip:AddLine("Click a quest to follow it, right-click to open it. Click a group heading to fold it.", 1, 1, 1, true)
 	GameTooltip:AddLine("Shift-drag here to move the tracker.", 0.7, 0.7, 0.7, true)
 	GameTooltip:Show()
 end)
@@ -246,107 +247,77 @@ local function headRow(i)
 end
 
 ---------------------------------------------------------------------------
--- Focusing a quest (the circle left of each title): a map waypoint to the
--- nearest place you still need to go - an unfinished objective, or the
--- turn-in once it's done - kept up to date as you move. Click again to stop.
+-- Clicking a quest does what the game's own "..." quest button does: it
+-- makes that quest the one the game follows (highlighted on the map, and
+-- shown by the game's navigation). Clicking it again lets go.
+-- Right-click opens it in the quest log.
 ---------------------------------------------------------------------------
-local focused, focusedAt -- questID, and the "map:x:y" the waypoint points at
-
-local function clearFocus()
-	focused, focusedAt = nil, nil
-	if C_Map.ClearUserWaypoint then pcall(C_Map.ClearUserWaypoint) end
-	if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID then pcall(C_SuperTrack.SetSuperTrackedQuestID, 0) end
+local function trackedQuest()
+	local id = C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and safe(C_SuperTrack.GetSuperTrackedQuestID)
+	return plain(id)
 end
 
--- Point the waypoint at the quest's nearest spot (if it moved).
-local function aimFocus(q)
-	if q.map and q.x then
-		local key = q.map .. ":" .. q.x .. ":" .. q.y
-		if key == focusedAt then return end
-		focusedAt = key
-		local set = false
-		if UiMapPoint and C_Map.CanSetUserWaypointOnMap and safe(C_Map.CanSetUserWaypointOnMap, q.map) then
-			set = pcall(C_Map.SetUserWaypoint, UiMapPoint.CreateFromCoordinates(q.map, q.x / 100, q.y / 100))
-			if set and C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint then
-				pcall(C_SuperTrack.SetSuperTrackedUserWaypoint, true)
-			end
-		end
-		if TomTom and TomTom.AddWaypoint then
-			pcall(TomTom.AddWaypoint, TomTom, q.map, q.x / 100, q.y / 100, { title = q.title, from = "Zyde_Forever" })
-		end
-	elseif focusedAt ~= "quest" then
-		-- Nothing known in this zone: let the game focus the quest itself.
-		focusedAt = "quest"
-		if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID then pcall(C_SuperTrack.SetSuperTrackedQuestID, q.questID) end
-	end
-end
-
-local function toggleFocus(q)
-	if focused == q.questID then
-		clearFocus()
-		print(P .. "stopped focusing " .. q.title)
+local function toggleTrack(q)
+	if not (C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID) then return end
+	if trackedQuest() == q.questID then
+		pcall(C_SuperTrack.SetSuperTrackedQuestID, 0)
 	else
-		focused, focusedAt = q.questID, nil
-		aimFocus(q)
-		print(P .. "focusing " .. q.title .. (q.x and (" - waypoint set (%.1f, %.1f)"):format(q.x, q.y) or " (no location known in this zone)"))
+		if C_QuestLog.SetSelectedQuest then pcall(C_QuestLog.SetSelectedQuest, q.questID) end
+		pcall(C_SuperTrack.SetSuperTrackedQuestID, q.questID)
+	end
+	if PlaySound and SOUNDKIT and SOUNDKIT.UI_MAP_WAYPOINT_SUPER_TRACK_ON then
+		PlaySound(SOUNDKIT.UI_MAP_WAYPOINT_SUPER_TRACK_ON)
 	end
 	refresh()
 end
 
-local function circleTexture(parent, layer, size, r, g, b, a)
-	local t = parent:CreateTexture(nil, layer)
-	t:SetSize(size, size)
-	t:SetPoint("CENTER")
-	t:SetColorTexture(r, g, b, a)
-	local m = parent:CreateMaskTexture()
-	m:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-	m:SetAllPoints(t)
-	t:AddMaskTexture(m)
-	return t
+local function openInLog(q)
+	if QuestLog_OpenToQuest then
+		pcall(QuestLog_OpenToQuest, q.questID)
+	elseif QuestLogFrame and SelectQuestLogEntry then
+		SelectQuestLogEntry(q.index)
+		ShowUIPanel(QuestLogFrame)
+		if QuestLog_Update then pcall(QuestLog_Update) end
+	end
 end
 
 local function questRow(i)
 	local r = rows[i]
 	if r then return r end
 	r = CreateFrame("Button", nil, frame)
-	-- The circle: "..." while in progress, "?" when ready; lit when focused.
-	local c = CreateFrame("Button", nil, r)
-	c:SetSize(18, 18)
-	c:SetPoint("TOPLEFT", 4, 2)
-	c.ring = circleTexture(c, "BACKGROUND", 18, 0.85, 0.65, 0.15, 1)
-	c.inner = circleTexture(c, "ARTWORK", 14, 0.12, 0.09, 0.05, 1)
-	c.mark = c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	c.mark:SetPoint("CENTER", 0, 0)
-	c:SetScript("OnClick", function() if r.quest then toggleFocus(r.quest) end end)
-	c:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-		local q = r.quest
-		GameTooltip:AddLine(q and q.title or "Quest")
-		GameTooltip:AddLine(focused == (q and q.questID) and "Click to stop focusing this quest"
-			or "Click to focus: waypoint to the nearest place you still need to go", 1, 1, 1, true)
-		GameTooltip:Show()
-	end)
-	c:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	r.circle = c
+	r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	-- Soft gold band behind the quest the game is following.
+	r.sel = r:CreateTexture(nil, "BACKGROUND")
+	r.sel:SetPoint("TOPLEFT", 2, 1)
+	r.sel:SetPoint("BOTTOMRIGHT", -2, 1)
+	r.sel:SetColorTexture(1, 0.82, 0, 0.14)
+	r.sel:Hide()
+	r.selBar = r:CreateTexture(nil, "ARTWORK")
+	r.selBar:SetPoint("TOPLEFT", 2, 1)
+	r.selBar:SetPoint("BOTTOMLEFT", 2, 1)
+	r.selBar:SetWidth(2)
+	r.selBar:SetColorTexture(1, 0.82, 0, 0.9)
+	r.selBar:Hide()
 	r.title = r:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	r.title:SetPoint("TOPLEFT", 26, 0)
+	r.title:SetPoint("TOPLEFT", 12, 0)
 	r.title:SetPoint("RIGHT", -4, 0)
 	r.title:SetJustifyH("LEFT")
 	r.title:SetWordWrap(false)
 	r.lines = {}
-	r:SetScript("OnClick", function(self)
+	r:SetScript("OnClick", function(self, button)
 		local q = self.quest
 		if not q then return end
-		if QuestLog_OpenToQuest then
-			pcall(QuestLog_OpenToQuest, q.questID)
-		elseif QuestLogFrame and SelectQuestLogEntry then
-			SelectQuestLogEntry(q.index)
-			ShowUIPanel(QuestLogFrame)
-			if QuestLog_Update then pcall(QuestLog_Update) end
-		end
+		if button == "RightButton" then openInLog(q) else toggleTrack(q) end
 	end)
-	r:SetScript("OnEnter", function(self) self.title:SetAlpha(0.75) end)
-	r:SetScript("OnLeave", function(self) self.title:SetAlpha(1) end)
+	r:SetScript("OnEnter", function(self)
+		self.title:SetAlpha(0.75)
+		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+		GameTooltip:AddLine(self.quest and self.quest.title or "Quest")
+		GameTooltip:AddLine("Click: follow this quest (map highlight). Click again to stop.", 1, 1, 1, true)
+		GameTooltip:AddLine("Right-click: open it in the quest log.", 0.7, 0.7, 0.7, true)
+		GameTooltip:Show()
+	end)
+	r:SetScript("OnLeave", function(self) self.title:SetAlpha(1) GameTooltip:Hide() end)
 	rows[i] = r
 	return r
 end
@@ -376,14 +347,7 @@ local GROUPS = {
 refresh = function()
 	if not on() then frame:Hide() return end
 	local groups, total = readLog()
-	-- Keep the focused quest's waypoint on its nearest spot; drop it once the quest is gone.
-	if focused then
-		local found
-		for _, list in pairs(groups) do
-			for _, q in ipairs(list) do if q.questID == focused then found = q end end
-		end
-		if found then aimFocus(found) else clearFocus() end
-	end
+	local tracked = trackedQuest() -- the quest the game is following
 	title.count:SetFormattedText("%d/%d", total, MAX_QUESTLOG_QUESTS or 20)
 	local y = -24
 	local hi, ri = 0, 0
@@ -413,10 +377,9 @@ refresh = function()
 					ri = ri + 1
 					local r = questRow(ri)
 					r.quest = q
-					local isFocus = focused == q.questID
-					r.circle.mark:SetText(q.ready and "?" or "...")
-					r.circle.ring:SetColorTexture(isFocus and 1 or 0.85, isFocus and 0.9 or 0.65, isFocus and 0.3 or 0.15, 1)
-					r.circle.inner:SetColorTexture(isFocus and 0.45 or 0.12, isFocus and 0.32 or 0.09, isFocus and 0.05 or 0.05, 1)
+					local isTracked = tracked == q.questID
+					r.sel:SetShown(isTracked)
+					r.selBar:SetShown(isTracked)
 					r.title:SetText(("%s[%s]|r %s"):format(levelColor(q.level), tostring(q.level or "?"), q.title))
 					local ly, shown = -14, 0
 					for _, o in ipairs(q.objectives) do
@@ -424,7 +387,7 @@ refresh = function()
 							shown = shown + 1
 							local fs = lineOf(r, shown)
 							fs:ClearAllPoints()
-							fs:SetPoint("TOPLEFT", r, "TOPLEFT", 36, ly)
+							fs:SetPoint("TOPLEFT", r, "TOPLEFT", 22, ly)
 							fs:SetPoint("RIGHT", r, "RIGHT", -4, 0)
 							fs:SetText("- " .. o.text)
 							fs:Show()
@@ -480,7 +443,7 @@ ev:SetScript("OnEvent", function(_, event)
 		if not on() then return end
 		place()
 		for _, e in ipairs({ "QUEST_LOG_UPDATE", "QUEST_WATCH_UPDATE", "UNIT_QUEST_LOG_CHANGED", "ZONE_CHANGED_NEW_AREA",
-			"ZONE_CHANGED", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "PLAYER_LEVEL_UP" }) do
+			"ZONE_CHANGED", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "PLAYER_LEVEL_UP", "SUPER_TRACKING_CHANGED" }) do
 			pcall(ev.RegisterEvent, ev, e)
 		end
 		-- Re-sort as you move (nearest first).
