@@ -169,3 +169,9 @@ GearAdvisor:
 - Built for the WoW Forever client. Some game information is hidden from addons in combat ("secret" values), so a few features pause or fall back to the last known value during fights.
 - Settings are saved per account in `ZydeForeverDB` (and `GearAdvisorDB`).
 - Found a problem? `/zyde errors` shows recent errors to include in a bug report.
+
+## Licence
+
+Zyde Forever is free software, released under the [GNU General Public License v3.0 or later](LICENSE). You may use, change and share it, as long as anything you share that's built from it is under the same licence.
+
+World of Warcraft and its content are © Blizzard Entertainment.
