@@ -2,9 +2,10 @@
 -- Questie puts a small bag icon left of the nameplate of mobs that drop an
 -- item you still need. Under it we add:
 --   line 1: the item's drop chance (same number as Questie's tooltip)
---   line 2: your attempts on that mob since the item last dropped, and the
---           chance you'd have seen at least one drop by now:
---           P = 1 - (1 - p)^n   (p = drop chance, n = attempts)
+--   line 2: which kill the next one will be since the item last dropped,
+--           and the chance of at least one drop by the end of that kill:
+--           P = 1 - (1 - p)^n   (p = drop chance, n = attempts so far + 1)
+--           Shown once you've had at least one kill without the drop.
 -- An attempt is one corpse you could loot (killed by you or your group).
 -- When the item drops, its attempt counts reset.
 -- Does nothing if Questie isn't loaded.
@@ -166,11 +167,14 @@ local function refresh(token)
 	icon.zydeDrop:SetTextColor(rateColor(r))
 	icon.zydeDrop:Show()
 
+	-- Looking ahead to the next kill: after 1 kill with no drop it shows
+	-- "2x 64%" (40% item) - the chance of a drop by the end of kill number 2.
 	local n = tries()[bestId .. ":" .. npcId] or 0
 	if n > 0 then
+		local nextKill = n + 1
 		local p = math.min(r / 100, 1)
-		local chance = (1 - (1 - p) ^ n) * 100
-		icon.zydeOdds:SetFormattedText("%dx %d%%", n, math.floor(chance + 0.5))
+		local chance = (1 - (1 - p) ^ nextKill) * 100
+		icon.zydeOdds:SetFormattedText("%dx %d%%", nextKill, math.floor(chance + 0.5))
 		icon.zydeOdds:Show()
 	else
 		icon.zydeOdds:Hide()
