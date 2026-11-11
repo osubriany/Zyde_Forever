@@ -40,6 +40,34 @@ local function findRoots()
 			if not dup then found[#found + 1] = f end
 		end
 	end
+	-- Not named like that? Look for the window whose title says "Damage Done"
+	-- (or another meter mode) among the visible top-level frames.
+	if #found == 0 then
+		local TITLES = { "Damage Done", "Damage Taken", "Healing Done", "DPS", "HPS" }
+		local function hasTitle(f, d)
+			if d > 4 then return false end
+			for _, r in ipairs({ f:GetRegions() }) do
+				if r:IsObjectType("FontString") then
+					local t = r:GetText()
+					if type(t) == "string" and not ns.isSecret(t) then
+						for _, want in ipairs(TITLES) do
+							if t == want then return true end
+						end
+					end
+				end
+			end
+			for _, c in ipairs({ f:GetChildren() }) do
+				if hasTitle(c, d + 1) then return true end
+			end
+			return false
+		end
+		for _, child in ipairs({ UIParent:GetChildren() }) do
+			if child:IsShown() and child ~= ZydeForeverOptions then
+				local ok, yes = pcall(hasTitle, child, 0)
+				if ok and yes then found[#found + 1] = child end
+			end
+		end
+	end
 	roots = found
 	return #found > 0
 end
@@ -143,7 +171,7 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
 	if #roots == 0 then
 		restyleIn = restyleIn - dt
 		if restyleIn > 0 then return end
-		restyleIn = 2
+		restyleIn = 5 -- still looking for the meter: try again in a few seconds
 		if not findRoots() then return end
 	end
 	if not on() then
