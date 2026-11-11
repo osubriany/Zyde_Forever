@@ -1903,6 +1903,26 @@ end)
 
 -- Shared with UnitFrames.lua
 ns.isSecret, ns.safe, ns.stash = isSecret, safe, stash
+
+-- Keep the last few Lua errors (any addon), so /zyde errors can show their
+-- text even when the game's error pop-ups are turned off. The game's own
+-- error handling still runs as before.
+local recentErrors = {}
+do
+	local previous = geterrorhandler()
+	seterrorhandler(function(msg, ...)
+		local text = tostring(msg)
+		local last = recentErrors[#recentErrors]
+		if last and last.text == text then
+			last.count = last.count + 1
+		else
+			recentErrors[#recentErrors + 1] = { text = text, count = 1, at = date and date("%H:%M:%S") or "" }
+			if #recentErrors > 10 then table.remove(recentErrors, 1) end
+		end
+		if previous then return previous(msg, ...) end
+	end)
+end
+ns.RecentErrors = recentErrors
 ns.knownRank, ns.spellTexture = knownRank, spellTexture
 ns.newEdges, ns.placeEdges = newEdges, placeEdges
 
@@ -2246,6 +2266,16 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		ns.UnitFrames.Command(msg)
 	elseif msg == "mobsdebug" and ns.QuestMobs then
 		ns.QuestMobs.Debug()
+	elseif msg == "errors" then
+		local list = ns.RecentErrors
+		if #list == 0 then
+			print("|cff66ccffZyde_Forever|r: no Lua errors since the last /reload")
+		else
+			print("|cff66ccffZyde_Forever|r: last " .. #list .. " Lua errors (newest last):")
+			for _, e in ipairs(list) do
+				print(("  |cffff6650%s%s|r %s"):format(e.at, e.count > 1 and (" x" .. e.count) or "", e.text))
+			end
+		end
 	elseif msg == "meterdebug" and ns.Meter then
 		ns.Meter.Debug()
 	elseif msg == "wheeldebug" and ns.MarkerWheel then
@@ -2276,6 +2306,7 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "resetframes", "put the unit frames back in their default spots" },
 			{ "resetxp", "move the XP % readout back to the top of the screen" },
 			{ "resetmobs", "move the quest mob count back to its default spot" },
+			{ "errors", "show the last Lua errors (from any addon), even with error pop-ups turned off" },
 			{ "meterdebug", "show what was found of the game's damage meter (if its new look doesn't apply)" },
 			{ "petdebug", "hunters: show what the game reports about your pet's mood, buffs and food" },
 			{ "mobsdebug", "list nearby nameplates and why each is or isn't counted as a quest mob" },

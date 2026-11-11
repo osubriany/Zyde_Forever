@@ -11,7 +11,7 @@ local ADDON, ns = ...
 
 local FLAT = "Interface\\Buttons\\WHITE8X8"
 local FONT = "Fonts\\ARIALN.TTF"
-local SCALE = 0.85        -- smaller than the game's size
+-- (No rescaling: a scaled window draws its text fuzzy. Size it in Edit Mode.)
 local BG_ALPHA = 0.25     -- background see-through
 local LINGER = 5          -- seconds it stays after combat
 local FADE_SPEED = 3      -- alpha per second while fading
@@ -91,17 +91,22 @@ end
 -- Restyling
 ---------------------------------------------------------------------------
 local styled = setmetatable({}, { __mode = "k" })
+local edges = {} -- meter window -> our edge/panel frame
 
 local function edge(frame)
-	if frame.zydeEdge then return end
-	local e = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-	e:SetPoint("TOPLEFT", -1, 1)
-	e:SetPoint("BOTTOMRIGHT", 1, -1)
+	if edges[frame] then return end
+	-- Our own frame, not a child of the game's: adding to the game's meter
+	-- window can upset its own code (and its hidden numbers).
+	local e = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+	e:SetPoint("TOPLEFT", frame, "TOPLEFT", -1, 1)
+	e:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 1, -1)
+	e:SetFrameStrata(frame:GetFrameStrata())
 	e:SetFrameLevel(math.max(0, frame:GetFrameLevel() - 1))
 	e:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
 	e:SetBackdropColor(0.04, 0.04, 0.05, BG_ALPHA)
 	e:SetBackdropBorderColor(0, 0, 0, 0.9)
-	frame.zydeEdge = e
+	e:EnableMouse(false)
+	edges[frame] = e
 end
 
 -- The window's own backdrop art: fade it right down (our see-through panel shows instead).
@@ -109,29 +114,29 @@ local function quietBackground(frame)
 	if frame.NineSlice and frame.NineSlice.SetAlpha then frame.NineSlice:SetAlpha(0) end
 	for _, key in ipairs({ "Background", "Bg", "background", "BG", "BackgroundTexture", "Backdrop", "Border", "HeaderBackground" }) do
 		local t = frame[key]
-		if t and t.SetAlpha then t:SetAlpha(0) end
+		if t and t.SetAlpha and t.GetAlpha and t:GetAlpha() ~= 0 then t:SetAlpha(0) end
 	end
-	if frame.SetBackdropColor then pcall(frame.SetBackdropColor, frame, 0, 0, 0, 0) end
-	if frame.SetBackdropBorderColor then pcall(frame.SetBackdropBorderColor, frame, 0, 0, 0, 0) end
 end
 
+-- Flat texture, keeping the game's color. Checked again on every pass
+-- (no hooks into the game's own code).
+local flatID
 local function styleBar(bar)
-	if styled[bar] then return end
-	styled[bar] = true
+	local tex = bar:GetStatusBarTexture()
+	local cur = tex and tex:GetTexture()
+	if cur ~= nil and (cur == FLAT or cur == flatID) then return end
 	local r, g, b, a = bar:GetStatusBarColor()
 	bar:SetStatusBarTexture(FLAT)
-	if r then pcall(bar.SetStatusBarColor, bar, r, g, b, a) end -- keep the game's color
-	-- The game may re-set its texture later: put ours back.
-	hooksecurefunc(bar, "SetStatusBarTexture", function(self, tex)
-		if tex ~= FLAT and on() then self:SetStatusBarTexture(FLAT) end
-	end)
+	local t = bar:GetStatusBarTexture()
+	flatID = flatID or (t and t:GetTexture())
+	if r then pcall(bar.SetStatusBarColor, bar, r, g, b, a) end
 end
 
 local function styleText(fs)
 	if styled[fs] then return end
 	styled[fs] = true
 	local _, size = fs:GetFont()
-	fs:SetFont(FONT, math.max(9, math.floor((size or 12) - 1)), "OUTLINE")
+	fs:SetFont(FONT, math.floor((size or 12) + 0.5), "OUTLINE") -- whole sizes stay crisp
 	fs:SetShadowOffset(0, 0)
 end
 
@@ -146,9 +151,7 @@ local function walk(frame, depth)
 	for _, region in ipairs({ frame:GetRegions() }) do
 		if region:IsObjectType("FontString") then styleText(region) end
 	end
-	for _, child in ipairs({ frame:GetChildren() }) do
-		if child ~= frame.zydeEdge then walk(child, depth + 1) end
-	end
+	for _, child in ipairs({ frame:GetChildren() }) do walk(child, depth + 1) end
 end
 
 local function restyle()
@@ -156,7 +159,6 @@ local function restyle()
 	for _, root in ipairs(roots) do
 		if not styled[root] then
 			styled[root] = true
-			if not InCombatLockdown() or not root:IsProtected() then root:SetScale(SCALE) end
 			edge(root)
 		end
 		quietBackground(root)
@@ -197,18 +199,28 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
 	if not on() then
 		if current ~= 1 then
 			current = 1
-			for _, root in ipairs(roots) do root:SetAlpha(1) end
+			for _, root in ipairs(roots) do
+				root:SetAlpha(1)
+				if edges[root] then edges[root]:Hide() end
+			end
 		end
 		return
 	end
 	restyleIn = restyleIn - dt
 	if restyleIn <= 0 then restyleIn = 1 restyle() end
+	for _, root in ipairs(roots) do -- our panel follows the meter being opened / closed
+		local e = edges[root]
+		if e and e:IsShown() ~= root:IsVisible() then e:SetShown(root:IsVisible()) end
+	end
 	local goal = shouldShow() and 1 or 0
 	if current ~= goal then
 		-- Pop in quickly, fade out gently.
 		local step = (goal > current and FADE_SPEED * 3 or FADE_SPEED) * dt
 		current = goal > current and math.min(goal, current + step) or math.max(goal, current - step)
-		for _, root in ipairs(roots) do root:SetAlpha(current) end
+		for _, root in ipairs(roots) do
+			root:SetAlpha(current)
+			if edges[root] then edges[root]:SetAlpha(current) end
+		end
 	end
 end)
 
