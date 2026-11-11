@@ -111,8 +111,6 @@ local FEATURES = {
 	{ key = "questieDrops", short = "drop % on nameplates", label = "Questie drop chances", desc = "Drop % and your odds under Questie's nameplate bag", needs = "Questie" },
 	{ key = "questMobs", short = "glow, count, target key", label = "Quest mobs nearby", desc = "Gold edge on quest mobs' nameplates, a count of them near you, and a key to target one", needs = "Questie" },
 	{ key = "zygor", short = "target step NPC", label = "Zygor target keybind", desc = "One key targets the current Zygor step's enemy or NPC", needs = "ZygorGuidesViewerForever" },
-	{ key = "zygorRoute", short = "Zygor arrow on the roads", label = "Zygor routes in AzerothGPS", desc = "Each new Zygor arrow target becomes an AzerothGPS route, so you follow the roads and passes instead of a straight line; Zygor's own arrow hides meanwhile (/zyde gpsarrow keeps it). Trips you plan in AzerothGPS yourself are left alone. Needs Zygor too", needs = "AzerothGPS" },
-	{ key = "gpsArrow", short = "Zyde-style route arrow", label = "Zyde GPS arrow", desc = "Draws AzerothGPS's direction arrow and turn-by-turn notes in Zyde's own clean style (AzerothGPS's windows fade out). Shift-drag to move; /zyde gpsreset puts it back. The look is set at the top of GPSArrow.lua", needs = "AzerothGPS" },
 }
 ns.FEATURES = FEATURES
 local FEATURE_BY_KEY = {}
@@ -129,7 +127,6 @@ ns.ADDONS = {
 	{ name = "Questie", title = "Questie", used = "Needed for Questie drop chances and quest mobs nearby. Also helps spot quest objects." },
 	{ name = "AHledger", title = "AHledger", used = "Needed for vendor / auction advice. Adds auction prices to the scrap list." },
 	{ name = "ZygorGuidesViewerForever", title = "Zygor Guides", used = "Needed for the Zygor target keybind." },
-	{ name = "AzerothGPS", title = "AzerothGPS", used = "Needed for Zygor routes in AzerothGPS (with Zygor)." },
 	{ name = "NodeSightSparkles", title = "NodeSight Sparkles", used = "Optional: sparkles on quest objects and nodes." },
 	{ name = "LootTriage", title = "LootTriage", used = "Optional: when on, it replaces the Zyde scrap list." },
 }
@@ -2125,7 +2122,7 @@ local CATEGORIES = {
 	{
 		{ "Questing & leveling", { "questTracker", "questAlert", "questIcons", "questMobs", "questieDrops", "zygor" } },
 		{ "Bags & vendors", { "scrap", "vendor" } },
-		{ "Travel & gathering", { "zygorRoute", "gpsArrow", "flight", "tracking", "fishing" } },
+		{ "Travel & gathering", { "flight", "tracking", "fishing" } },
 	},
 }
 
@@ -2429,15 +2426,6 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		ns.QuestTracker.ResetPosition()
 	elseif msg == "resetmobs" and ns.QuestMobs then
 		ns.QuestMobs.ResetPosition()
-	elseif (msg == "gpsarrow" or msg == "gpsroute") and not ns.ZygorRoute then
-		print("|cff66ccffZyde_Forever|r: Zygor routes aren't loaded - restart the game fully (a /reload doesn't load new files)")
-	elseif msg == "gpsreset" then
-		if ns.GPSArrow then ns.GPSArrow.ResetPosition()
-		else print("|cff66ccffZyde_Forever|r: the GPS arrow isn't loaded - restart the game fully (a /reload doesn't load new files)") end
-	elseif msg == "gpsarrow" then
-		ns.ZygorRoute.ToggleZygorArrow()
-	elseif msg == "gpsroute" then
-		ns.ZygorRoute.Resend()
 	elseif msg == "ammovendor" and ns.Ammo then
 		ns.Ammo.WaypointToVendor()
 	elseif msg:match("^ammowarn") and ns.Ammo then
@@ -2470,9 +2458,6 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "scraptest", "preview the scrap first list now, even with bags not full" },
 			{ "scrapreset", "let items you right-clicked to keep be suggested again (scrap and vendor lists)" },
 			{ "vendor", "turn the vendor / auction / keep advice in item tooltips and at merchants on or off" },
-			{ "gpsroute", "send Zygor's arrow target to AzerothGPS again now" },
-			{ "gpsreset","put the Zyde GPS arrow back at the top of the screen" },
-			{ "gpsarrow","show or hide Zygor's own arrow while AzerothGPS shows the route" },
 			{ "ammovendor","hunters: waypoint to the nearest arrow or bullet vendor (or click the Arrows line)" },
 			{ "ammowarn <number>", "hunters: warn when leaving town with fewer arrows or bullets than this (default 600, 0 = off)" },
 			{ "questrange <yards>", "how far away quest objects are spotted (default 30)" },
