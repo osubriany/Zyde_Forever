@@ -3,6 +3,8 @@
 --   This zone         - quests with an objective here, nearest first
 --   Other zones       - everything else, folded away (click the heading)
 -- Finished objective lines are hidden; only what's left to do shows.
+-- Each quest: a level badge in its difficulty color, and the distance to
+-- its nearest spot. Dims in combat. Same flat look as the unit frames.
 -- "Nearest" uses Questie's locations of the mobs, objects and turn-in NPCs
 -- (falls back to the quest log's zone headings without Questie).
 -- Click a quest to follow it (like the game's own "..." button: map
@@ -39,8 +41,9 @@ local function playerZone()
 		local x, y = pos:GetXY()
 		if type(x) == "number" and not isSecret(x) and not isSecret(y) then px, py = x * 100, y * 100 end
 	end
-	local w, h
+	local w, h -- the map's size in yards (nil if the game doesn't say)
 	if C_Map.GetMapWorldSize then w, h = safe(C_Map.GetMapWorldSize, map) end
+	if not (type(w) == "number" and w > 0 and type(h) == "number" and h > 0) then w, h = nil, nil end
 	return area, px, py, map, w, h
 end
 
@@ -151,7 +154,7 @@ local function readLog()
 			local dist, pt = questDistance(questID, ready, area, px, py, w, h)
 			quests[#quests + 1] = {
 				index = i, questID = questID, title = title, level = level, ready = ready,
-				objectives = objectives, dist = dist, map = pt and map, x = pt and pt[1], y = pt and pt[2],
+				objectives = objectives, dist = dist, yards = (w and h) and dist or nil, map = pt and map, x = pt and pt[1], y = pt and pt[2],
 				here = dist ~= nil or (header ~= nil and header == zoneName),
 			}
 		end
@@ -176,26 +179,37 @@ end
 ---------------------------------------------------------------------------
 -- The window
 ---------------------------------------------------------------------------
-local frame = CreateFrame("Frame", "ZydeForeverQuestTracker", UIParent)
+-- Same look as the unit frames and /zyde window: a light flat panel with a
+-- thin edge, and the narrow outlined font.
+local FONT = "Fonts\\ARIALN.TTF"
+local function font(fs, size) fs:SetFont(FONT, size, "OUTLINE") fs:SetShadowOffset(0, 0) return fs end
+local PURPLE = { 0.69, 0.35, 1 }
+
+local frame = CreateFrame("Frame", "ZydeForeverQuestTracker", UIParent, "BackdropTemplate")
 frame:SetSize(WIDTH, 40)
 frame:SetFrameStrata("LOW")
 frame:SetClampedToScreen(true)
 frame:SetMovable(true)
+frame:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+frame:SetBackdropColor(0.04, 0.04, 0.05, 0.30)
+frame:SetBackdropBorderColor(0, 0, 0, 0.6)
 frame:Hide()
 
 local title = CreateFrame("Button", nil, frame)
 title:SetPoint("TOPLEFT")
 title:SetPoint("TOPRIGHT")
 title:SetHeight(20)
-title.text = title:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-title.text:SetPoint("LEFT", 4, 0)
-title.count = title:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-title.count:SetPoint("LEFT", title.text, "RIGHT", 6, -1)
+title.text = font(title:CreateFontString(nil, "OVERLAY"), 14)
+title.text:SetPoint("LEFT", 6, 0)
+title.text:SetTextColor(PURPLE[1], PURPLE[2], PURPLE[3])
+title.count = font(title:CreateFontString(nil, "OVERLAY"), 11)
+title.count:SetPoint("LEFT", title.text, "RIGHT", 6, 0)
+title.count:SetTextColor(0.6, 0.6, 0.65)
 title.line = title:CreateTexture(nil, "ARTWORK")
-title.line:SetColorTexture(1, 0.82, 0, 0.35)
+title.line:SetColorTexture(PURPLE[1], PURPLE[2], PURPLE[3], 0.35)
 title.line:SetHeight(1)
-title.line:SetPoint("BOTTOMLEFT", 4, 0)
-title.line:SetPoint("BOTTOMRIGHT", -4, 0)
+title.line:SetPoint("BOTTOMLEFT", 6, 0)
+title.line:SetPoint("BOTTOMRIGHT", -6, 0)
 title.text:SetText("Quests")
 title:RegisterForDrag("LeftButton")
 title:SetScript("OnDragStart", function() if IsShiftKeyDown() then frame:StartMoving() end end)
@@ -239,8 +253,8 @@ local function headRow(i)
 	if h then return h end
 	h = CreateFrame("Button", nil, frame)
 	h:SetHeight(18)
-	h.text = h:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	h.text:SetPoint("LEFT", 4, 0)
+	h.text = font(h:CreateFontString(nil, "OVERLAY"), 12)
+	h.text:SetPoint("LEFT", 6, 0)
 	h:SetScript("OnClick", function(self) setFold(self.key, not folded(self.key)) refresh() end)
 	heads[i] = h
 	return h
@@ -298,11 +312,23 @@ local function questRow(i)
 	r.selBar:SetWidth(2)
 	r.selBar:SetColorTexture(1, 0.82, 0, 0.9)
 	r.selBar:Hide()
-	r.title = r:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	r.title:SetPoint("TOPLEFT", 12, 0)
-	r.title:SetPoint("RIGHT", -4, 0)
+	-- Level badge: a small box in the difficulty color with the level in it.
+	r.badge = r:CreateTexture(nil, "ARTWORK")
+	r.badge:SetSize(20, 13)
+	r.badge:SetPoint("TOPLEFT", 10, 0)
+	r.badgeText = font(r:CreateFontString(nil, "OVERLAY"), 10)
+	r.badgeText:SetPoint("CENTER", r.badge, "CENTER", 0, 0)
+	r.badgeText:SetTextColor(1, 1, 1)
+	-- Distance at the right ("120 yd").
+	r.dist = font(r:CreateFontString(nil, "OVERLAY"), 10)
+	r.dist:SetPoint("TOPRIGHT", -6, -1)
+	r.dist:SetTextColor(0.6, 0.6, 0.65)
+	r.title = font(r:CreateFontString(nil, "OVERLAY"), 13)
+	r.title:SetPoint("TOPLEFT", r.badge, "TOPRIGHT", 5, 0)
+	r.title:SetPoint("RIGHT", r.dist, "LEFT", -4, 0)
 	r.title:SetJustifyH("LEFT")
 	r.title:SetWordWrap(false)
+	r.title:SetTextColor(1, 1, 1)
 	r.lines = {}
 	r:SetScript("OnClick", function(self, button)
 		local q = self.quest
@@ -325,7 +351,7 @@ end
 local function lineOf(r, j)
 	local fs = r.lines[j]
 	if fs then return fs end
-	fs = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	fs = font(r:CreateFontString(nil, "OVERLAY"), 11)
 	fs:SetJustifyH("LEFT")
 	fs:SetTextColor(0.8, 0.8, 0.8)
 	r.lines[j] = fs
@@ -334,8 +360,14 @@ end
 
 local function levelColor(level)
 	local c = level and GetQuestDifficultyColor and GetQuestDifficultyColor(level)
-	if c then return ("|cff%02x%02x%02x"):format(c.r * 255, c.g * 255, c.b * 255) end
-	return "|cffffd200"
+	if c then return c.r, c.g, c.b end
+	return 1, 0.82, 0
+end
+
+local function yardsText(d)
+	if not d then return "" end
+	if d >= 1000 then return ("%.1fk yd"):format(d / 1000) end
+	return ("%d yd"):format(math.floor(d / 10 + 0.5) * 10) -- to the nearest 10
 end
 
 local GROUPS = {
@@ -380,14 +412,18 @@ refresh = function()
 					local isTracked = tracked == q.questID
 					r.sel:SetShown(isTracked)
 					r.selBar:SetShown(isTracked)
-					r.title:SetText(("%s[%s]|r %s"):format(levelColor(q.level), tostring(q.level or "?"), q.title))
-					local ly, shown = -14, 0
+					local lr, lg, lb = levelColor(q.level)
+					r.badge:SetColorTexture(lr * 0.75, lg * 0.75, lb * 0.75, 0.9)
+					r.badgeText:SetText(q.level and tostring(q.level) or "?")
+					r.title:SetText(q.title)
+					r.dist:SetText(g.key ~= "other" and yardsText(q.yards) or "")
+					local ly, shown = -15, 0
 					for _, o in ipairs(q.objectives) do
 						if not o.done and not q.ready then
 							shown = shown + 1
 							local fs = lineOf(r, shown)
 							fs:ClearAllPoints()
-							fs:SetPoint("TOPLEFT", r, "TOPLEFT", 22, ly)
+							fs:SetPoint("TOPLEFT", r, "TOPLEFT", 36, ly)
 							fs:SetPoint("RIGHT", r, "RIGHT", -4, 0)
 							fs:SetText("- " .. o.text)
 							fs:Show()
@@ -395,7 +431,7 @@ refresh = function()
 						end
 					end
 					for j = shown + 1, #r.lines do r.lines[j]:Hide() end
-					local height = 14 + shown * 12 + 4
+					local height = 15 + shown * 12 + 4
 					r:SetHeight(height)
 					r:ClearAllPoints()
 					r:SetPoint("TOPLEFT", 0, y)
@@ -412,6 +448,22 @@ refresh = function()
 	frame:SetHeight(-y + 4)
 	frame:SetShown(total > 0)
 end
+
+---------------------------------------------------------------------------
+-- In combat the tracker dims to 30% (mouse over it to read it), and comes
+-- back 3 seconds after the fight.
+---------------------------------------------------------------------------
+local FIGHT_ALPHA, AFTER = 0.3, 3
+local lastFight, alpha = 0, 1
+frame:SetScript("OnUpdate", function(self, elapsed)
+	if UnitAffectingCombat("player") then lastFight = GetTime() end
+	local goal = (GetTime() - lastFight < AFTER and not self:IsMouseOver()) and FIGHT_ALPHA or 1
+	if alpha == goal then return end
+	-- Dim gently, come back quickly.
+	local step = elapsed * (goal > alpha and 5 or 2)
+	alpha = goal > alpha and math.min(goal, alpha + step) or math.max(goal, alpha - step)
+	self:SetAlpha(alpha)
+end)
 
 ---------------------------------------------------------------------------
 -- The game's own tracker steps aside while this one is on
