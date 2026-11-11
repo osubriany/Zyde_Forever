@@ -1502,7 +1502,13 @@ local function zygorMacro()
 		lines[#lines + 1] = "/cleartarget [dead]"
 	end
 	-- Star marker, only when something was actually targeted (no error spam).
-	lines[#lines + 1] = "/tm [exists,nodead] 1"
+	local tail = "/tm [exists,nodead] 1"
+	-- The game runs at most 255 characters and cuts the rest mid-word, so
+	-- drop the first (least important) target lines until it fits.
+	while #lines > 1 and #table.concat(lines, "\n") + 1 + #tail > 255 do
+		table.remove(lines, 2)
+	end
+	lines[#lines + 1] = tail
 	return table.concat(lines, "\n")
 end
 

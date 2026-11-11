@@ -381,24 +381,35 @@ end
 -- (those can still hit a tagged mob). When combat starts the macro can't
 -- be rebuilt any more, so it switches to names only (namesOnly) and a
 -- stale nameplate number can't pick some other mob mid-fight.
+--
+-- The game runs at most 255 characters of a macro and cuts the rest off,
+-- mid-word ("Unknown macro option: exis"), so lines are only added while
+-- they fit, most important first: the checked nameplates, one try per name,
+-- then the second tries.
 local MAX_UNITS = 4
+local MACRO_LIMIT = 255
 local function macroFor(mobs, namesOnly)
 	local names = macroNames(mobs)
 	if #names == 0 then return "" end
-	local lines = { "/cleartarget" }
+	local text = "/cleartarget"
+	local function add(...)
+		local chunk = table.concat({ ... }, "\n")
+		if #text + 1 + #chunk > MACRO_LIMIT then return false end
+		text = text .. "\n" .. chunk
+		return true
+	end
 	if not namesOnly then
 		for i = 1, math.min(MAX_UNITS, #mobs) do
 			local u = mobs[i].unit
-			lines[#lines + 1] = ("/target [@%s,exists,nodead,harm] %s"):format(u, u)
+			add(("/target [@%s,exists,nodead,harm] %s"):format(u, u))
 		end
 	end
-	for _, name in ipairs(names) do
-		for _ = 1, 2 do
-			lines[#lines + 1] = "/target [noexists] " .. name
-			lines[#lines + 1] = "/cleartarget [dead]"
+	for _ = 1, 2 do
+		for _, name in ipairs(names) do
+			add("/target [noexists] " .. name, "/cleartarget [dead]")
 		end
 	end
-	return table.concat(lines, "\n")
+	return text
 end
 
 local lastMacro
