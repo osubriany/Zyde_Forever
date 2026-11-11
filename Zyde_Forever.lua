@@ -2399,6 +2399,8 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		print("|cff66ccffZyde_Forever|r: quest item alert " .. (questAlertOn() and "on" or "off"))
 	elseif msg == "questdebug" then
 		questDebug("|cff66ccffZyde_Forever|r: ")
+	elseif msg:match("^questheight") then
+		if ns.QuestTracker and ns.QuestTracker.SetMaxHeight then ns.QuestTracker.SetMaxHeight(tonumber(msg:match("^questheight%s+(%d+)"))) end
 	elseif msg:match("^questrange") then
 		local p = "|cff66ccffZyde_Forever|r: "
 		local yards = tonumber(msg:match("^questrange%s+(%d+)"))
@@ -2499,6 +2501,7 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "ammovendor","hunters: waypoint to the nearest arrow or bullet vendor (or click the Arrows line)" },
 			{ "ammowarn <number>", "hunters: warn when leaving town with fewer arrows or bullets than this (default 600, 0 = off)" },
 			{ "questrange <yards>", "how far away quest objects are spotted (default 30)" },
+			{ "questheight <pixels>", "the tallest the quest tracker gets before it scrolls (0 = down to the bottom of the screen)" },
 			{ "questdebug", "stand facing a quest object and run this to see why it is or isn't detected" },
 			{ "zygor", "show what the Zygor target keybind will do on this step" },
 		}) do

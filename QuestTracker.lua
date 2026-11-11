@@ -222,9 +222,56 @@ title:SetScript("OnEnter", function(self)
 	GameTooltip:AddLine("Quests")
 	GameTooltip:AddLine("Click a quest to follow it, right-click to open it. Click a group heading to fold it.", 1, 1, 1, true)
 	GameTooltip:AddLine("Shift-drag here to move the tracker.", 0.7, 0.7, 0.7, true)
+	GameTooltip:AddLine("Mouse wheel over the list scrolls it when it's too long for the screen.", 0.7, 0.7, 0.7, true)
 	GameTooltip:Show()
 end)
 title:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+---------------------------------------------------------------------------
+-- The list scrolls: the tracker grows with its quests until it would run off
+-- the bottom of the screen, then the mouse wheel scrolls it (a thin bar on
+-- the right shows where you are). /zyde questheight <pixels> caps it lower.
+---------------------------------------------------------------------------
+local TOP_GAP, BOTTOM_MARGIN, MIN_VIEW = 24, 40, 120
+local scroll = CreateFrame("ScrollFrame", nil, frame)
+scroll:SetPoint("TOPLEFT", 0, -TOP_GAP)
+scroll:SetPoint("TOPRIGHT", 0, -TOP_GAP)
+scroll:SetHeight(1)
+local content = CreateFrame("Frame", nil, scroll)
+content:SetSize(WIDTH, 1)
+scroll:SetScrollChild(content)
+
+local bar = scroll:CreateTexture(nil, "OVERLAY")
+bar:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.45)
+bar:SetWidth(2)
+bar:Hide()
+
+local function maxScroll() return math.max(0, content:GetHeight() - scroll:GetHeight()) end
+local function updateBar()
+	local view, total = scroll:GetHeight(), content:GetHeight()
+	if total <= view + 1 then bar:Hide() return end
+	local h = math.max(16, view * view / total)
+	local pos = (view - h) * (scroll:GetVerticalScroll() / maxScroll())
+	bar:ClearAllPoints()
+	bar:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -1, -pos)
+	bar:SetHeight(h)
+	bar:Show()
+end
+local function scrollTo(v)
+	scroll:SetVerticalScroll(math.max(0, math.min(maxScroll(), v)))
+	updateBar()
+end
+scroll:EnableMouseWheel(true)
+scroll:SetScript("OnMouseWheel", function(_, delta) scrollTo(scroll:GetVerticalScroll() - delta * 40) end)
+
+-- How tall the list may be: down to near the bottom of the screen, or less.
+local function viewLimit()
+	local top = frame:GetTop()
+	local room = top and (top - TOP_GAP - BOTTOM_MARGIN) or 500
+	local cap = tonumber(db().questTrackerMaxHeight)
+	if cap and cap > 0 then room = math.min(room, cap) end
+	return math.max(MIN_VIEW, room)
+end
 
 local function place()
 	local p = db().questTrackerPos
@@ -250,7 +297,7 @@ local refresh -- forward
 local function headRow(i)
 	local h = heads[i]
 	if h then return h end
-	h = CreateFrame("Button", nil, frame)
+	h = CreateFrame("Button", nil, content)
 	h:SetHeight(18)
 	h.text = font(h:CreateFontString(nil, "OVERLAY"), 12)
 	h.text:SetPoint("LEFT", 6, 0)
@@ -297,7 +344,7 @@ end
 local function questRow(i)
 	local r = rows[i]
 	if r then return r end
-	r = CreateFrame("Button", nil, frame)
+	r = CreateFrame("Button", nil, content)
 	r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	-- Soft gold band behind the quest the game is following.
 	r.sel = r:CreateTexture(nil, "BACKGROUND")
@@ -370,7 +417,7 @@ refresh = function()
 	local groups, total = readLog()
 	local tracked = trackedQuest() -- the quest the game is following
 	title.count:SetFormattedText("%d/%d", total, MAX_QUESTLOG_QUESTS or 20)
-	local y = -24
+	local y = 0 -- (from the top of the scrolling list)
 	local hi, ri = 0, 0
 	for _, g in ipairs(GROUPS) do
 		local list = groups[g.key]
@@ -383,8 +430,8 @@ refresh = function()
 			h.text:SetFormattedText("%s %s (%d)", isFolded and "+" or "-", g.label, #list)
 			h.text:SetTextColor(g.color[1], g.color[2], g.color[3])
 			h:ClearAllPoints()
-			h:SetPoint("TOPLEFT", 0, y)
-			h:SetPoint("RIGHT", frame, "RIGHT")
+			h:SetPoint("TOPLEFT", content, "TOPLEFT", 0, y)
+			h:SetPoint("RIGHT", content, "RIGHT")
 			h:SetScript("OnClick", function()
 				local cur = folded(g.key)
 				if cur == nil then cur = g.foldByDefault or false end
@@ -422,8 +469,8 @@ refresh = function()
 					local height = 15 + shown * 12 + 4
 					r:SetHeight(height)
 					r:ClearAllPoints()
-					r:SetPoint("TOPLEFT", 0, y)
-					r:SetPoint("RIGHT", frame, "RIGHT")
+					r:SetPoint("TOPLEFT", content, "TOPLEFT", 0, y)
+					r:SetPoint("RIGHT", content, "RIGHT", -4, 0) -- (room for the scroll bar)
 					r:Show()
 					y = y - height
 				end
@@ -433,7 +480,12 @@ refresh = function()
 	end
 	for i = hi + 1, #heads do heads[i]:Hide() end
 	for i = ri + 1, #rows do rows[i]:Hide() end
-	frame:SetHeight(-y + 4)
+	local listH = math.max(1, -y)
+	content:SetHeight(listH)
+	local view = math.min(listH, viewLimit())
+	scroll:SetHeight(view)
+	frame:SetHeight(TOP_GAP + view + 4)
+	scrollTo(scroll:GetVerticalScroll()) -- (keep the place, within the new length)
 	frame:SetShown(total > 0)
 end
 
@@ -441,6 +493,9 @@ end
 -- In combat the tracker dims to 30% (mouse over it to read it), and comes
 -- back 3 seconds after the fight.
 ---------------------------------------------------------------------------
+-- Moved: the room below it changed, so fit the list again.
+title:HookScript("OnDragStop", function() refresh() end)
+
 local FIGHT_ALPHA, AFTER = 0.3, 3
 local lastFight, alpha = 0, 1
 frame:SetScript("OnUpdate", function(self, elapsed)
@@ -530,9 +585,22 @@ ns.OnFeatureChanged(function(key)
 end)
 
 ns.QuestTracker = {
+	-- /zyde questheight <pixels>: the tallest the list gets before it scrolls (0 = down to the screen's bottom).
+	SetMaxHeight = function(px)
+		if not px then
+			local cap = tonumber(db().questTrackerMaxHeight)
+			print(P .. "quest list height: " .. ((cap and cap > 0) and (cap .. " pixels") or "down to the bottom of the screen")
+				.. ". /zyde questheight <pixels> to change it (0 = to the bottom of the screen)")
+			return
+		end
+		db().questTrackerMaxHeight = px > 0 and px or nil
+		refresh()
+		print(P .. "quest list " .. (px > 0 and ("now scrolls past " .. px .. " pixels") or "now runs to the bottom of the screen"))
+	end,
 	ResetPosition = function()
 		db().questTrackerPos = nil
 		place()
+		refresh()
 		print(P .. "quest tracker moved back to its default spot")
 	end,
 }

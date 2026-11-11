@@ -69,6 +69,7 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
   - Quests ready to turn in come first, then this zone's quests nearest first. Other zones are folded away and finished objectives hidden.
   - Click a quest to track it on the map; right-click opens the quest log.
   - Questie's own quest tracker is turned off while this one is on, and comes back if you turn this off.
+  - A long list scrolls with the mouse wheel once it reaches the bottom of the screen (`/zyde questheight <pixels>` caps it lower).
 - **Quest object alert**: a glow, a bobbing **!** and a ping on nearby objects you need to pick up for a quest. Loot from mobs you kill for a quest isn't marked.
 - **Icons over nearby objects**: the game's interact icons over herbs, ore and chests, spotted from further away.
 - **Quest mobs nearby** (Questie): a gold edge on quest mobs' nameplates, a count of them near you, and a key to target one.
@@ -117,6 +118,7 @@ Set these under **Game Menu → Options → Keybindings → AddOns → Zyde Fore
 | `/zyde resetxp` | Move the XP readout back to the top of the screen |
 | `/zyde resetquests` | Move the quest tracker back to its default spot |
 | `/zyde resetmobs` | Move the quest mob count back to its default spot |
+| `/zyde questheight <pixels>` | The tallest the quest tracker gets before it scrolls (0 = down to the bottom of the screen) |
 | `/zyde questalert` | Turn the quest object alert on or off |
 | `/zyde questicons` | Turn the icons over nearby objects on or off |
 | `/zyde questrange <yards>` | How far away quest objects are spotted (default 30) |
