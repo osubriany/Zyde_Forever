@@ -107,7 +107,7 @@ end
 -- The window's own backdrop art: fade it right down (our see-through panel shows instead).
 local function quietBackground(frame)
 	if frame.NineSlice and frame.NineSlice.SetAlpha then frame.NineSlice:SetAlpha(0) end
-	for _, key in ipairs({ "Background", "Bg", "background", "BG" }) do
+	for _, key in ipairs({ "Background", "Bg", "background", "BG", "BackgroundTexture", "Backdrop", "Border", "HeaderBackground" }) do
 		local t = frame[key]
 		if t and t.SetAlpha then t:SetAlpha(0) end
 	end
@@ -137,7 +137,12 @@ end
 
 local function walk(frame, depth)
 	if depth > 8 then return end
-	if frame:IsObjectType("StatusBar") then styleBar(frame) end
+	if frame:IsObjectType("StatusBar") then
+		styleBar(frame)
+	elseif depth > 0 then
+		-- The session window (and its header) carry their own panel art.
+		quietBackground(frame)
+	end
 	for _, region in ipairs({ frame:GetRegions() }) do
 		if region:IsObjectType("FontString") then styleText(region) end
 	end
@@ -249,6 +254,44 @@ local function debug()
 			root:GetName() or "?", tostring(root:IsShown()), root:GetWidth(), root:GetHeight(), root:GetScale(),
 			root:GetAlpha(), tostring(root:IsProtected()), bars, texts, tostring(root.NineSlice ~= nil)))
 		print(P .. "  children: " .. table.concat(kids, ", "))
+	end
+
+	-- The named parts of the meter and its session window (Background,
+	-- Header, ScrollBox...), so the look can be aimed at the right pieces.
+	local function parts(label, f)
+		if not f then return end
+		local out = {}
+		for k, v in pairs(f) do
+			if type(k) == "string" and type(v) == "table" and k ~= "zydeEdge" then
+				local ok, kind = pcall(function() return v.GetObjectType and v:GetObjectType() end)
+				if ok and kind then out[#out + 1] = k .. "=" .. kind end
+			end
+		end
+		table.sort(out)
+		print(P .. label .. " parts: " .. (#out > 0 and table.concat(out, ", ") or "none"))
+	end
+	parts("DamageMeter", _G.DamageMeter)
+	local sw = _G.DamageMeterSessionWindow1
+	parts("SessionWindow1", sw)
+	if sw then
+		-- One bar row, if we can find one.
+		local function firstBarParent(f, d)
+			if d > 8 then return nil end
+			if f:IsObjectType("StatusBar") then return f end
+			for _, c in ipairs({ f:GetChildren() }) do
+				local r = firstBarParent(c, d + 1)
+				if r then return r end
+			end
+		end
+		local bar = firstBarParent(sw, 0)
+		if bar then
+			parts("a bar (" .. (bar:GetName() or "unnamed") .. ")", bar)
+			local tex = bar:GetStatusBarTexture()
+			print(P .. "  bar texture: " .. tostring(tex and tex:GetTexture()) .. "  atlas: " .. tostring(tex and tex.GetAtlas and tex:GetAtlas()))
+			parts("its row", bar:GetParent())
+		else
+			print(P .. "no StatusBar inside SessionWindow1 (the bars are drawn another way)")
+		end
 	end
 end
 
