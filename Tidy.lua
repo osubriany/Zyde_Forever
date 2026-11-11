@@ -1,11 +1,8 @@
--- Zyde_Forever: small tidy-ups.
+-- Zyde_Forever: tidier action bars.
 --   Action bars ("barTidy"):
 --     * short keybind labels: a-1 -> A1, c-3 -> C3, s-E -> SE, Mouse Button 4 -> M4
 --     * empty slots are invisible (they come back while you drag a spell or
 --       item, so you can still place things)
---   Chat ("repChat"):
---     * the burst of "Reputation with X increased by 50." lines from one
---       turn-in becomes one line: "Reputation: +50 Booty Bay, Gadgetzan; +100 Ratchet"
 
 local ADDON, ns = ...
 
@@ -92,67 +89,5 @@ barEv:SetScript("OnEvent", function(_, event)
 	-- Let the game draw its own update first, then tidy it.
 	C_Timer.After(0, updateAll)
 end)
-
----------------------------------------------------------------------------
--- Reputation lines in chat
----------------------------------------------------------------------------
-local function repOn() return ns.F("repChat") end
-
--- "Reputation with %s increased by %d." -> a pattern that captures both.
-local function toPattern(fmt)
-	if type(fmt) ~= "string" then return nil end
-	-- Mark the %s / %d slots, escape everything else, then put captures in.
-	local p = fmt:gsub("%%%d?%$?s", "\1"):gsub("%%%d?%$?d", "\2")
-	p = p:gsub("([%(%)%.%+%-%*%?%[%]%^%$%%])", "%%%1")
-	p = p:gsub("\1", "(.+)"):gsub("\2", "(%%d+)")
-	return "^" .. p .. "$"
-end
-local UP = toPattern(FACTION_STANDING_INCREASED or "Reputation with %s increased by %d.")
-local DOWN = toPattern(FACTION_STANDING_DECREASED or "Reputation with %s decreased by %d.")
-
--- Lines collected per chat window, printed together a moment later.
-local batches = {}
-
-local function flush(frame)
-	local b = batches[frame]
-	batches[frame] = nil
-	if not b or #b.order == 0 then return end
-	-- Group factions by amount: "+50 A, B; +100 C"
-	local byAmount, amounts = {}, {}
-	for _, e in ipairs(b.order) do
-		if not byAmount[e.amount] then byAmount[e.amount] = {} amounts[#amounts + 1] = e.amount end
-		table.insert(byAmount[e.amount], e.faction)
-	end
-	local parts = {}
-	for _, a in ipairs(amounts) do
-		parts[#parts + 1] = ("%s%d %s"):format(a > 0 and "+" or "", a, table.concat(byAmount[a], ", "))
-	end
-	local info = ChatTypeInfo and ChatTypeInfo.COMBAT_FACTION_CHANGE or { r = 0.5, g = 0.5, b = 1 }
-	frame:AddMessage("Reputation: " .. table.concat(parts, "; "), info.r, info.g, info.b)
-end
-
-local function repFilter(frame, _, msg)
-	if not repOn() or type(msg) ~= "string" or ns.isSecret(msg) then return false end
-	local faction, amount = msg:match(UP or "^$")
-	local sign = 1
-	if not faction then
-		faction, amount = msg:match(DOWN or "^$")
-		sign = -1
-	end
-	amount = tonumber(amount)
-	if not (faction and amount) then return false end -- some other wording: leave it alone
-	local b = batches[frame]
-	if not b then
-		b = { order = {} }
-		batches[frame] = b
-		C_Timer.After(0.4, function() flush(frame) end)
-	end
-	b.order[#b.order + 1] = { faction = faction, amount = sign * amount }
-	return true -- hide the single line; the combined one follows
-end
-
-local addFilter = ChatFrame_AddMessageEventFilter
-	or (ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter)
-if addFilter then addFilter("CHAT_MSG_COMBAT_FACTION_CHANGE", repFilter) end
 
 ns.OnFeatureChanged(function(key) if key == "barTidy" then updateAll() end end)

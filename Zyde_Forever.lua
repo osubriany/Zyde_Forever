@@ -97,7 +97,6 @@ local FEATURES = {
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames", reload = true },
 	{ key = "barTidy", short = "short keys, no empty slots", label = "Tidy action bars", desc = "Short keybind labels on action buttons (a-1 becomes A1, Mouse Button 4 becomes M4) and empty slots hidden - they show again while you drag a spell or item" },
-	{ key = "repChat", short = "one reputation line", label = "Combine reputation lines", desc = "The burst of \"Reputation with X increased by 50\" chat lines from one turn-in becomes a single line" },
 	{ key = "gear", short = "borders, item levels", label = "Character screen gear", desc = "Rarity borders, item levels and upgrade flags", reload = true },
 	{ key = "fishing", short = "one-key fishing", label = "One Button Fishing", desc = "Same key casts and reels in (set the key in Keybindings)" },
 	{ key = "flight", short = "skip flight chat", label = "Flight master shortcut", desc = "Flight masters open the map directly (hold Shift to talk)" },
@@ -1982,7 +1981,7 @@ local COL_W = 420    -- width of one column of features
 -- A feature missing here still shows, under "Other" at the end.
 local CATEGORIES = {
 	{
-		{ "Interface", { "unitFrames", "xp", "reminders", "hideBars", "barTidy", "repChat", "gear" } },
+		{ "Interface", { "unitFrames", "xp", "reminders", "hideBars", "barTidy", "gear" } },
 		{ "Hunter", { "ammo", "petCare" } },
 		{ "Groups", { "lfg", "markerWheel" } },
 	},
