@@ -236,44 +236,142 @@ local function inRange(d, level)
 	return level >= d.minLevel - 2 and level <= d.maxLevel
 end
 
-local function showDungeons(ctx, c)
-	if #c.dungeons == 0 then
-		local s = ns.Loot.status()
-		addRow({ header = true, left = "No dungeon loot data yet." })
-		addRow({ left = "AtlasLoot: " .. tostring(s.atlas) .. "." })
-		addRow({ left = "Install AtlasLoot (Forever version) for full drop tables," })
-		addRow({ left = "or kill bosses: GearAdvisor records the gear they drop." })
+local showOthers = false   -- the "Other dungeons" list is folded until clicked
+
+-- An upgrade's drop chance per kill (0-1), or nil when the data doesn't say.
+local function chanceOf(u)
+	local id = u.result.info and u.result.info.itemID
+	local it = id and u.boss and u.boss.items and u.boss.items[id]
+	local c = it and it.chance
+	return (type(c) == "number" and c > 0) and math.min(c, 1) or nil
+end
+
+local function chanceText(c)
+	if not c then return "|cff777777?|r" end
+	local p = c * 100
+	return "|cffaaaaaa" .. (p >= 10 and ("%d%%"):format(math.floor(p + 0.5)) or ("%.1f%%"):format(p)) .. "|r"
+end
+
+-- One dungeon's upgrades in numbers: now (wear them now), later (within a few levels), best %,
+-- and odds: the chance one run drops at least one of the "now" upgrades (nil if no drop chances
+-- are known). Each boss's drops are treated as independent, so it's an estimate.
+local function summarize(ups)
+	local s = { now = 0, later = 0 }
+	local miss, known = 1, false
+	for _, u in ipairs(ups) do
+		if u.result.kind == "upgrade" then
+			s.now = s.now + 1
+			if not s.best or u.result.pct > s.best then s.best = u.result.pct end
+			local c = chanceOf(u)
+			if c then miss, known = miss * (1 - c), true end
+		else
+			s.later = s.later + 1
+		end
+	end
+	if known then s.odds = 1 - miss end
+	return s
+end
+
+local function oddsText(o)
+	local p = math.floor(o * 100 + 0.5)
+	return (p < 1 and "<1%" or (p .. "%")) .. " a run"
+end
+
+-- Best run first: likeliest to drop an upgrade, then more upgrades, then bigger ones.
+local function worthFirst(a, b)
+	local oa, ob = a.s.odds or 0, b.s.odds or 0
+	if oa ~= ob then return oa > ob end
+	if a.s.now ~= b.s.now then return a.s.now > b.s.now end
+	if (a.s.best or 0) ~= (b.s.best or 0) then return (a.s.best or 0) > (b.s.best or 0) end
+	return a.d.name < b.d.name
+end
+
+local function byLevel(a, b)
+	local la, lb = a.d.minLevel or 999, b.d.minLevel or 999
+	if la ~= lb then return la < lb end
+	return a.d.name < b.d.name
+end
+
+local function dungeonRows(e, grey)
+	local d, ups, s = e.d, e.ups, e.s
+	local open = expanded[d.name]
+	local levels = d.minLevel and (" |cffaaaaaa(" .. d.minLevel .. "-" .. (d.maxLevel or "?") .. ")|r") or ""
+	local parts = {}
+	if s.now > 0 then parts[#parts + 1] = s.now .. (s.now == 1 and " upgrade" or " upgrades") end
+	if s.later > 0 then parts[#parts + 1] = "|cff66ccff" .. s.later .. " later|r" end
+	if s.odds then parts[#parts + 1] = "|cffaaaaaa" .. oddsText(s.odds) .. "|r" end
+	if s.best then parts[#parts + 1] = kindColour("upgrade") .. "best " .. pct(s.best) .. "|r" end
+	addRow({
+		left = (open and "|cffffd100-|r " or "|cffffd100+|r ") .. (grey and "|cff888888" or "|cffffffff") .. d.name .. "|r" .. levels,
+		right = #parts > 0 and table.concat(parts, "  ") or "|cff888888no upgrades|r",
+		onClick = function() expanded[d.name] = not expanded[d.name]; Window.refresh() end,
+	})
+	if not open then return end
+	if #ups == 0 then
+		addRow({ indent = 16, left = "|cff888888Nothing here beats what you wear.|r" })
 		return
 	end
-	local list = {}
-	for _, e in ipairs(c.dungeons) do list[#list + 1] = e end
-	local rank = function(e) local r = inRange(e.d, ctx.level); return r and 0 or (r == nil and 1 or 2) end
-	table.sort(list, function(a, b)
-		local ra, rb = rank(a), rank(b)
-		if ra ~= rb then return ra < rb end
-		if (a.d.minLevel or 0) ~= (b.d.minLevel or 0) then return (a.d.minLevel or 0) < (b.d.minLevel or 0) end
-		return a.d.name < b.d.name
-	end)
-	addRow({ header = true, left = "Dungeons (yours to run first). Click one to list its upgrades.",
-		right = c.loading > 0 and "|cffaaaaaaloading items...|r" or nil })
-	for _, e in ipairs(list) do
-		local d, ups = e.d, e.ups
-		local open = expanded[d.name]
-		local levels = d.minLevel and (" |cffaaaaaa(" .. d.minLevel .. "-" .. (d.maxLevel or "?") .. ")|r") or ""
-		local col = inRange(d, ctx.level) == false and "|cff888888" or "|cffffffff"
-		local best = ups[1] and (kindColour(ups[1].result.kind) .. "best " .. pct(ups[1].result.pct) .. "|r") or ""
-		addRow({
-			left = (open and "|cffffd100-|r " or "|cffffd100+|r ") .. col .. d.name .. "|r" .. levels,
-			right = (#ups > 0 and (#ups .. (#ups == 1 and " upgrade  " or " upgrades  ")) or "|cff888888no upgrades|r") .. best,
-			onClick = function() expanded[d.name] = not expanded[d.name]; Window.refresh() end,
-		})
-		if open then
-			if #ups == 0 then addRow({ indent = 16, left = "|cff888888Nothing here beats what you wear.|r" }) end
-			for _, u in ipairs(ups) do
+	-- Under each boss (in the dungeon's order): what you can wear now, best first, then the
+	-- ones for a few levels from now, soonest first, marked with the level they need.
+	for _, b in ipairs(d.bosses) do
+		local mine = {}
+		for _, u in ipairs(ups) do if u.boss == b then mine[#mine + 1] = u end end
+		if #mine > 0 then
+			table.sort(mine, function(x, y)
+				local lx, ly = x.result.later or 0, y.result.later or 0
+				if lx ~= ly then return lx < ly end
+				return x.result.pct > y.result.pct
+			end)
+			addRow({ indent = 16, left = "|cffffd100" .. b.name .. "|r" .. (b.level and (" |cffaaaaaaLv " .. b.level .. "|r") or "") })
+			for _, u in ipairs(mine) do
 				local r = u.result
-				addRow({ indent = 16, icon = true, link = r.info.link, left = nameOf(r.info),
-					right = kindColour(r.kind) .. pct(r.pct) .. "|r  |cffaaaaaa" .. u.boss.name .. "|r" })
+				local req = r.later and (" |cffff4444req " .. r.later .. "|r") or ""
+				addRow({ indent = 32, icon = true, link = r.info.link, left = nameOf(r.info) .. req,
+					right = chanceText(chanceOf(u)) .. "   " .. kindColour(r.kind) .. pct(r.pct) .. "|r" })
 			end
+		end
+	end
+end
+
+local function showDungeons(ctx, c)
+	if #c.dungeons == 0 then
+		addRow({ header = true, left = "No dungeon loot data found." })
+		addRow({ left = "The built-in boss loot (GearAdvisor\Data\BossLoot.lua) didn't load:" })
+		addRow({ left = "restart the game fully. Meanwhile, bosses you kill are recorded." })
+		return
+	end
+	local mine, others = {}, {}
+	for _, e in ipairs(c.dungeons) do
+		e.s = summarize(e.ups)
+		if inRange(e.d, ctx.level) then mine[#mine + 1] = e else others[#others + 1] = e end
+	end
+	table.sort(mine, worthFirst)
+	table.sort(others, byLevel)
+
+	-- The pick: the dungeon at your level most likely to drop something you'd wear now.
+	local pick = mine[1] and mine[1].s.now > 0 and mine[1]
+	if pick then
+		local s = pick.s
+		addRow({ header = true,
+			left = "|cff33ff33Run next:|r " .. pick.d.name,
+			right = s.now .. (s.now == 1 and " upgrade" or " upgrades") .. (s.odds and ("  |cffaaaaaa" .. oddsText(s.odds) .. "|r") or ""),
+			onClick = function() expanded[pick.d.name] = true; Window.refresh() end })
+	else
+		addRow({ header = true, left = "No dungeon at your level drops an upgrade for you right now." })
+	end
+	blank()
+
+	addRow({ header = true, left = "Dungeons for level " .. ctx.level .. " (best run first)",
+		right = c.loading > 0 and "|cffaaaaaaloading items...|r" or "|cffaaaaaadrop chance per kill|r" })
+	if #mine == 0 then addRow({ indent = 16, left = "|cff888888None in the data for your level.|r" }) end
+	for _, e in ipairs(mine) do dungeonRows(e, false) end
+
+	if #others > 0 then
+		blank()
+		addRow({ header = true, left = (showOthers and "|cffffd100-|r " or "|cffffd100+|r ") .. "Other dungeons (" .. #others .. ")",
+			onClick = function() showOthers = not showOthers; Window.refresh() end })
+		if showOthers then
+			for _, e in ipairs(others) do dungeonRows(e, true) end
 		end
 	end
 end

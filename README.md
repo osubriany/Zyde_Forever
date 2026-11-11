@@ -93,6 +93,11 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
 
 ### GearAdvisor (`/ga`)
 Scores gear for your class and spec.
+- **Planner window** (`/ga` or the minimap button):
+  - **My Gear:** what you wear, each slot's value and its best known upgrade.
+  - **Dungeons:** which dungeon at your level to run next, and its chance of dropping an upgrade per run. Upgrades are listed under each boss with their drop chance; items you can't wear yet show the level they need.
+  - **By Slot:** the best upgrades known for each slot, from your bags and from dungeons.
+  - Boss loot is built in (from the cMaNGOS classic database and drops seen on Forever), including Forever's new dungeons; no loot addon needed.
 - A short verdict in item tooltips: upgrade %, or "can't wear until level N".
 - Upgrade marks on quest rewards and on items in your bags. While quest marks are on, Zygor's own quest reward arrow is turned off, and comes back if you turn them off (`/ga quest`).
 - Advice on loot rolls.
@@ -152,7 +157,9 @@ GearAdvisor:
 
 | Command | What it does |
 |---|---|
-| `/ga` | List GearAdvisor's commands |
+| `/ga` or `/ga plan` | Open the planner window (also the minimap button) |
+| `/ga help` | List GearAdvisor's commands |
+| `/ga minimap` | Show or hide the minimap button |
 | `/ga summary` | Your gear summary |
 | `/ga score <item>` | Score an item: Shift-click one in, or hover it |
 | `/ga bags` | Upgrades in your bags |
