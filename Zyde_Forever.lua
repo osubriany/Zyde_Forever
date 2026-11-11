@@ -246,6 +246,7 @@ end
 -- the mouse while Shift is held, so they never block clicks otherwise.
 -- /zyde resetreminders puts the column back beside your character.
 ---------------------------------------------------------------------------
+do -- own scope (200-local limit)
 anchor:SetMovable(true)
 anchor:SetClampedToScreen(true)
 
@@ -295,6 +296,7 @@ ns.ResetReminderPosition = function()
 	placeAnchor()
 	print("|cff66ccffZyde_Forever|r: reminder icons moved back beside your character")
 end
+end -- reminder dragging
 
 local function layout(states)
 	local n = 0
@@ -1441,6 +1443,7 @@ xp:SetScript("OnLeave", function() GameTooltip:Hide() end)
 BINDING_HEADER_ZYDEFOREVER = "Zyde Forever"
 _G["BINDING_NAME_CLICK ZydeForeverFishButton:LeftButton"] = "One Button Fishing"
 
+do -- own scope (200-local limit)
 local FISH_BINDING = "CLICK ZydeForeverFishButton:LeftButton"
 local FISHING_IDS = { 7620, 7731, 7732, 18248 }
 
@@ -1531,6 +1534,7 @@ fishEvents:SetScript("OnEvent", function(_, event, _, _, spellID)
 		if event == "PLAYER_REGEN_ENABLED" and not fishing then ClearOverrideBindings(fishOwner) end
 	end
 end)
+end -- fishing
 
 ---------------------------------------------------------------------------
 -- Zygor: one keybind that targets the current step's NPC or enemy.
@@ -1625,6 +1629,7 @@ end
 -- Flight master: skip the "I need a ride" chat and open the flight map.
 -- Skipped when the NPC also has quests for you, or if you hold Shift.
 ---------------------------------------------------------------------------
+do -- own scope (200-local limit)
 local TAXI_ICONS = {
 	[132057] = true,
 	["interface\\gossipframe\\taxigossipicon"] = true,
@@ -1667,6 +1672,7 @@ taxiEvents:SetScript("OnEvent", function()
 		end
 	end
 end)
+end -- flight master
 
 ---------------------------------------------------------------------------
 -- Character screen: rarity-colored borders on equipped gear.
@@ -2066,6 +2072,7 @@ end)
 -- alive and switch it back on once you're alive again. Turning tracking off
 -- yourself while alive is respected.
 ---------------------------------------------------------------------------
+do -- own scope: keeps the file under Lua's 200 top-level locals
 local track = {}
 if C_Minimap and C_Minimap.GetNumTrackingTypes then
 	track.count, track.info, track.set = C_Minimap.GetNumTrackingTypes, C_Minimap.GetTrackingInfo, C_Minimap.SetTracking
@@ -2131,6 +2138,7 @@ trackEvents:SetScript("OnEvent", function(_, event)
 	for _, t in ipairs({ 0.5, 2, 5 }) do C_Timer.After(t, restoreTracking) end
 	C_Timer.After(1, saveTracking) -- records what's on once restoring is done
 end)
+end -- tracking
 
 -- Shared with UnitFrames.lua
 ns.isSecret, ns.safe, ns.stash = isSecret, safe, stash
