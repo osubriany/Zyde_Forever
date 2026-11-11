@@ -4,7 +4,7 @@
 --   Other zones       - everything else, folded away (click the heading)
 -- Finished objective lines are hidden; only what's left to do shows.
 -- Each quest: a level badge in its difficulty color, and the distance to
--- its nearest spot. Dims in combat. Same flat look as the unit frames.
+-- its nearest spot. Dims in combat.
 -- "Nearest" uses Questie's locations of the mobs, objects and turn-in NPCs
 -- (falls back to the quest log's zone headings without Questie).
 -- Click a quest to follow it (like the game's own "..." button: map
@@ -179,20 +179,19 @@ end
 ---------------------------------------------------------------------------
 -- The window
 ---------------------------------------------------------------------------
--- Same look as the unit frames and /zyde window: a light flat panel with a
--- thin edge, and the narrow outlined font.
-local FONT = "Fonts\\ARIALN.TTF"
-local function font(fs, size) fs:SetFont(FONT, size, "OUTLINE") fs:SetShadowOffset(0, 0) return fs end
-local PURPLE = { 0.69, 0.35, 1 }
+-- The game's own tracker fonts, by size.
+local FONTS = {
+	[14] = "GameFontNormalLarge", [13] = "GameFontHighlight", [12] = "GameFontNormal",
+	[11] = "GameFontHighlightSmall", [10] = "GameFontHighlightSmall",
+}
+local function font(fs, size) fs:SetFontObject(FONTS[size] or "GameFontHighlight") return fs end
+local GOLD = { 1, 0.82, 0 }
 
-local frame = CreateFrame("Frame", "ZydeForeverQuestTracker", UIParent, "BackdropTemplate")
+local frame = CreateFrame("Frame", "ZydeForeverQuestTracker", UIParent)
 frame:SetSize(WIDTH, 40)
 frame:SetFrameStrata("LOW")
 frame:SetClampedToScreen(true)
 frame:SetMovable(true)
-frame:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
-frame:SetBackdropColor(0.04, 0.04, 0.05, 0.30)
-frame:SetBackdropBorderColor(0, 0, 0, 0.6)
 frame:Hide()
 
 local title = CreateFrame("Button", nil, frame)
@@ -201,12 +200,12 @@ title:SetPoint("TOPRIGHT")
 title:SetHeight(20)
 title.text = font(title:CreateFontString(nil, "OVERLAY"), 14)
 title.text:SetPoint("LEFT", 6, 0)
-title.text:SetTextColor(PURPLE[1], PURPLE[2], PURPLE[3])
+title.text:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
 title.count = font(title:CreateFontString(nil, "OVERLAY"), 11)
 title.count:SetPoint("LEFT", title.text, "RIGHT", 6, 0)
 title.count:SetTextColor(0.6, 0.6, 0.65)
 title.line = title:CreateTexture(nil, "ARTWORK")
-title.line:SetColorTexture(PURPLE[1], PURPLE[2], PURPLE[3], 0.35)
+title.line:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.35)
 title.line:SetHeight(1)
 title.line:SetPoint("BOTTOMLEFT", 6, 0)
 title.line:SetPoint("BOTTOMRIGHT", -6, 0)
