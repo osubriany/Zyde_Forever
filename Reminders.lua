@@ -2,9 +2,8 @@
 -- (all under the "Reminder icons" toggle).
 --   Warrior: Execute ready, Revenge ready, wrong stance (out of combat),
 --            Sunder Armor stacks while tanking.
---   Hunter:  Cheetah / Pack on in combat (flashing), Hunter's Mark missing
---            on an elite / rare / player / dungeon target, Mongoose Bite
---            ready, Mend Pet when your pet is low.
+--   Hunter:  Cheetah / Pack on in combat (flashing), target too far or too
+--            close to shoot, Mongoose Bite ready, Mend Pet when your pet is low.
 --   Both:    gear badly damaged, running low on food (and water for hunters).
 -- Battle Shout running out (under 10 seconds) blinks in Zyde_Forever.lua.
 
@@ -134,8 +133,7 @@ end
 -- Hunter
 ---------------------------------------------------------------------------
 local CHEETAH, PACK = 5118, 13159
-local MARK = { 1130, 14323, 14324, 14325 }
-local MARK_SET = set(MARK)
+local AUTO_SHOT, RAPTOR, WING_CLIP = 75, 2973, 2974
 local MONGOOSE = { 1495, 14269, 14270, 14271 }
 local MEND_PET = { 136, 3111, 3661, 3662, 13542, 13543, 13544 }
 local MEND_SET = set(MEND_PET)
@@ -164,16 +162,32 @@ if HUNTER then
 		return true, (which == PACK and "Pack on!" or "Cheetah on!")
 	end)
 
-	-- Worth marking: elites, rares, bosses, players - and anything in a dungeon.
-	local function worthMarking()
-		local c = plain(UnitClassification("target"))
-		return inDungeon() or plain(UnitIsPlayer("target")) or (c and c ~= "normal" and c ~= "trivial" and c ~= "minus")
+	-- Your target can't be shot from here: too far for Auto Shot, or so close
+	-- you're in melee (the dead zone, where Auto Shot won't fire). Auto Shot's
+	-- own range check, so range talents count; Raptor Strike's for melee.
+	local function inRange(id)
+		local r
+		if C_Spell and C_Spell.IsSpellInRange then r = safe(C_Spell.IsSpellInRange, id, "target")
+		elseif IsSpellInRange then
+			local name = GetSpellInfo and GetSpellInfo(id)
+			r = name and safe(IsSpellInRange, name, "target")
+		end
+		r = plain(r)
+		if r == nil then return nil end
+		return r == true or r == 1
 	end
-	ns.AddReminder("huntersMark", "ZydeForeverHuntersMark", icon(MARK, "Ability_Hunter_SniperShot"), function(preview)
-		if preview then return true end
-		if not on() or not inCombat() or not hostileTarget() or not knownRank(MARK) or not worthMarking() then return false end
-		local found, hidden = hasAura("target", "HARMFUL", MARK_SET)
-		return not found and not hidden
+	local rangeTile
+	rangeTile = ns.AddReminder("shotRange", "ZydeForeverShotRange", ns.spellTexture(AUTO_SHOT, "Interface\\Icons\\Ability_Whirlwind"), function(preview)
+		if preview then return true, "Too far" end
+		if not on() or not hostileTarget() or UnitOnTaxi("player") then return false end
+		local shot = inRange(AUTO_SHOT)
+		if shot == nil or shot then return false end -- (no ranged weapon, or can't tell: quiet)
+		if inRange(RAPTOR) then
+			rangeTile.tex:SetTexture(ns.spellTexture(WING_CLIP, "Interface\\Icons\\Ability_Rogue_Trip"))
+			return true, "|cffff9933Too close|r"
+		end
+		rangeTile.tex:SetTexture(ns.spellTexture(AUTO_SHOT, rangeTile.fallback))
+		return true, "|cffff4444Too far|r"
 	end)
 
 	ns.AddReminder("mongoose", "ZydeForeverMongoose", icon(MONGOOSE, "Ability_Hunter_SwiftStrike"), function(preview)
