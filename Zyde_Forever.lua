@@ -89,7 +89,7 @@ end
 -- AHledger, Zygor) is off when that addon isn't loaded.
 ---------------------------------------------------------------------------
 local FEATURES = {
-	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "Icons to the right of your character. Warriors: Battle Shout missing or running out, Overpower / Execute / Revenge ready, wrong stance, Sunder stacks when tanking. Hunters: no Aspect, Cheetah or Pack on in combat, target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Everyone: Well-Rested low, gear needs repair, low on food or water" },
+	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "Icons to the right of your character. Warriors: Battle Shout missing or running out, Overpower / Execute / Revenge ready, wrong stance, Sunder stacks when tanking. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing (solo), target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Everyone: Well-Rested low, gear needs repair, low on food or water" },
 	{ key = "ammo", short = "count, refill, warning", label = "Hunter ammo", desc = "Arrows or bullets left and how long they last (in the XP readout), a warning when you leave town low, and a Fill quiver button at ammo vendors (hunters)" },
 	{ key = "petCare", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast warning in dungeons (hunters)" },
 	{ key = "markerWheel", short = "hold key, click marker", label = "Marker wheels", desc = "Hold a key for a wheel of target markers (skull, cross, moon...) or world markers, and click one to place it" },

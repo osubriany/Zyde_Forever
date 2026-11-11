@@ -2,8 +2,9 @@
 -- (all under the "Reminder icons" toggle).
 --   Warrior: Execute ready, Revenge ready, wrong stance (out of combat),
 --            Sunder Armor stacks while tanking.
---   Hunter:  Cheetah / Pack on in combat (flashing), target too far or too
---            close to shoot, Mongoose Bite ready, Mend Pet when your pet is low.
+--   Hunter:  Cheetah / Pack on in combat (flashing), Hunter's Mark missing on
+--            an elite / rare / player target (solo only), target too far or
+--            too close to shoot, Mongoose Bite ready, Mend Pet when your pet is low.
 --   Both:    gear badly damaged, running low on food (and water for hunters).
 -- Battle Shout running out (under 10 seconds) blinks in Zyde_Forever.lua.
 
@@ -134,6 +135,8 @@ end
 ---------------------------------------------------------------------------
 local CHEETAH, PACK = 5118, 13159
 local AUTO_SHOT, RAPTOR, WING_CLIP = 75, 2973, 2974
+local MARK = { 1130, 14323, 14324, 14325 }
+local MARK_SET = set(MARK)
 local MONGOOSE = { 1495, 14269, 14270, 14271 }
 local MEND_PET = { 136, 3111, 3661, 3662, 13542, 13543, 13544 }
 local MEND_SET = set(MEND_PET)
@@ -160,6 +163,19 @@ if HUNTER then
 		cheetahTile.tex:SetTexture(ns.spellTexture(which, cheetahTile.fallback))
 		blink(cheetahTile, true)
 		return true, (which == PACK and "Pack on!" or "Cheetah on!")
+	end)
+
+	-- Hunter's Mark missing, solo only (in a group someone else may mark, or it
+	-- isn't worth it): elites, rares, bosses and players.
+	local function worthMarking()
+		local c = plain(UnitClassification("target"))
+		return plain(UnitIsPlayer("target")) or (c and c ~= "normal" and c ~= "trivial" and c ~= "minus")
+	end
+	ns.AddReminder("huntersMark", "ZydeForeverHuntersMark", icon(MARK, "Ability_Hunter_SniperShot"), function(preview)
+		if preview then return true end
+		if not on() or IsInGroup() or not inCombat() or not hostileTarget() or not knownRank(MARK) or not worthMarking() then return false end
+		local found, hidden = hasAura("target", "HARMFUL", MARK_SET)
+		return not found and not hidden
 	end)
 
 	-- Your target can't be shot from here: too far for Auto Shot, or so close
