@@ -3,8 +3,8 @@
 ## Notes: Warrior reminders (Battle Shout missing, Overpower ready) beside your character, and hides the main bar art, bag bar and micro menu.
 ## Author: Zyde
 ## Version: 1.2.0
-## SavedVariables: ZydeForeverDB
-## OptionalDeps: Questie, AHledger
+## SavedVariables: ZydeForeverDB, GearAdvisorDB
+## OptionalDeps: Questie, AHledger, Baganator
 
 Zyde_Forever.lua
 UnitFrames.lua
@@ -20,3 +20,19 @@ Tidy.lua
 Guild.lua
 VendorList.lua
 LFGHelper.lua
+
+# GearAdvisor (gear upgrade scoring, /ga), merged in 2026-11-11. Its own private table, zyde.GA.
+GearAdvisor\Config.lua
+GearAdvisor\Core.lua
+GearAdvisor\Stats.lua
+GearAdvisor\Player.lua
+GearAdvisor\Score.lua
+GearAdvisor\API.lua
+GearAdvisor\Loot.lua
+GearAdvisor\Tooltip.lua
+GearAdvisor\QuestRewards.lua
+GearAdvisor\Marks.lua
+GearAdvisor\Auction.lua
+GearAdvisor\LootRolls.lua
+GearAdvisor\Toast.lua
+GearAdvisor\Commands.lua
