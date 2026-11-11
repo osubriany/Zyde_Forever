@@ -12,6 +12,18 @@ local GetItemStatsFn = (C_Item and C_Item.GetItemStats) or GetItemStats
 local GetItemInfoFn = (C_Item and C_Item.GetItemInfo) or GetItemInfo
 local GetItemInfoInstantFn = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
 
+-- Items asked of the server: itemID -> when first asked. Items it won't send (it said the item
+-- doesn't exist, or nothing came for GIVE_UP seconds): Stats.missing[itemID] = true.
+local GIVE_UP = 30
+local requested = {}
+Stats.missing = {}
+local itemEvents = CreateFrame("Frame")
+pcall(itemEvents.RegisterEvent, itemEvents, "GET_ITEM_INFO_RECEIVED")
+itemEvents:SetScript("OnEvent", function(_, _, itemID, success)
+	if type(itemID) ~= "number" or ns.isSecret(itemID) or ns.isSecret(success) then return end
+	if success == false then Stats.missing[itemID] = true else Stats.missing[itemID] = nil end
+end)
+
 -- Game stat key -> our stat name. Keys marked "confirmed" were seen in game on Forever (by
 -- SimGearForever's author, 2026-10); the others are the standard modern-client names, included
 -- in case Forever uses them. /ga probe and /ga score list any key we don't know.
@@ -153,8 +165,19 @@ function Stats.read(link)
 
 	local itemID = ns.safe(GetItemInfoInstantFn, link)
 	if not itemID then return nil, "not an item" end
+	if Stats.missing[itemID] then return nil, "not an item" end
 	local name, _, quality, itemLevel, reqLevel, _, _, _, equipLoc, _, _, classID, subclassID = ns.safe(GetItemInfoFn, link)
 	if not name then
+		-- Ask the server. An item it says doesn't exist, or still hasn't sent after
+		-- GIVE_UP seconds, is treated as not an item (so "loading" can't last forever);
+		-- if it turns up later after all, it's read normally again.
+		local asked = requested[itemID]
+		if not asked then
+			requested[itemID] = GetTime()
+		elseif GetTime() - asked > GIVE_UP then
+			Stats.missing[itemID] = true
+			return nil, "not an item"
+		end
 		if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, itemID) end
 		return nil, "loading"
 	end

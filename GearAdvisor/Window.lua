@@ -362,7 +362,7 @@ local function showDungeons(ctx, c)
 	blank()
 
 	addRow({ header = true, left = "Dungeons for level " .. ctx.level .. " (best run first)",
-		right = c.loading > 0 and "|cffaaaaaaloading items...|r" or "|cffaaaaaadrop chance per kill|r" })
+		right = c.loading > 0 and ("|cffaaaaaaloading %d items...|r"):format(c.loading) or "|cffaaaaaadrop chance per kill|r" })
 	if #mine == 0 then addRow({ indent = 16, left = "|cff888888None in the data for your level.|r" }) end
 	for _, e in ipairs(mine) do dungeonRows(e, false) end
 
@@ -378,7 +378,7 @@ end
 
 local function showSlots(ctx, c)
 	addRow({ header = true, left = "Best upgrades known for each slot (bags and dungeons).",
-		right = c.loading > 0 and "|cffaaaaaaloading items...|r" or nil })
+		right = c.loading > 0 and ("|cffaaaaaaloading %d items...|r"):format(c.loading) or nil })
 	for g, group in ipairs(GROUPS) do
 		local entries = c.groups[g] or {}
 		local now = {}
@@ -421,12 +421,11 @@ function Window.refresh()
 		if tab == "gear" then showGear(ctx, c)
 		elseif tab == "dungeons" then showDungeons(ctx, c)
 		else showSlots(ctx, c) end
-		-- Items the game hasn't sent yet: look again shortly.
-		if c.loading > 0 and retries < 10 then
-			retries = retries + 1
-			C_Timer.After(1, Window.refresh)
-		elseif c.loading == 0 then
-			retries = 0
+		-- Items the game hasn't sent yet: look again shortly (item events also redraw it). It
+		-- ends: an item that never arrives counts as missing after 30 s (Stats.lua).
+		if c.loading > 0 and retries == 0 then
+			retries = 1
+			C_Timer.After(2, function() retries = 0; cache = nil; Window.refresh() end)
 		end
 	end
 	for i = used + 1, #rows do rows[i]:Hide() end
@@ -499,7 +498,7 @@ local function make()
 	hint:SetPoint("BOTTOMLEFT", 14, 11)
 	hint:SetText("Hover an item for details. Shift-click links it in chat, Ctrl-click previews it.")
 
-	f:SetScript("OnShow", function() retries = 0; Window.refresh() end)
+	f:SetScript("OnShow", function() Window.refresh() end)
 	f:Hide()
 	if UISpecialFrames then table.insert(UISpecialFrames, "GearAdvisorWindow") end   -- Esc closes it
 	frame = f
@@ -598,10 +597,19 @@ end)
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_LOGIN")
 pcall(ev.RegisterEvent, ev, "BAG_UPDATE_DELAYED")
+pcall(ev.RegisterEvent, ev, "GET_ITEM_INFO_RECEIVED")
 local bagPending
 ev:SetScript("OnEvent", function(_, event)
 	if event == "PLAYER_LOGIN" then
 		if ns.db and ns.db.minimap ~= false then pcall(makeButton) end
+	elseif event == "GET_ITEM_INFO_RECEIVED" then
+		-- Items arrive in bursts: redraw once, half a second after, while the window waits on them.
+		if cache or bagPending or not (frame and frame:IsShown()) then return end
+		bagPending = true
+		C_Timer.After(0.5, function()
+			bagPending = nil
+			if frame and frame:IsShown() then Window.refresh() end
+		end)
 	elseif event == "BAG_UPDATE_DELAYED" and not bagPending then
 		bagPending = true
 		C_Timer.After(0.5, function()
