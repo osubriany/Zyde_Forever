@@ -4,7 +4,7 @@
 ## Author: Zyde
 ## Version: 1.2.0
 ## SavedVariables: ZydeForeverDB, GearAdvisorDB
-## OptionalDeps: Questie, AHledger, Baganator
+## OptionalDeps: Questie, AHledger, Baganator, AzerothGPS, ZygorGuidesViewerForever
 
 Zyde_Forever.lua
 UnitFrames.lua
@@ -20,6 +20,7 @@ Tidy.lua
 Guild.lua
 VendorList.lua
 LFGHelper.lua
+ZygorRoute.lua
 
 # GearAdvisor (gear upgrade scoring, /ga), merged in 2026-11-11. Its own private table, zyde.GA.
 GearAdvisor\Config.lua
