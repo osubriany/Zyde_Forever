@@ -24,11 +24,28 @@ local function on() return ns.F("meterSkin") end
 ---------------------------------------------------------------------------
 local roots = {}
 
+-- Top-level frames we're allowed to look at. Some of the game's own frames
+-- are "forbidden": touching them throws an error (that's what broke the
+-- first version), so they're skipped.
+local function topFrames()
+	local out = {}
+	for _, child in ipairs({ UIParent:GetChildren() }) do
+		local ok, forbidden = pcall(function() return child.IsForbidden and child:IsForbidden() end)
+		if ok and not forbidden then out[#out + 1] = child end
+	end
+	return out
+end
+
+local function nameOf(f)
+	local ok, n = pcall(f.GetName, f)
+	return ok and type(n) == "string" and n or nil
+end
+
 local function findRoots()
 	local found = {}
-	for _, child in ipairs({ UIParent:GetChildren() }) do
-		local name = child.GetName and child:GetName()
-		if type(name) == "string" and name:find("DamageMeter") and child.IsObjectType and child:IsObjectType("Frame") then
+	for _, child in ipairs(topFrames()) do
+		local name = nameOf(child)
+		if name and name:find("DamageMeter") then
 			found[#found + 1] = child
 		end
 	end
@@ -61,11 +78,9 @@ local function findRoots()
 			end
 			return false
 		end
-		for _, child in ipairs({ UIParent:GetChildren() }) do
-			if child:IsShown() and child ~= ZydeForeverOptions then
-				local ok, yes = pcall(hasTitle, child, 0)
-				if ok and yes then found[#found + 1] = child end
-			end
+		for _, child in ipairs(topFrames()) do
+			local ok, yes = pcall(function() return child:IsShown() and child ~= ZydeForeverOptions and hasTitle(child, 0) end)
+			if ok and yes then found[#found + 1] = child end
 		end
 	end
 	roots = found
@@ -212,9 +227,9 @@ local function debug()
 	if #roots == 0 then
 		print(P .. "no damage meter window found (no top-level frame named ...DamageMeter...)")
 		local names = {}
-		for _, child in ipairs({ UIParent:GetChildren() }) do
-			local n = child.GetName and child:GetName()
-			if type(n) == "string" and (n:find("Meter") or n:find("Damage")) then names[#names + 1] = n end
+		for _, child in ipairs(topFrames()) do
+			local n = nameOf(child)
+			if n and (n:find("Meter") or n:find("Damage")) then names[#names + 1] = n end
 		end
 		print(P .. "frames with Meter/Damage in the name: " .. (#names > 0 and table.concat(names, ", ") or "none"))
 		return
@@ -237,4 +252,9 @@ local function debug()
 	end
 end
 
-ns.Meter = { Debug = debug }
+ns.Meter = {
+	Debug = function()
+		local ok, err = pcall(debug)
+		if not ok then print(P .. "meter debug hit an error: " .. tostring(err)) end
+	end,
+}
