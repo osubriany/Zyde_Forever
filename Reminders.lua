@@ -240,13 +240,16 @@ if HUNTER then
 	ns.RangeDebug = function()
 		local p = "|cff66ccffZyde_Forever|r range: "
 		print(p .. "target " .. tostring(UnitName("target")) .. ", hostile " .. tostring(hostileTarget() and true or false))
-		print(p .. "Auto Shot " .. tostring(inRange(AUTO_SHOT)))
-		for _, ids in ipairs({ WING_CLIP, RAPTOR }) do
-			local id = knownRank(ids)
-			print(p .. "spell " .. tostring(id) .. " in range " .. tostring(id and inRange(id)))
+		print(p .. (InCombatLockdown() and "IN COMBAT" or "out of combat") .. ", Auto Shot in range " .. tostring(inRange(AUTO_SHOT)))
+		for _, s in ipairs({ { "Wing Clip", WING_CLIP }, { "Raptor Strike", RAPTOR }, { "Mongoose Bite", MONGOOSE } }) do
+			local id = knownRank(s[2])
+			print(p .. s[1] .. (id and (" (" .. id .. ") in range " .. tostring(inRange(id))) or " not known"))
 		end
-		local near = CheckInteractDistance and safe(CheckInteractDistance, "target", 3)
-		print(p .. "within ~10 yd " .. tostring(plain(near)) .. (InCombatLockdown() and " (in combat: may be blocked)" or ""))
+		-- The game's distance checks (1 = ~28 yd inspect, 2 = ~11 yd trade, 3 = ~10 yd duel, 4 = ~28 yd follow).
+		for i = 1, 4 do
+			local raw = CheckInteractDistance and safe(CheckInteractDistance, "target", i)
+			print(p .. "distance check " .. i .. ": " .. (isSecret(raw) and "hidden" or tostring(raw)))
+		end
 		print(p .. "melee verdict " .. tostring(meleeRange()))
 	end
 
