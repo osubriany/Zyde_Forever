@@ -37,6 +37,12 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
     - Hunter's Mark missing (solo only)
     - target **too far or too close** to shoot
     - Mongoose Bite ready, Mend Pet needed
+  - **Shaman:**
+    - weapon imbue missing or under a minute left
+    - Lightning Shield missing or on its last charge (in combat, or with an enemy targeted)
+    - Earth Shock ready while your target casts something you can interrupt
+    - a totem out of range (you no longer have its buff)
+    - no Ankh when you can Reincarnate
   - **Everyone:** Well-Rested running low, gear needing repair, low on food or water.
 - **Hide Blizzard bar art**: removes the action bar art, bag bar and micro menu.
 - **Tidy action bars**:

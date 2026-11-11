@@ -6,14 +6,17 @@
 --   Hunter:  Cheetah / Pack on in combat (flashing), Hunter's Mark missing on
 --            an elite / rare / player target (solo only), target too far or
 --            too close to shoot, Mongoose Bite ready, Mend Pet when your pet is low.
---   Both:    gear badly damaged, running low on food (and water for hunters).
+--   Shaman:  weapon imbue missing or running out, Lightning Shield missing or
+--            on its last charge, Earth Shock to interrupt a cast, a totem out
+--            of range (its buff gone), no Ankh for Reincarnation.
+--   Everyone: gear badly damaged, running low on food (and water for hunters).
 -- Battle Shout running out (under 10 seconds) blinks in Zyde_Forever.lua.
 
 local ADDON, ns = ...
 
 local safe, isSecret, knownRank = ns.safe, ns.isSecret, ns.knownRank
 local _, playerClass = UnitClass("player")
-local WARRIOR, HUNTER = playerClass == "WARRIOR", playerClass == "HUNTER"
+local WARRIOR, HUNTER, SHAMAN = playerClass == "WARRIOR", playerClass == "HUNTER", playerClass == "SHAMAN"
 local GCD = 1.5
 
 local function plain(v) if isSecret(v) then return nil end return v end
@@ -92,6 +95,7 @@ local REVENGE = { 6572, 6574, 7379, 11600, 11601, 25288 }
 local SUNDER  = { 7386, 7405, 8380, 11596, 11597 }
 local SUNDER_SET = set(SUNDER)
 local BATTLE_STANCE, DEFENSIVE_STANCE = 2457, 71
+local BATTLE_STANCE_IDS, DEFENSIVE_STANCE_IDS = { BATTLE_STANCE }, { DEFENSIVE_STANCE } -- (knownRank caches by table)
 local VICTORY_RUSH = { 34428 }
 local THUNDER_CLAP = { 6343, 8198, 8204, 8205, 11580, 11581, 25264 }
 local THUNDER_SET = set(THUNDER_CLAP)
@@ -124,11 +128,11 @@ if WARRIOR then
 		if preview then return true, "Battle Stance?" end
 		if not on() or InCombatLockdown() or UnitIsDeadOrGhost("player") or UnitOnTaxi("player") then return false end
 		local s = stance()
-		if s == 2 and not IsInGroup() and not inDungeon() and knownRank({ BATTLE_STANCE }) then
+		if s == 2 and not IsInGroup() and not inDungeon() and knownRank(BATTLE_STANCE_IDS) then
 			stanceTile.tex:SetTexture(ns.spellTexture(BATTLE_STANCE, "Interface\\Icons\\Ability_Warrior_OffensiveStance"))
 			return true, "Battle Stance?"
 		end
-		if s == 1 and inDungeon() and IsInGroup() and hasShield() and knownRank({ DEFENSIVE_STANCE }) then
+		if s == 1 and inDungeon() and IsInGroup() and hasShield() and knownRank(DEFENSIVE_STANCE_IDS) then
 			stanceTile.tex:SetTexture(ns.spellTexture(DEFENSIVE_STANCE, "Interface\\Icons\\Ability_Warrior_DefensiveStance"))
 			return true, "Defensive Stance?"
 		end
@@ -272,6 +276,140 @@ if HUNTER then
 		if not (hp and max and max > 0) or hp / max >= 0.35 then return false end
 		local mending = hasAura("pet", "HELPFUL", MEND_SET)
 		return not mending
+	end)
+end
+
+---------------------------------------------------------------------------
+-- Shaman
+---------------------------------------------------------------------------
+local IMBUES = {
+	rockbiter = { 8017, 8018, 8019, 10399, 16314, 16315, 16316 },
+	flametongue = { 8024, 8027, 8030, 16339, 16341, 16342 },
+	frostbrand = { 8033, 8038, 10456, 16355, 16356 },
+	windfury = { 8232, 8235, 10486, 16362 },
+}
+local LIGHTNING_SHIELD = { 324, 325, 905, 945, 8134, 10431, 10432 }
+local SHIELD_SET = set(LIGHTNING_SHIELD)
+local EARTH_SHOCK = { 8042, 8044, 8045, 8046, 10412, 10413, 10414 }
+local REINCARNATION_IDS, ANKH = { 20608 }, 17030
+local IMBUE_WARN = 60 -- seconds left on an imbue before the tile shows
+
+-- Totems whose buff you get while you're near them (name without " Totem" and rank).
+local TOTEM_BUFFS = {
+	["Strength of Earth"] = true, ["Stoneskin"] = true, ["Grace of Air"] = true, ["Mana Spring"] = true,
+	["Healing Stream"] = true, ["Fire Resistance"] = true, ["Frost Resistance"] = true,
+	["Nature Resistance"] = true, ["Tranquil Air"] = true, ["Windwall"] = true,
+}
+local TOTEM_GRACE = 3 -- seconds after dropping a totem before its buff is expected
+
+if SHAMAN then
+	-- The imbue you used last (its icon on the tile), else the best one you know.
+	local lastImbue
+	local IMBUE_SET = {}
+	for _, ids in pairs(IMBUES) do for _, id in ipairs(ids) do IMBUE_SET[id] = true end end
+	local ev = CreateFrame("Frame")
+	ev:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	ev:SetScript("OnEvent", function(_, _, _, _, spellID)
+		spellID = plain(spellID)
+		if spellID and IMBUE_SET[spellID] then lastImbue = spellID end
+	end)
+	local function imbueToShow()
+		if lastImbue then return lastImbue end
+		for _, key in ipairs({ "windfury", "flametongue", "frostbrand", "rockbiter" }) do
+			local id = knownRank(IMBUES[key])
+			if id then return id end
+		end
+	end
+
+	-- 1. Weapon imbue missing, or under a minute left.
+	local imbueTile
+	imbueTile = ns.AddReminder("imbue", "ZydeForeverImbue", icon(IMBUES.rockbiter, "Spell_Nature_RockBiter"), function(preview)
+		if preview then return true, "Imbue weapon" end
+		if not on() or UnitIsDeadOrGhost("player") or UnitOnTaxi("player") then return false end
+		local spell = imbueToShow()
+		if not spell or not GetInventoryItemID("player", 16) or not GetWeaponEnchantInfo then return false end
+		local has, msLeft = GetWeaponEnchantInfo()
+		has, msLeft = plain(has), plain(msLeft)
+		if has == nil then return false end -- (hidden: stay quiet)
+		imbueTile.tex:SetTexture(ns.spellTexture(spell, imbueTile.fallback))
+		if not has then return true, "Imbue weapon" end
+		local secs = msLeft and msLeft / 1000
+		if secs and secs < IMBUE_WARN then return true, ("Imbue %ds"):format(math.floor(secs)) end
+		return false
+	end)
+
+	-- 2. Lightning Shield missing or down to its last charge: in combat, or
+	-- out of combat with an enemy targeted (about to pull).
+	ns.AddReminder("lightningShield", "ZydeForeverLightningShield", icon(LIGHTNING_SHIELD, "Spell_Nature_LightningShield"), function(preview)
+		if preview then return true, "Shield 1" end
+		if not on() or not knownRank(LIGHTNING_SHIELD) or UnitIsDeadOrGhost("player") then return false end
+		if not (inCombat() or hostileTarget()) then return false end
+		local found, hidden, a = hasAura("player", "HELPFUL", SHIELD_SET)
+		if not found then
+			if hidden then return false end
+			return true, "Lightning Shield"
+		end
+		local charges = plain(a.applications)
+		if charges and charges == 1 then return true, "Shield 1" end
+		return false
+	end)
+
+	-- 3. Your target is casting something you can stop, and Earth Shock is ready.
+	local shockTile
+	shockTile = ns.AddReminder("earthShock", "ZydeForeverEarthShock", icon(EARTH_SHOCK, "Spell_Nature_EarthShock"), function(preview)
+		if preview then return true, "Interrupt!" end
+		if not on() or not hostileTarget() then return false end
+		local casting, _, _, _, _, _, _, castLocked = UnitCastingInfo("target")
+		local channel, _, _, _, _, _, chanLocked = UnitChannelInfo("target")
+		local spell = plain(casting) or plain(channel)
+		if not spell then return false end
+		if plain(casting) and plain(castLocked) == true then return false end
+		if not plain(casting) and plain(chanLocked) == true then return false end
+		if not ready(EARTH_SHOCK) then return false end
+		local id = knownRank(EARTH_SHOCK)
+		if id and inRange(id) == false then return false end
+		blink(shockTile, true)
+		return true, "Interrupt!"
+	end)
+
+	-- 4. A totem is down but you don't have its buff: you've walked out of its range.
+	local dropped = {} -- slot -> when that totem went down
+	local totemTile
+	totemTile = ns.AddReminder("totemRange", "ZydeForeverTotemRange", "Interface\\Icons\\Spell_Nature_EarthBindTotem", function(preview)
+		if preview then return true, "Totem out of range" end
+		if not on() or not GetTotemInfo or UnitIsDeadOrGhost("player") or UnitOnTaxi("player") then return false end
+		-- your buffs by name (nil: the game hid them, so we can't tell)
+		local names, hidden = {}, false
+		if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return false end
+		for i = 1, 40 do
+			local aura = safe(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
+			if not aura then break end
+			local n = plain(aura.name)
+			if n then names[n] = true else hidden = true end
+		end
+		local now = GetTime()
+		for slot = 1, 4 do
+			local have, name, start, duration, tex = GetTotemInfo(slot)
+			have, name, start, duration = plain(have), plain(name), plain(start), plain(duration)
+			if have and type(name) == "string" and name ~= "" and start and duration then
+				local buff = name:gsub("%s+Totem.*$", "")
+				if TOTEM_BUFFS[buff] and start + duration > now and now - start > TOTEM_GRACE
+					and not names[buff] and not hidden then
+					totemTile.tex:SetTexture(plain(tex) or totemTile.fallback)
+					return true, buff .. " out of range"
+				end
+			end
+		end
+		return false
+	end)
+
+	-- 6. You can Reincarnate but carry no Ankh.
+	ns.AddReminder("ankh", "ZydeForeverAnkh", "Interface\\Icons\\INV_Jewelry_Talisman_06", function(preview)
+		if preview then return true, "No Ankh" end
+		if not on() or InCombatLockdown() or UnitIsDeadOrGhost("player") or not knownRank(REINCARNATION_IDS) then return false end
+		local count = (C_Item and C_Item.GetItemCount and safe(C_Item.GetItemCount, ANKH)) or (GetItemCount and safe(GetItemCount, ANKH))
+		count = plain(count)
+		return count ~= nil and count == 0, "No Ankh"
 	end)
 end
 
