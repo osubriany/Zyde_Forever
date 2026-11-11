@@ -351,54 +351,6 @@ local function arrowColor(r, g, b)
 end
 
 ---------------------------------------------------------------------------
--- Short Zygor hops: Zygor's own straight arrow is enough. A route to a Zygor
--- stop (ZygorRoute.lua) uses the GPS arrow only when AzerothGPS's ETA is at
--- least gpsMinSeconds (40 by default; /zyde gpsmin), and drops back to Zygor's
--- under SLACK seconds less, so it doesn't flip at the line.
----------------------------------------------------------------------------
-local SLACK = 5
-local function minSeconds()
-	local v = tonumber(db().gpsMinSeconds)
-	return v and v >= 0 and v or 40
-end
-
--- "2m 39s", "45s", "1h 02m 03s" -> seconds; nil for "--" or anything else.
-local function seconds(t)
-	if type(t) ~= "string" then return nil end
-	local h, m, s = t:match("^(%d+)h (%d+)m (%d+)s$")
-	if h then return h * 3600 + m * 60 + s end
-	m, s = t:match("^(%d+)m (%d+)s$")
-	if m then return m * 60 + s end
-	s = t:match("^(%d+)s$")
-	return s and tonumber(s) or nil
-end
-
--- The Zygor stop's ETA from AzerothGPS's lines: isZygor, seconds (nil when unknown).
-local function zygorEta()
-	for _, fs in ipairs(src.lines) do
-		local t = textOf(fs)
-		if t:find("Zygor: ", 1, true) then
-			return true, seconds(t:match("|cffffd100([^|]+)|r"))
-		end
-	end
-	return false, nil
-end
-
-local useGPS = true
-local function decide(active)
-	if not (active and ns.F("zygorRoute")) then useGPS = true return end
-	local zyg, eta = zygorEta()
-	if not zyg then useGPS = true return end -- a trip you planned yourself
-	if not eta then return end -- (keep what it was)
-	local min = minSeconds()
-	if useGPS and eta < min - SLACK then useGPS = false
-	elseif not useGPS and eta >= min then useGPS = true end
-end
-
--- ZygorRoute.lua asks: is Zygor's own arrow the one to show right now?
-ns.GPSShortHop = function() return not useGPS end
-
----------------------------------------------------------------------------
 -- Each frame
 ---------------------------------------------------------------------------
 local textWait = 0
@@ -410,7 +362,7 @@ local function routeActive()
 end
 
 local function update(_, dt)
-	if not (on() or ns.F("zygorRoute")) then useGPS = true; setHiding(false); win:Hide(); return end
+	if not on() then setHiding(false); win:Hide(); return end
 	if not src then
 		src = find()
 		if not src then
@@ -427,10 +379,8 @@ local function update(_, dt)
 	-- hearthstone / teleport next: AzerothGPS's own window, with its button
 	local using = src.useIcon and src.useIcon:IsShown()
 	local active = routeActive()
-	decide(active)
-	-- AzerothGPS's windows: out of the way for our arrow, or for Zygor's on a short hop
-	setHiding(active and not using and (on() or not useGPS))
-	if not active or using or not on() or not useGPS then
+	setHiding(active and not using)
+	if not active or using then
 		if win:IsShown() then win:Hide() end
 		return
 	end
@@ -494,16 +444,6 @@ ns.OnFeatureChanged(function(key)
 end)
 
 ns.GPSArrow = {
-	-- /zyde gpsmin <seconds>: the shortest trip that gets the GPS arrow (0 = always).
-	SetMinSeconds = function(v)
-		v = tonumber(v)
-		if not v or v < 0 then
-			print(("|cff66ccffZyde_Forever|r: Zygor's arrow for trips under %ds, the GPS arrow past that. /zyde gpsmin <seconds> (0 = always GPS)"):format(minSeconds()))
-			return
-		end
-		db().gpsMinSeconds = math.floor(v)
-		print(("|cff66ccffZyde_Forever|r: the GPS arrow now takes over for trips of %ds or more"):format(minSeconds()))
-	end,
 	ResetPosition = function()
 		db().gpsArrowPos = nil
 		if win then place() end

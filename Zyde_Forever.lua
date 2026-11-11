@@ -2431,9 +2431,6 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		ns.QuestMobs.ResetPosition()
 	elseif (msg == "gpsarrow" or msg == "gpsroute") and not ns.ZygorRoute then
 		print("|cff66ccffZyde_Forever|r: Zygor routes aren't loaded - restart the game fully (a /reload doesn't load new files)")
-	elseif msg:match("^gpsmin") then
-		if ns.GPSArrow then ns.GPSArrow.SetMinSeconds(msg:match("^gpsmin%s+(%S+)"))
-		else print("|cff66ccffZyde_Forever|r: the GPS arrow isn't loaded - restart the game fully (a /reload doesn't load new files)") end
 	elseif msg == "gpsreset" then
 		if ns.GPSArrow then ns.GPSArrow.ResetPosition()
 		else print("|cff66ccffZyde_Forever|r: the GPS arrow isn't loaded - restart the game fully (a /reload doesn't load new files)") end
@@ -2474,7 +2471,6 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "scrapreset", "let items you right-clicked to keep be suggested again (scrap and vendor lists)" },
 			{ "vendor", "turn the vendor / auction / keep advice in item tooltips and at merchants on or off" },
 			{ "gpsroute", "send Zygor's arrow target to AzerothGPS again now" },
-			{ "gpsmin <seconds>", "Zygor's own arrow for trips shorter than this, the GPS arrow past it (40 by default, 0 = always GPS)" },
 			{ "gpsreset","put the Zyde GPS arrow back at the top of the screen" },
 			{ "gpsarrow","show or hide Zygor's own arrow while AzerothGPS shows the route" },
 			{ "ammovendor","hunters: waypoint to the nearest arrow or bullet vendor (or click the Arrows line)" },
