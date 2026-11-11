@@ -91,6 +91,7 @@ end
 local FEATURES = {
 	{ key = "shout", short = "buff missing icon", label = "Battle Shout reminder", desc = "Battle Shout icon in combat when the buff is missing (warriors)" },
 	{ key = "overpower", short = "ready-to-use icon", label = "Overpower reminder", desc = "Overpower icon when it's ready to use (warriors)" },
+	{ key = "aspect", short = "no aspect icon", label = "Aspect reminder", desc = "Aspect of the Hawk icon beside your character when no Aspect is on (hunters)" },
 	{ key = "ammo", short = "count, refill, warning", label = "Hunter ammo", desc = "Arrows or bullets left and how long they last (in the XP readout), a warning when you leave town low, and a Fill quiver button at ammo vendors (hunters)" },
 	{ key = "petCare", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast warning in dungeons (hunters)" },
 	{ key = "markerWheel", short = "hold key, click marker", label = "Marker wheels", desc = "Hold a key for a wheel of target markers (skull, cross, moon...) or world markers, and click one to place it" },
@@ -505,6 +506,62 @@ anchor:SetScript("OnUpdate", function(_, elapsed)
 	elapsedSince = 0
 	update()
 end)
+
+---------------------------------------------------------------------------
+-- Hunter: no Aspect up -> Aspect of the Hawk tile in the reminder column.
+-- Any aspect counts (Hawk, Monkey, Cheetah, Pack, Beast, Wild).
+-- In combat the game can hide auras from addons, so there we trust what we
+-- last saw out of combat, and any aspect you cast.
+---------------------------------------------------------------------------
+local ASPECT_HAWK = { 13165, 14318, 14319, 14320, 14321, 14322, 25296 }
+local ASPECTS = { 13165, 14318, 14319, 14320, 14321, 14322, 25296, -- Hawk
+	13163, 5118, 13159, 13161, 20043, 20190 }                      -- Monkey, Cheetah, Pack, Beast, Wild
+local isAspect = {}
+for _, id in ipairs(ASPECTS) do isAspect[id] = true end
+local isHunter = playerClass == "HUNTER"
+local aspectSeen = false -- last known: an aspect is up
+
+local function aspectUp()
+	if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+		for _, id in ipairs(ASPECTS) do
+			if safe(C_UnitAuras.GetPlayerAuraBySpellID, id) then return true end
+		end
+	end
+	-- By name too ("Aspect of the ..."), for ranks or IDs not listed above.
+	for i = 1, 40 do
+		local a = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex and safe(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
+		if not a then break end
+		local id, name = a.spellId, a.name
+		if not isSecret(id) and isAspect[id] then return true end
+		if type(name) == "string" and not isSecret(name) and name:find("^Aspect of the ") then return true end
+	end
+	return false
+end
+
+if isHunter then
+	local aspectEvents = CreateFrame("Frame")
+	aspectEvents:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	aspectEvents:SetScript("OnEvent", function(_, _, _, _, spellID)
+		if not isSecret(spellID) and isAspect[spellID] then aspectSeen = true end
+	end)
+end
+
+local hawkTile = ns.AddReminder("aspect", "ZydeForeverAspect", "Interface\\Icons\\Spell_Nature_RavenForm", function(previewing)
+	if not isHunter then return false end
+	if previewing then return true end
+	if not F("aspect") or not knownRank(ASPECT_HAWK) then return false end
+	if UnitIsDeadOrGhost("player") or UnitOnTaxi("player") then return false end
+	local up = aspectUp()
+	if up then
+		aspectSeen = true
+	elseif InCombatLockdown() and aspectSeen then
+		up = true -- hidden in combat: assume it's still on
+	else
+		aspectSeen = false
+	end
+	return not up -- just the icon, like the Battle Shout tile
+end)
+hawkTile.tex:SetTexture(spellTexture(13165, hawkTile.fallback))
 
 ---------------------------------------------------------------------------
 -- Quest objects on the ground
@@ -1892,7 +1949,7 @@ local CATEGORIES = {
 	{
 		{ "Interface", { "unitFrames", "xp", "hideBars", "gear" } },
 		{ "Warrior", { "shout", "overpower" } },
-		{ "Hunter", { "ammo", "petCare" } },
+		{ "Hunter", { "aspect", "ammo", "petCare" } },
 		{ "Groups", { "lfg", "markerWheel" } },
 	},
 	{
