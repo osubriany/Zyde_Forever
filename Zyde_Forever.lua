@@ -104,6 +104,7 @@ local FEATURES = {
 	{ key = "questTracker", short = "ready first, nearest first", label = "Quest tracker", desc = "Replaces the game's quest tracker: quests ready to turn in at the top, then this zone's quests nearest first, other zones folded away; finished objective lines hidden", reload = true },
 	{ key = "questAlert", short = "glow on quest objects", label = "Quest object alert", desc = "Glow, ! and ping on nearby quest objects" },
 	{ key = "questIcons", short = "icons over nodes", label = "Icons over nearby objects", desc = "The game's interact icons over herbs, ore and chests" },
+	{ key = "guildRoster", short = "class colors, levels, zones", label = "Guild member list", desc = "In the Guild & Communities window: online members' names in class colors, each member's level at the right (colored by how near your level), and their zone when you hover them" },
 	{ key = "lfg", short = "groups that fit you", label = "Group finder helper", desc = "Beside Looking For Group: groups with room for your role first, one-click whisper to the leader" },
 	{ key = "scrap", short ="what to delete", label = "Scrap list (bags full)", desc = "The 3 cheapest items to throw away when your bags are full", conflict = "LootTriage" },
 	{ key = "vendor", short = "sell or auction tips", label = "Vendor / auction advice", desc = "Vendor it / Auction it / Keep in tooltips, merchant and AH panels", needs = "AHledger" },
@@ -2114,7 +2115,7 @@ local CATEGORIES = {
 	{
 		{ "Interface", { "unitFrames", "xp", "reminders", "hideBars", "barTidy", "gear" } },
 		{ "Hunter", { "ammo", "petCare" } },
-		{ "Groups", { "lfg", "markerWheel" } },
+		{ "Groups", { "lfg", "guildRoster", "markerWheel" } },
 	},
 	{
 		{ "Questing & leveling", { "questTracker", "questAlert", "questIcons", "questMobs", "questieDrops", "zygor" } },

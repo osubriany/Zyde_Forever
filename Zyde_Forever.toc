@@ -17,5 +17,6 @@ PetCare.lua
 Reminders.lua
 MarkerWheel.lua
 Tidy.lua
+Guild.lua
 VendorList.lua
 LFGHelper.lua
