@@ -31,7 +31,7 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
   - Hunters get a pet frame with a happiness face, the pet's buffs and an XP bar.
 - **XP readout**: a small, draggable XP % in place of the XP bar, showing rested XP and time to level. Hunters also see their arrow or bullet count here.
 - **Reminder icons**: icons to the right of your character.
-  - **Warrior:** Battle Shout missing or running out, Overpower / Execute / Revenge ready, wrong stance, Sunder stacks while tanking.
+  - **Warrior:** Battle Shout missing or running out, Overpower / Execute / Revenge / Victory Rush ready, Thunder Clap missing on your target, wrong stance, Sunder stacks while tanking.
   - **Hunter:**
     - no Aspect, or Cheetah / Pack on in combat
     - Hunter's Mark missing (solo only)

@@ -1,6 +1,7 @@
 -- Zyde_Forever: more reminder icons in the column beside your character
 -- (all under the "Reminder icons" toggle).
---   Warrior: Execute ready, Revenge ready, wrong stance (out of combat),
+--   Warrior: Execute ready, Revenge ready, Victory Rush ready, Thunder Clap
+--            missing on your target, wrong stance (out of combat),
 --            Sunder Armor stacks while tanking.
 --   Hunter:  Cheetah / Pack on in combat (flashing), Hunter's Mark missing on
 --            an elite / rare / player target (solo only), target too far or
@@ -65,6 +66,19 @@ end
 
 local function set(ids) local s = {} for _, id in ipairs(ids) do s[id] = true end return s end
 
+-- Spell `id` can reach your target: true / false, or nil when the game won't say.
+local function inRange(id)
+	local r
+	if C_Spell and C_Spell.IsSpellInRange then r = safe(C_Spell.IsSpellInRange, id, "target")
+	elseif IsSpellInRange then
+		local name = GetSpellInfo and GetSpellInfo(id)
+		r = name and safe(IsSpellInRange, name, "target")
+	end
+	r = plain(r)
+	if r == nil then return nil end
+	return r == true or r == 1
+end
+
 local function inDungeon()
 	local _, kind = IsInInstance()
 	return kind == "party" or kind == "raid"
@@ -78,6 +92,10 @@ local REVENGE = { 6572, 6574, 7379, 11600, 11601, 25288 }
 local SUNDER  = { 7386, 7405, 8380, 11596, 11597 }
 local SUNDER_SET = set(SUNDER)
 local BATTLE_STANCE, DEFENSIVE_STANCE = 2457, 71
+local VICTORY_RUSH = { 34428 }
+local THUNDER_CLAP = { 6343, 8198, 8204, 8205, 11580, 11581, 25264 }
+local THUNDER_SET = set(THUNDER_CLAP)
+local REND = { 772, 6546, 6547, 6548, 11572, 11573, 11574, 25208 } -- (an instant melee attack: its range is melee reach)
 
 if WARRIOR then
 	ns.AddReminder("execute", "ZydeForeverExecute", icon(EXECUTE, "INV_Sword_48"), function(preview)
@@ -127,6 +145,24 @@ if WARRIOR then
 		local stacks = found and (plain(a.applications) or 1) or 0
 		if stacks >= 5 then return false end
 		return true, ("Sunder %d/5"):format(stacks)
+	end)
+
+	-- Victory Rush: usable for a short while after a kill that gives XP.
+	ns.AddReminder("victoryRush", "ZydeForeverVictoryRush", icon(VICTORY_RUSH, "Ability_Warrior_Devastate"), function(preview)
+		if preview then return true end
+		if not on() or UnitIsDeadOrGhost("player") then return false end
+		return ready(VICTORY_RUSH)
+	end)
+
+	-- Thunder Clap missing on a target you're in melee with (from anyone: it's the
+	-- same slow), when you could cast it now.
+	ns.AddReminder("thunderClap", "ZydeForeverThunderClap", icon(THUNDER_CLAP, "Spell_Nature_ThunderClap"), function(preview)
+		if preview then return true end
+		if not on() or not inCombat() or not hostileTarget() or not ready(THUNDER_CLAP) then return false end
+		local rend = knownRank(REND)
+		if rend and inRange(rend) == false then return false end -- (out of reach: it wouldn't land)
+		local found, hidden = hasAura("target", "HARMFUL", THUNDER_SET)
+		return not found and not hidden
 	end)
 end
 
@@ -182,18 +218,7 @@ if HUNTER then
 
 	-- Your target can't be shot from here: too far for Auto Shot, or so close
 	-- you're in melee (the dead zone, where Auto Shot won't fire). Auto Shot's
-	-- own range check, so range talents count; Raptor Strike's for melee.
-	local function inRange(id)
-		local r
-		if C_Spell and C_Spell.IsSpellInRange then r = safe(C_Spell.IsSpellInRange, id, "target")
-		elseif IsSpellInRange then
-			local name = GetSpellInfo and GetSpellInfo(id)
-			r = name and safe(IsSpellInRange, name, "target")
-		end
-		r = plain(r)
-		if r == nil then return nil end
-		return r == true or r == 1
-	end
+	-- own range check, so range talents count; Wing Clip's for melee.
 	local rangeTile
 	-- In melee reach: Wing Clip's range (an instant melee attack; Raptor Strike,
 	-- a "next swing" ability, reports in range from afar on Forever), checked
