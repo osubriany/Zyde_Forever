@@ -134,7 +134,9 @@ end
 -- Hunter
 ---------------------------------------------------------------------------
 local CHEETAH, PACK = 5118, 13159
-local AUTO_SHOT, RAPTOR, WING_CLIP = 75, 2973, 2974
+local AUTO_SHOT = 75
+local RAPTOR = { 2973, 14260, 14261, 14262, 14263, 14264, 14265, 14266 }
+local WING_CLIP = { 2974, 14267, 14268 }
 local MARK = { 1130, 14323, 14324, 14325 }
 local MARK_SET = set(MARK)
 local MONGOOSE = { 1495, 14269, 14270, 14271 }
@@ -193,13 +195,39 @@ if HUNTER then
 		return r == true or r == 1
 	end
 	local rangeTile
+	-- In melee reach: Wing Clip's range (an instant melee attack; Raptor Strike,
+	-- a "next swing" ability, reports in range from afar on Forever), checked
+	-- against the game's ~10 yd distance check when that's allowed (out of combat).
+	local function meleeRange()
+		local id = knownRank(WING_CLIP) or knownRank(RAPTOR)
+		local melee = id and inRange(id)
+		if not melee then return false end
+		if not InCombatLockdown() and CheckInteractDistance then
+			local near = plain(safe(CheckInteractDistance, "target", 3))
+			if near == false then return false end
+		end
+		return true
+	end
+	ns.RangeDebug = function()
+		local p = "|cff66ccffZyde_Forever|r range: "
+		print(p .. "target " .. tostring(UnitName("target")) .. ", hostile " .. tostring(hostileTarget() and true or false))
+		print(p .. "Auto Shot " .. tostring(inRange(AUTO_SHOT)))
+		for _, ids in ipairs({ WING_CLIP, RAPTOR }) do
+			local id = knownRank(ids)
+			print(p .. "spell " .. tostring(id) .. " in range " .. tostring(id and inRange(id)))
+		end
+		local near = CheckInteractDistance and safe(CheckInteractDistance, "target", 3)
+		print(p .. "within ~10 yd " .. tostring(plain(near)) .. (InCombatLockdown() and " (in combat: may be blocked)" or ""))
+		print(p .. "melee verdict " .. tostring(meleeRange()))
+	end
+
 	rangeTile = ns.AddReminder("shotRange", "ZydeForeverShotRange", ns.spellTexture(AUTO_SHOT, "Interface\\Icons\\Ability_Whirlwind"), function(preview)
 		if preview then return true, "Too far" end
 		if not on() or not hostileTarget() or UnitOnTaxi("player") then return false end
 		local shot = inRange(AUTO_SHOT)
 		if shot == nil or shot then return false end -- (no ranged weapon, or can't tell: quiet)
-		if inRange(RAPTOR) then
-			rangeTile.tex:SetTexture(ns.spellTexture(WING_CLIP, "Interface\\Icons\\Ability_Rogue_Trip"))
+		if meleeRange() then
+			rangeTile.tex:SetTexture(ns.spellTexture(WING_CLIP[1], "Interface\\Icons\\Ability_Rogue_Trip"))
 			return true, "|cffff9933Too close|r"
 		end
 		rangeTile.tex:SetTexture(ns.spellTexture(AUTO_SHOT, rangeTile.fallback))

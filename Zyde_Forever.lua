@@ -2419,6 +2419,8 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		end
 	elseif msg == "wheeldebug" and ns.MarkerWheel then
 		ns.MarkerWheel.ToggleDebug()
+	elseif msg == "rangedebug" then
+		if ns.RangeDebug then ns.RangeDebug() else print("|cff66ccffZyde_Forever|r: the range check is for hunters") end
 	elseif msg == "petdebug" then
 		if ns.PetCare then ns.PetCare.Debug()
 		else print("|cff66ccffZyde_Forever|r: pet care isn't loaded - restart the game fully (a /reload doesn't load new files)") end
@@ -2450,6 +2452,7 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "resetmobs", "move the quest mob count back to its default spot" },
 			{ "errors", "show the last Lua errors (from any addon), even with error pop-ups turned off" },
 			{ "petdebug", "hunters: show what the game reports about your pet's mood, buffs and food" },
+			{ "rangedebug", "hunters: show what the game says about your target's range (Auto Shot, Wing Clip, ~10 yd)" },
 			{ "mobsdebug", "list nearby nameplates and why each is or isn't counted as a quest mob" },
 			{ "test", "preview the Battle Shout, Overpower and quest item icons" },
 			{ "questalert", "turn the quest item nearby alert on or off" },
