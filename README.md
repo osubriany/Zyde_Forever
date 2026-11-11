@@ -30,7 +30,7 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
   - The target's cast bar.
   - Hunters get a pet frame with a happiness face, the pet's buffs and an XP bar.
 - **XP readout**: a small, draggable XP % in place of the XP bar, showing rested XP and time to level. Hunters also see their arrow or bullet count here.
-- **Reminder icons**: icons to the right of your character.
+- **Reminder icons**: icons to the right of your character. Shift-drag any icon to move the column.
   - **Warrior:** Battle Shout missing or running out, Overpower / Execute / Revenge / Victory Rush ready, Thunder Clap missing on your target, wrong stance, Sunder stacks while tanking.
   - **Hunter:**
     - no Aspect, or Cheetah / Pack on in combat
@@ -124,6 +124,7 @@ Set these under **Game Menu → Options → Keybindings → AddOns → Zyde Fore
 | `/zyde resetxp` | Move the XP readout back to the top of the screen |
 | `/zyde resetquests` | Move the quest tracker back to its default spot |
 | `/zyde resetmobs` | Move the quest mob count back to its default spot |
+| `/zyde resetreminders` | Move the reminder icons back beside your character |
 | `/zyde questheight <pixels>` | The tallest the quest tracker gets before it scrolls (0 = down to the bottom of the screen) |
 | `/zyde questalert` | Turn the quest object alert on or off |
 | `/zyde questicons` | Turn the icons over nearby objects on or off |

@@ -89,7 +89,7 @@ end
 -- AHledger, Zygor) is off when that addon isn't loaded.
 ---------------------------------------------------------------------------
 local FEATURES = {
-	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "Icons to the right of your character. Warriors: Battle Shout missing or running out, Overpower / Execute / Revenge / Victory Rush ready, Thunder Clap missing on your target, wrong stance, Sunder stacks when tanking. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing (solo), target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Shamans: weapon imbue missing or running out, Lightning Shield missing or low, Earth Shock to interrupt, a totem out of range, no Ankh. Everyone: Well-Rested low, gear needs repair, low on food or water" },
+	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "Icons to the right of your character (Shift-drag one to move them). Warriors: Battle Shout missing or running out, Overpower / Execute / Revenge / Victory Rush ready, Thunder Clap missing on your target, wrong stance, Sunder stacks when tanking. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing (solo), target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Shamans: weapon imbue missing or running out, Lightning Shield missing or low, Earth Shock to interrupt, a totem out of range, no Ankh. Everyone: Well-Rested low, gear needs repair, low on food or water" },
 	{ key = "ammo", short = "count, refill, warning", label = "Hunter ammo", desc = "Arrows or bullets left and how long they last (in the XP readout), a warning when you leave town low, and a Fill quiver button at ammo vendors (hunters)" },
 	{ key = "petCare", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast warning in dungeons (hunters)" },
 	{ key = "markerWheel", short = "hold key, click marker", label = "Marker wheels", desc = "Hold a key for a wheel of target markers (skull, cross, moon...) or world markers, and click one to place it" },
@@ -239,6 +239,61 @@ function ns.AddReminder(key, name, tex, check)
 	icons[#icons + 1] = { key = key, frame = f }
 	reminders[#reminders + 1] = { key = key, frame = f, check = check }
 	return f
+end
+
+---------------------------------------------------------------------------
+-- Moving the column: Shift-drag any icon (out of combat). The icons only take
+-- the mouse while Shift is held, so they never block clicks otherwise.
+-- /zyde resetreminders puts the column back beside your character.
+---------------------------------------------------------------------------
+anchor:SetMovable(true)
+anchor:SetClampedToScreen(true)
+
+local function placeAnchor()
+	anchor:ClearAllPoints()
+	local p = ZydeForeverDB and ZydeForeverDB.reminderPos
+	if type(p) == "table" and p.point then
+		anchor:SetPoint(p.point, UIParent, p.rel or p.point, p.x or 0, p.y or 0)
+	else
+		anchor:SetPoint("CENTER", UIParent, "CENTER", OFFSET_X, OFFSET_Y)
+	end
+end
+
+local dragReady = false
+local function setDraggable(on)
+	if on == dragReady then return end
+	dragReady = on
+	for _, icon in ipairs(icons) do
+		local f = icon.frame
+		if on and not f.zydeDrag then
+			f.zydeDrag = true
+			f:RegisterForDrag("LeftButton")
+			f:SetScript("OnDragStart", function() if not InCombatLockdown() then anchor:StartMoving() end end)
+			f:SetScript("OnDragStop", function()
+				anchor:StopMovingOrSizing()
+				local point, _, rel, x, y = anchor:GetPoint(1)
+				ZydeForeverDB = ZydeForeverDB or {}
+				ZydeForeverDB.reminderPos = { point = point, rel = rel, x = x, y = y }
+			end)
+		end
+		f:EnableMouse(on)
+	end
+end
+
+local dragEv = CreateFrame("Frame")
+dragEv:RegisterEvent("PLAYER_LOGIN")
+dragEv:RegisterEvent("MODIFIER_STATE_CHANGED")
+dragEv:RegisterEvent("PLAYER_REGEN_DISABLED")
+dragEv:SetScript("OnEvent", function(_, event)
+	if event == "PLAYER_LOGIN" then placeAnchor() return end
+	if event == "PLAYER_REGEN_DISABLED" then anchor:StopMovingOrSizing() end
+	setDraggable(IsShiftKeyDown() and not InCombatLockdown())
+end)
+
+ns.ResetReminderPosition = function()
+	if ZydeForeverDB then ZydeForeverDB.reminderPos = nil end
+	placeAnchor()
+	print("|cff66ccffZyde_Forever|r: reminder icons moved back beside your character")
 end
 
 local function layout(states)
@@ -2463,6 +2518,8 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		else print("|cff66ccffZyde_Forever|r: pet care isn't loaded - restart the game fully (a /reload doesn't load new files)") end
 	elseif msg == "resetquests" and ns.QuestTracker then
 		ns.QuestTracker.ResetPosition()
+	elseif msg == "resetreminders" then
+		ns.ResetReminderPosition()
 	elseif msg == "resetmobs" and ns.QuestMobs then
 		ns.QuestMobs.ResetPosition()
 	elseif msg == "ammovendor" and ns.Ammo then
@@ -2487,6 +2544,7 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "resetxp", "move the XP % readout back to the top of the screen" },
 			{ "resetquests", "move the quest tracker back to its default spot" },
 			{ "resetmobs", "move the quest mob count back to its default spot" },
+			{ "resetreminders", "move the reminder icons back beside your character (Shift-drag one to move them)" },
 			{ "errors", "show the last Lua errors (from any addon), even with error pop-ups turned off" },
 			{ "petdebug", "hunters: show what the game reports about your pet's mood, buffs and food" },
 			{ "rangedebug", "hunters: show what the game says about your target's range (Auto Shot, Wing Clip, ~10 yd)" },
