@@ -102,7 +102,7 @@ local FEATURES = {
 	{ key = "flight", short = "skip flight chat", label = "Flight master shortcut", desc = "Flight masters open the map directly (hold Shift to talk)" },
 	{ key = "tracking", short = "re-enable after death", label = "Keep tracking after death", desc = "Turns Find Minerals, Find Herbs... back on after you die" },
 	{ key = "questTracker", short = "ready first, nearest first", label = "Quest tracker", desc = "Replaces the game's quest tracker: quests ready to turn in at the top, then this zone's quests nearest first, other zones folded away; finished objective lines hidden", reload = true },
-	{ key = "questAlert", short = "glow on quest objects", label = "Quest object alert", desc = "Glow, ! and ping on nearby quest objects" },
+	{ key = "questAlert", short = "glow on quest objects", label = "Quest object alert", desc = "Glow, ! and ping on nearby quest objects you pick up (not the loot of mobs you kill for a quest)" },
 	{ key = "questIcons", short = "icons over nodes", label = "Icons over nearby objects", desc = "The game's interact icons over herbs, ore and chests" },
 	{ key = "guildRoster", short = "class colors, levels, zones", label = "Guild member list", desc = "In the Guild & Communities window: online members' names in class colors, each member's level at the right (colored by how near your level), and their zone when you hover them" },
 	{ key = "lfg", short = "groups that fit you", label = "Group finder helper", desc = "Beside Looking For Group: groups with room for your role first, one-click whisper to the leader" },
@@ -674,14 +674,49 @@ local function words(text)
 	return out
 end
 
+-- Quest items you get by killing (Questie: dropped by mobs, never picked up
+-- from an object). Their loot left on the ground isn't worth an alert.
+local killItems = {}
+local function questieKillItem(DB, itemId)
+	local okN, npcs = pcall(DB.QueryItemSingle, itemId, "npcDrops")
+	local okO, objs = pcall(DB.QueryItemSingle, itemId, "objectDrops")
+	if not okN or type(npcs) ~= "table" or not next(npcs) then return false end
+	return not (okO and type(objs) == "table" and next(objs))
+end
+local function readKillItems(questIDs)
+	wipe(killItems)
+	if not (QuestieLoader and QuestieLoader.ImportModule) then return end
+	local ok, DB = pcall(QuestieLoader.ImportModule, QuestieLoader, "QuestieDB")
+	if not (ok and DB and DB.GetQuest and DB.QueryItemSingle) then return end
+	for _, qid in ipairs(questIDs) do
+		local okQ, q = pcall(DB.GetQuest, qid)
+		for _, o in ipairs(okQ and q and q.ObjectiveData or {}) do
+			if o.Type == "item" and o.Id and questieKillItem(DB, o.Id) then
+				local okName, name = pcall(DB.QueryItemSingle, o.Id, "name")
+				if okName and type(name) == "string" then killItems[name:lower()] = true end
+			end
+		end
+	end
+end
+
 local function readObjectives()
 	objectivesDirty = false
 	wipe(questNames)
 	wipe(questWords)
+	local questIDs = {}
+	if C_QuestLog and C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetInfo then
+		for i = 1, (safe(C_QuestLog.GetNumQuestLogEntries) or 0) do
+			local info = safe(C_QuestLog.GetInfo, i)
+			local qid = info and not info.isHeader and info.questID
+			if type(qid) == "number" and not isSecret(qid) then questIDs[#questIDs + 1] = qid end
+		end
+	end
+	readKillItems(questIDs)
 	local function add(text, finished)
 		text = plainStr(text)
 		if not text or finished then return end
 		local name = (text:match("^(.-):%s*%d+%s*/%s*%d+") or text:match("^%s*%d+%s*/%s*%d+%s+(.-)%s*$") or text):lower()
+		if killItems[name] then return end -- (dropped by mobs: no alert for it)
 		questNames[name] = true
 		for _, w in ipairs(words(name)) do questWords[w] = true end
 	end
