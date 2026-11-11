@@ -224,18 +224,15 @@ if HUNTER then
 	-- you're in melee (the dead zone, where Auto Shot won't fire). Auto Shot's
 	-- own range check, so range talents count; Wing Clip's for melee.
 	local rangeTile
-	-- In melee reach: Wing Clip's range (an instant melee attack; Raptor Strike,
-	-- a "next swing" ability, reports in range from afar on Forever), checked
-	-- against the game's ~10 yd distance check when that's allowed (out of combat).
+	-- In melee reach: the game's ~10 yd distance check, which Forever answers in
+	-- combat too (seen 2026-11-11: false at range, true in melee). Only if it
+	-- won't say, Wing Clip's range. Never Raptor Strike's: a "next swing"
+	-- ability, it reports in range from any distance on Forever.
 	local function meleeRange()
-		local id = knownRank(WING_CLIP) or knownRank(RAPTOR)
-		local melee = id and inRange(id)
-		if not melee then return false end
-		if not InCombatLockdown() and CheckInteractDistance then
-			local near = plain(safe(CheckInteractDistance, "target", 3))
-			if near == false then return false end
-		end
-		return true
+		local near = CheckInteractDistance and plain(safe(CheckInteractDistance, "target", 3))
+		if near ~= nil then return near == true end
+		local id = knownRank(WING_CLIP)
+		return id ~= nil and inRange(id) == true
 	end
 	ns.RangeDebug = function()
 		local p = "|cff66ccffZyde_Forever|r range: "
