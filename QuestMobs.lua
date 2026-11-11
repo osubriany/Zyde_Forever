@@ -153,14 +153,37 @@ end
 ---------------------------------------------------------------------------
 local glows = {} -- plate -> glow frame
 
+-- The health bar you actually see on a nameplate: a nameplate addon's own
+-- (Plater / ElvUI: plate.unitFrame, Kui: plate.kui) before the game's, which
+-- those addons hide.
+local function visibleBar(plate)
+	local function shown(f) return f and f.IsVisible and f:IsVisible() and f end
+	local custom = plate.unitFrame
+	local bar = custom and (shown(custom.healthBar) or shown(custom.Health))
+	if not bar and plate.kui then bar = shown(plate.kui.HealthBar) end
+	if not bar then
+		local uf = plate.UnitFrame
+		bar = uf and (shown(uf.healthBar) or shown(uf.HealthBar))
+	end
+	return bar or plate
+end
+
+-- Fit the edge to that bar (again each time it's shown: a nameplate addon may
+-- set its bar up after the plate first appears).
+local function fit(g, plate)
+	local bar = visibleBar(plate)
+	if g.bar == bar then return end
+	g.bar = bar
+	g:ClearAllPoints()
+	g:SetAllPoints(bar)
+	g:SetFrameLevel((bar.GetFrameLevel and bar:GetFrameLevel() or plate:GetFrameLevel()) + 5)
+end
+
 local function glowFor(plate)
 	local g = glows[plate]
 	if g then return g end
-	local uf = plate.UnitFrame
-	local bar = uf and (uf.healthBar or uf.HealthBar) or plate
 	g = CreateFrame("Frame", nil, plate)
-	g:SetAllPoints(bar)
-	g:SetFrameLevel((bar.GetFrameLevel and bar:GetFrameLevel() or plate:GetFrameLevel()) + 5)
+	fit(g, plate)
 	g.edges = ns.newEdges(g, "OVERLAY", 7)
 	ns.placeEdges(g.edges, g, -2, 2) -- just outside the bar
 	for _, t in ipairs(g.edges) do t:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1) end
@@ -185,6 +208,7 @@ local function updateGlows(mobs)
 	end
 	for plate in pairs(want) do
 		local g = glowFor(plate)
+		fit(g, plate)
 		if not g:IsShown() then g:Show() g.pulse:Play() end
 	end
 	for plate, g in pairs(glows) do
