@@ -1926,12 +1926,16 @@ local function averageItemLevel()
 	return count > 0 and total / count or nil
 end
 
+local ILVL_SUFFIX = "  ·  item level "
 local function updateLevelText()
 	if not (F("gear") and CharacterLevelText) then return end
 	local text = CharacterLevelText:GetText()
-	if type(text) ~= "string" or isSecret(text) or text:find("item level", 1, true) then return end
+	if type(text) ~= "string" or isSecret(text) then return end
+	-- Take off our old number (the game doesn't always redraw the line), add the new one.
+	local cut = text:find(ILVL_SUFFIX, 1, true)
+	if cut then text = text:sub(1, cut - 1) end
 	local avg = averageItemLevel()
-	if avg then CharacterLevelText:SetText(("%s  ·  item level %.1f"):format(text, avg)) end
+	if avg then CharacterLevelText:SetText(("%s%s%.1f"):format(text, ILVL_SUFFIX, avg)) end
 end
 if PaperDollFrame_SetLevel then hooksecurefunc("PaperDollFrame_SetLevel", updateLevelText) end
 
@@ -1940,11 +1944,9 @@ local function updateAllGearBorders()
 	for _, name in ipairs(GEAR_SLOTS) do
 		updateSlotBorder(_G["Character" .. name .. "Slot"])
 	end
-	if F("gear") and PaperDollFrame_SetLevel and CharacterFrame and CharacterFrame:IsShown() then
-		pcall(PaperDollFrame_SetLevel) -- redraw "Level 17 Hunter", then our item level is added
-	else
-		updateLevelText()
-	end
+	updateLevelText()
+	-- The game's average can lag a moment behind a gear change: look again.
+	C_Timer.After(0.5, updateLevelText)
 end
 
 if PaperDollItemSlotButton_Update then
