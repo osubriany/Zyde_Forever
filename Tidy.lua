@@ -101,8 +101,10 @@ local function repOn() return ns.F("repChat") end
 -- "Reputation with %s increased by %d." -> a pattern that captures both.
 local function toPattern(fmt)
 	if type(fmt) ~= "string" then return nil end
-	local p = fmt:gsub("([%(%)%.%+%-%*%?%[%]%^%$])", "%%%1")
-	p = p:gsub("%%%%s", "(.+)"):gsub("%%%%d", "(%%d+)")
+	-- Mark the %s / %d slots, escape everything else, then put captures in.
+	local p = fmt:gsub("%%%d?%$?s", "\1"):gsub("%%%d?%$?d", "\2")
+	p = p:gsub("([%(%)%.%+%-%*%?%[%]%^%$%%])", "%%%1")
+	p = p:gsub("\1", "(.+)"):gsub("\2", "(%%d+)")
 	return "^" .. p .. "$"
 end
 local UP = toPattern(FACTION_STANDING_INCREASED or "Reputation with %s increased by %d.")
@@ -149,8 +151,8 @@ local function repFilter(frame, _, msg)
 	return true -- hide the single line; the combined one follows
 end
 
-if ChatFrame_AddMessageEventFilter then
-	ChatFrame_AddMessageEventFilter("CHAT_MSG_COMBAT_FACTION_CHANGE", repFilter)
-end
+local addFilter = ChatFrame_AddMessageEventFilter
+	or (ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter)
+if addFilter then addFilter("CHAT_MSG_COMBAT_FACTION_CHANGE", repFilter) end
 
 ns.OnFeatureChanged(function(key) if key == "barTidy" then updateAll() end end)
