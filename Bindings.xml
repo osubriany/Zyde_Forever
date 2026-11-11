@@ -1,0 +1,17 @@
+<Bindings>
+	<Binding name="CLICK ZydeForeverFishButton:LeftButton" header="ZYDEFOREVER" category="ADDONS">
+		-- Handled by the secure button ZydeForeverFishButton in Zyde_Forever.lua
+	</Binding>
+	<Binding name="CLICK ZydeForeverZygorTarget:LeftButton" category="ADDONS">
+	</Binding>
+	<Binding name="CLICK ZydeForeverQuestMobTarget:LeftButton" category="ADDONS">
+	</Binding>
+	<Binding name="CLICK ZydeForeverFeedPet:LeftButton" category="ADDONS">
+	</Binding>
+	<Binding name="CLICK ZydeForeverCallPet:LeftButton" category="ADDONS">
+	</Binding>
+	<Binding name="CLICK ZydeForeverMarkerKey:LeftButton" category="ADDONS">
+	</Binding>
+	<Binding name="CLICK ZydeForeverWorldMarkerKey:LeftButton" category="ADDONS">
+	</Binding>
+</Bindings>

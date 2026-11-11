@@ -1,0 +1,18 @@
+## Interface: 16001
+## Title: Zyde Forever
+## Notes: Warrior reminders (Battle Shout missing, Overpower ready) beside your character, and hides the main bar art, bag bar and micro menu.
+## Author: Zyde
+## Version: 1.2.0
+## SavedVariables: ZydeForeverDB
+## OptionalDeps: Questie, AHledger
+
+Zyde_Forever.lua
+UnitFrames.lua
+QuestieDrops.lua
+QuestMobs.lua
+ScrapList.lua
+Ammo.lua
+PetCare.lua
+MarkerWheel.lua
+VendorList.lua
+LFGHelper.lua
