@@ -470,10 +470,37 @@ local function refreshSoon()
 	C_Timer.After(0.2, function() pending = false refresh() end)
 end
 
+-- Questie's own tracker: off while this one is on (Questie's "Enable Tracker"
+-- setting). Turned back on only if Zyde was the one that turned it off.
+local function setQuestieTracker(wantOff)
+	local Q = rawget(_G, "Questie")
+	local p = type(Q) == "table" and Q.db and Q.db.profile
+	if type(p) ~= "table" then return end
+	if wantOff then
+		if p.trackerEnabled then
+			p.trackerEnabled = false
+			db().questieTrackerOff = true
+		end
+		-- (already built this session: its next update hides it; hide it now too)
+		local ok, T = pcall(QuestieLoader.ImportModule, QuestieLoader, "QuestieTracker")
+		if ok and type(T) == "table" and T.started and T.Update then pcall(T.Update, T) end
+		local base = rawget(_G, "Questie_BaseFrame")
+		if base and base:IsShown() and not InCombatLockdown() then base:Hide() end
+	elseif db().questieTrackerOff then
+		p.trackerEnabled = true
+		db().questieTrackerOff = nil
+		print(P .. "Questie's quest tracker comes back after a /reload")
+	end
+end
+
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_LOGIN")
 ev:SetScript("OnEvent", function(_, event)
 	if event == "PLAYER_LOGIN" then
+		if QuestieLoader then
+			-- before Questie starts its tracker (it does so after login)
+			pcall(setQuestieTracker, on())
+		end
 		if QuestieLoader and QuestieLoader.ImportModule then
 			DB = select(2, pcall(QuestieLoader.ImportModule, QuestieLoader, "QuestieDB"))
 			ZDB = select(2, pcall(QuestieLoader.ImportModule, QuestieLoader, "ZoneDB"))
@@ -499,6 +526,7 @@ end)
 ns.OnFeatureChanged(function(key)
 	if key ~= "questTracker" then return end
 	if on() then place() hideBlizzard() refresh() else frame:Hide() end
+	if QuestieLoader then pcall(setQuestieTracker, on()) end
 end)
 
 ns.QuestTracker = {
