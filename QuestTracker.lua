@@ -46,16 +46,16 @@ end
 -- Distance in yards (or map units if the map size is unknown) to the
 -- nearest of `points` ({ {x, y}, ... } in 0-100).
 local function nearest(points, px, py, w, h)
-	local best
+	local best, bestPt
 	for _, pt in ipairs(points) do
 		local x, y = pt[1], pt[2]
 		if type(x) == "number" and type(y) == "number" and x > 0 then
 			local dx, dy = (x - px) / 100 * (w or 100), (y - py) / 100 * (h or 100)
 			local d = dx * dx + dy * dy
-			if not best or d < best then best = d end
+			if not best or d < best then best, bestPt = d, pt end
 		end
 	end
-	return best and math.sqrt(best) or nil
+	return best and math.sqrt(best) or nil, bestPt
 end
 
 -- Spawn points of an NPC (or object) in an area, from Questie.
@@ -100,16 +100,17 @@ local function questDistance(questID, ready, area, px, py, w, h)
 	if not (DB and area and px) then return nil end
 	local quest = safe(DB.GetQuest, questID)
 	if type(quest) ~= "table" then return nil end
-	local best
+	local best, bestPt
 	local function consider(points)
-		local d = points and nearest(points, px, py, w, h)
-		if d and (not best or d < best) then best = d end
+		if not points then return end
+		local d, pt = nearest(points, px, py, w, h)
+		if d and (not best or d < best) then best, bestPt = d, pt end
 	end
 	if ready then
 		local f = quest.Finisher or {}
 		if type(f.NPC) == "table" then for _, id in ipairs(f.NPC) do consider(spawnsOf("npc", id, area)) end end
 		if type(f.GameObject) == "table" then for _, id in ipairs(f.GameObject) do consider(spawnsOf("object", id, area)) end end
-		return best
+		return best, bestPt
 	end
 	for _, list in ipairs({ quest.Objectives or {}, quest.SpecialObjectives or {} }) do
 		for _, obj in pairs(list) do
@@ -120,12 +121,12 @@ local function questDistance(questID, ready, area, px, py, w, h)
 			end
 		end
 	end
-	return best
+	return best, bestPt
 end
 
 local function readLog()
 	local quests = {}
-	local area, px, py, _, w, h = playerZone()
+	local area, px, py, map, w, h = playerZone()
 	local zoneName = GetRealZoneText and GetRealZoneText()
 	local header
 	local n = C_QuestLog.GetNumQuestLogEntries and (safe(C_QuestLog.GetNumQuestLogEntries) or 0) or (safe(GetNumQuestLogEntries) or 0)
@@ -146,10 +147,10 @@ local function readLog()
 		elseif title and questID then
 			local objectives = objectivesOf(questID, i)
 			local ready = isComplete(questID, completeFlag, objectives)
-			local dist = questDistance(questID, ready, area, px, py, w, h)
+			local dist, pt = questDistance(questID, ready, area, px, py, w, h)
 			quests[#quests + 1] = {
 				index = i, questID = questID, title = title, level = level, ready = ready,
-				objectives = objectives, dist = dist,
+				objectives = objectives, dist = dist, map = pt and map, x = pt and pt[1], y = pt and pt[2],
 				here = dist ~= nil or (header ~= nil and header == zoneName),
 			}
 		end
@@ -244,12 +245,91 @@ local function headRow(i)
 	return h
 end
 
+---------------------------------------------------------------------------
+-- Focusing a quest (the circle left of each title): a map waypoint to the
+-- nearest place you still need to go - an unfinished objective, or the
+-- turn-in once it's done - kept up to date as you move. Click again to stop.
+---------------------------------------------------------------------------
+local focused, focusedAt -- questID, and the "map:x:y" the waypoint points at
+
+local function clearFocus()
+	focused, focusedAt = nil, nil
+	if C_Map.ClearUserWaypoint then pcall(C_Map.ClearUserWaypoint) end
+	if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID then pcall(C_SuperTrack.SetSuperTrackedQuestID, 0) end
+end
+
+-- Point the waypoint at the quest's nearest spot (if it moved).
+local function aimFocus(q)
+	if q.map and q.x then
+		local key = q.map .. ":" .. q.x .. ":" .. q.y
+		if key == focusedAt then return end
+		focusedAt = key
+		local set = false
+		if UiMapPoint and C_Map.CanSetUserWaypointOnMap and safe(C_Map.CanSetUserWaypointOnMap, q.map) then
+			set = pcall(C_Map.SetUserWaypoint, UiMapPoint.CreateFromCoordinates(q.map, q.x / 100, q.y / 100))
+			if set and C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint then
+				pcall(C_SuperTrack.SetSuperTrackedUserWaypoint, true)
+			end
+		end
+		if TomTom and TomTom.AddWaypoint then
+			pcall(TomTom.AddWaypoint, TomTom, q.map, q.x / 100, q.y / 100, { title = q.title, from = "Zyde_Forever" })
+		end
+	elseif focusedAt ~= "quest" then
+		-- Nothing known in this zone: let the game focus the quest itself.
+		focusedAt = "quest"
+		if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID then pcall(C_SuperTrack.SetSuperTrackedQuestID, q.questID) end
+	end
+end
+
+local function toggleFocus(q)
+	if focused == q.questID then
+		clearFocus()
+		print(P .. "stopped focusing " .. q.title)
+	else
+		focused, focusedAt = q.questID, nil
+		aimFocus(q)
+		print(P .. "focusing " .. q.title .. (q.x and (" - waypoint set (%.1f, %.1f)"):format(q.x, q.y) or " (no location known in this zone)"))
+	end
+	refresh()
+end
+
+local function circleTexture(parent, layer, size, r, g, b, a)
+	local t = parent:CreateTexture(nil, layer)
+	t:SetSize(size, size)
+	t:SetPoint("CENTER")
+	t:SetColorTexture(r, g, b, a)
+	local m = parent:CreateMaskTexture()
+	m:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	m:SetAllPoints(t)
+	t:AddMaskTexture(m)
+	return t
+end
+
 local function questRow(i)
 	local r = rows[i]
 	if r then return r end
 	r = CreateFrame("Button", nil, frame)
+	-- The circle: "..." while in progress, "?" when ready; lit when focused.
+	local c = CreateFrame("Button", nil, r)
+	c:SetSize(18, 18)
+	c:SetPoint("TOPLEFT", 4, 2)
+	c.ring = circleTexture(c, "BACKGROUND", 18, 0.85, 0.65, 0.15, 1)
+	c.inner = circleTexture(c, "ARTWORK", 14, 0.12, 0.09, 0.05, 1)
+	c.mark = c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	c.mark:SetPoint("CENTER", 0, 0)
+	c:SetScript("OnClick", function() if r.quest then toggleFocus(r.quest) end end)
+	c:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+		local q = r.quest
+		GameTooltip:AddLine(q and q.title or "Quest")
+		GameTooltip:AddLine(focused == (q and q.questID) and "Click to stop focusing this quest"
+			or "Click to focus: waypoint to the nearest place you still need to go", 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	c:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	r.circle = c
 	r.title = r:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	r.title:SetPoint("TOPLEFT", 12, 0)
+	r.title:SetPoint("TOPLEFT", 26, 0)
 	r.title:SetPoint("RIGHT", -4, 0)
 	r.title:SetJustifyH("LEFT")
 	r.title:SetWordWrap(false)
@@ -296,6 +376,14 @@ local GROUPS = {
 refresh = function()
 	if not on() then frame:Hide() return end
 	local groups, total = readLog()
+	-- Keep the focused quest's waypoint on its nearest spot; drop it once the quest is gone.
+	if focused then
+		local found
+		for _, list in pairs(groups) do
+			for _, q in ipairs(list) do if q.questID == focused then found = q end end
+		end
+		if found then aimFocus(found) else clearFocus() end
+	end
 	title.count:SetFormattedText("%d/%d", total, MAX_QUESTLOG_QUESTS or 20)
 	local y = -24
 	local hi, ri = 0, 0
@@ -325,6 +413,10 @@ refresh = function()
 					ri = ri + 1
 					local r = questRow(ri)
 					r.quest = q
+					local isFocus = focused == q.questID
+					r.circle.mark:SetText(q.ready and "?" or "...")
+					r.circle.ring:SetColorTexture(isFocus and 1 or 0.85, isFocus and 0.9 or 0.65, isFocus and 0.3 or 0.15, 1)
+					r.circle.inner:SetColorTexture(isFocus and 0.45 or 0.12, isFocus and 0.32 or 0.09, isFocus and 0.05 or 0.05, 1)
 					r.title:SetText(("%s[%s]|r %s"):format(levelColor(q.level), tostring(q.level or "?"), q.title))
 					local ly, shown = -14, 0
 					for _, o in ipairs(q.objectives) do
@@ -332,7 +424,7 @@ refresh = function()
 							shown = shown + 1
 							local fs = lineOf(r, shown)
 							fs:ClearAllPoints()
-							fs:SetPoint("TOPLEFT", r, "TOPLEFT", 22, ly)
+							fs:SetPoint("TOPLEFT", r, "TOPLEFT", 36, ly)
 							fs:SetPoint("RIGHT", r, "RIGHT", -4, 0)
 							fs:SetText("- " .. o.text)
 							fs:Show()
