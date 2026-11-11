@@ -428,7 +428,7 @@ end
 local function learnVendor(kind)
 	local guid = UnitGUID("npc")
 	if not guid or ns.isSecret(guid) then return end
-	local npcId = tonumber(select(6, strsplit("-", guid)))
+	local npcId = tonumber((select(6, strsplit("-", guid))))
 	local map, x, y = playerWorld()
 	if not (npcId and map) then return end
 	local d = db()
