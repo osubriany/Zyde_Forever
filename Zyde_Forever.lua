@@ -97,7 +97,7 @@ local FEATURES = {
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames", reload = true },
 	{ key = "barTidy", short = "short keys, no empty slots", label = "Tidy action bars", desc = "Short keybind labels on action buttons (a-1 becomes A1, Mouse Button 4 becomes M4) and empty slots hidden - they show again while you drag a spell or item" },
-	{ key = "gear", short = "borders, item levels", label = "Character screen gear", desc = "Rarity borders, item levels and upgrade flags", reload = true },
+	{ key = "gear", short = "borders, item levels", label = "Character screen gear", desc = "Rarity borders and item levels; a green arrow when your bags hold an upgrade for a slot (scored by GearAdvisor if loaded), empty slots quiet gray unless your bags can fill them, and your average item level in the header", reload = true },
 	{ key = "fishing", short = "one-key fishing", label = "One Button Fishing", desc = "Same key casts and reels in (set the key in Keybindings)" },
 	{ key = "flight", short = "skip flight chat", label = "Flight master shortcut", desc = "Flight masters open the map directly (hold Shift to talk)" },
 	{ key = "tracking", short = "re-enable after death", label = "Keep tracking after death", desc = "Turns Find Minerals, Find Herbs... back on after you die" },
@@ -1686,16 +1686,31 @@ local function getBorder(button)
 	f.flag:SetText("!")
 	f.flag:Hide()
 
+	-- Upgrade waiting in your bags: a green arrow in the top-left corner.
+	f.arrow = f:CreateTexture(nil, "OVERLAY", nil, 3)
+	f.arrow:SetSize(14, 14)
+	f.arrow:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1)
+	f.arrow:SetTexture("Interface\\Buttons\\UI-MicroStream-Green")
+	f.arrow:Hide()
+
 	-- Hide Blizzard's quality border on this slot so only ours shows.
 	if button.IconBorder then fade(button.IconBorder) end
 
-	-- Add the flag's reason to the slot's tooltip.
+	-- Add the flag's reason and any bag upgrade to the slot's tooltip.
 	button:HookScript("OnEnter", function()
-		if f.flagText and f.flag:IsShown() and GameTooltip:IsOwned(button) then
+		if not GameTooltip:IsOwned(button) then return end
+		local added = false
+		if f.flagText and f.flag:IsShown() then
 			GameTooltip:AddLine(" ")
 			GameTooltip:AddLine(f.flagText, f.flagR, f.flagG, f.flagB, true)
-			GameTooltip:Show()
+			added = true
 		end
+		if f.upgradeText and f.arrow:IsShown() then
+			if not added then GameTooltip:AddLine(" ") end
+			GameTooltip:AddLine(f.upgradeText, 0.35, 1, 0.35, true)
+			added = true
+		end
+		if added then GameTooltip:Show() end
 	end)
 
 	button.zydeBorder = f
@@ -1769,6 +1784,76 @@ local function showFlag(f, fr, fg, fb, reason)
 	end
 end
 
+---------------------------------------------------------------------------
+-- Upgrades waiting in your bags, per character slot. Scored by GearAdvisor
+-- when it's loaded (its "upgrade" verdict and % gain); otherwise any item you
+-- can wear now with a higher item level than what's in the slot.
+---------------------------------------------------------------------------
+local EQUIP_SLOTS = {
+	INVTYPE_HEAD = { 1 }, INVTYPE_NECK = { 2 }, INVTYPE_SHOULDER = { 3 }, INVTYPE_CHEST = { 5 },
+	INVTYPE_ROBE = { 5 }, INVTYPE_WAIST = { 6 }, INVTYPE_LEGS = { 7 }, INVTYPE_FEET = { 8 },
+	INVTYPE_WRIST = { 9 }, INVTYPE_HAND = { 10 }, INVTYPE_FINGER = { 11, 12 }, INVTYPE_TRINKET = { 13, 14 },
+	INVTYPE_CLOAK = { 15 }, INVTYPE_WEAPON = { 16, 17 }, INVTYPE_2HWEAPON = { 16 },
+	INVTYPE_WEAPONMAINHAND = { 16 }, INVTYPE_WEAPONOFFHAND = { 17 }, INVTYPE_SHIELD = { 17 },
+	INVTYPE_HOLDABLE = { 17 }, INVTYPE_RANGED = { 18 }, INVTYPE_RANGEDRIGHT = { 18 },
+	INVTYPE_THROWN = { 18 }, INVTYPE_RELIC = { 18 },
+}
+local bagUpgrades = {} -- slot -> { link, pct (GearAdvisor) or gain (item levels) }
+
+-- Red text in the item's tooltip (level, armor type, class...) = can't wear it now.
+local function wearableNow(bag, slot)
+	local data = C_TooltipInfo and C_TooltipInfo.GetBagItem and safe(C_TooltipInfo.GetBagItem, bag, slot)
+	for _, line in ipairs(data and data.lines or {}) do
+		for _, side in ipairs({ { line.leftText, line.leftColor }, { line.rightText, line.rightColor } }) do
+			local text, c = side[1], side[2]
+			if c and type(text) == "string" and not isSecret(text) and c.r and c.r > 0.95 and c.g < 0.2 and c.b < 0.2 then
+				return false
+			end
+		end
+	end
+	return true
+end
+
+local function scanBagUpgrades()
+	wipe(bagUpgrades)
+	local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+	local getLevel = (C_Item and C_Item.GetDetailedItemLevelInfo) or GetDetailedItemLevelInfo
+	local GA = GearAdvisorAPI
+	local function record(slot, link, pct, gain)
+		local cur = bagUpgrades[slot]
+		local score = pct or gain or 0
+		if not cur or score > (cur.pct or cur.gain or 0) then bagUpgrades[slot] = { link = link, pct = pct, gain = gain } end
+	end
+	for bag = 0, (NUM_BAG_SLOTS or 4) do
+		for bslot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
+			local info = C_Container.GetContainerItemInfo(bag, bslot)
+			local link = info and info.hyperlink
+			local equipLoc = link and select(9, getInfo(link))
+			local slots = equipLoc and EQUIP_SLOTS[equipLoc]
+			if slots then
+				if GA and GA.Compare then
+					local r = GA.Compare(link)
+					if r and r.kind == "upgrade" and r.slot then record(r.slot, link, r.pct) end
+				elseif wearableNow(bag, bslot) then
+					local lvl = safe(getLevel, link)
+					if type(lvl) == "number" and not isSecret(lvl) then
+						for _, s in ipairs(slots) do
+							local cur = slotItemLevel(s) or 0
+							if lvl > cur then record(s, link, nil, lvl - cur) end
+						end
+					end
+				end
+			end
+		end
+	end
+end
+
+local function upgradeLine(u)
+	if u.pct then return ("Upgrade in your bags: %s (%+.0f%%)"):format(u.link, u.pct) end
+	if u.gain then return ("Upgrade in your bags: %s (+%d item levels)"):format(u.link, u.gain) end
+	return "Upgrade in your bags: " .. u.link
+end
+
 local function updateSlotBorder(button)
 	if not button or not button.GetID then return end
 	local slot = button:GetID()
@@ -1779,18 +1864,26 @@ local function updateSlotBorder(button)
 	end
 	local q = GetInventoryItemQuality("player", slot)
 	if isSecret(q) then return end
+	local up = bagUpgrades[slot]
 	if not q then
-		-- Empty slot: a soft red frame and "!" if it's worth filling.
-		local fr, fg, fb, reason = gearFlag(slot, nil, mainHandIsTwoHanded())
-		if not fr then
+		-- Empty slot: quiet gray, unless your bags hold something for it -
+		-- then a red "!" (you can fix this right now).
+		if not FLAG_EMPTY[slot] or (slot == 17 and mainHandIsTwoHanded()) then
 			if button.zydeBorder then button.zydeBorder:Hide() end
 			return
 		end
 		local f = getBorder(button)
-		for _, tex in ipairs(f.edge) do tex:SetColorTexture(fr, fg, fb, 0.6) end
-		setGlow(f.glow, fr, fg, fb)
 		f.ilvl:Hide()
-		showFlag(f, fr, fg, fb, reason)
+		f.arrow:Hide()
+		if up then
+			for _, tex in ipairs(f.edge) do tex:SetColorTexture(1, 0.2, 0.2, 0.6) end
+			setGlow(f.glow, 1, 0.2, 0.2)
+			showFlag(f, 1, 0.2, 0.2, "Empty - you have something for this slot in your bags: " .. up.link)
+		else
+			for _, tex in ipairs(f.edge) do tex:SetColorTexture(0.35, 0.35, 0.38, 0.5) end
+			for _, tex in ipairs(f.glow) do tex:SetColorTexture(0, 0, 0, 0) end
+			showFlag(f, nil)
+		end
 		f:Show()
 		return
 	end
@@ -1798,6 +1891,8 @@ local function updateSlotBorder(button)
 	local r, g, b = qualityColor(q)
 	for _, tex in ipairs(f.edge) do tex:SetColorTexture(r, g, b, 1) end
 	setGlow(f.glow, r, g, b)
+	f.arrow:SetShown(up ~= nil)
+	f.upgradeText = up and upgradeLine(up) or nil
 
 	local lvl = (not NO_ILVL_SLOTS[slot]) and slotItemLevel(slot)
 	if lvl and lvl > 1 then
@@ -1812,9 +1907,42 @@ local function updateSlotBorder(button)
 	f:Show()
 end
 
+-- Average item level of what you wear, in the header: "Level 17 Hunter · item level 16.8".
+local function averageItemLevel()
+	if GetAverageItemLevel then
+		local _, equipped = safe(GetAverageItemLevel)
+		if type(equipped) == "number" and not isSecret(equipped) and equipped > 0 then return equipped end
+	end
+	-- Our own count: the 16 slots that matter (a two-hander counts for both hands).
+	local total, count = 0, 0
+	for _, s in ipairs({ 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18 }) do
+		if s ~= 18 or UnitClass and select(2, UnitClass("player")) == "HUNTER" then
+			local lvl = slotItemLevel(s)
+			if s == 17 and not lvl and mainHandIsTwoHanded() then lvl = slotItemLevel(16) end
+			total, count = total + (lvl or 0), count + 1
+		end
+	end
+	return count > 0 and total / count or nil
+end
+
+local function updateLevelText()
+	if not (F("gear") and CharacterLevelText) then return end
+	local text = CharacterLevelText:GetText()
+	if type(text) ~= "string" or isSecret(text) or text:find("item level", 1, true) then return end
+	local avg = averageItemLevel()
+	if avg then CharacterLevelText:SetText(("%s  ·  item level %.1f"):format(text, avg)) end
+end
+if PaperDollFrame_SetLevel then hooksecurefunc("PaperDollFrame_SetLevel", updateLevelText) end
+
 local function updateAllGearBorders()
+	if F("gear") then pcall(scanBagUpgrades) end
 	for _, name in ipairs(GEAR_SLOTS) do
 		updateSlotBorder(_G["Character" .. name .. "Slot"])
+	end
+	if F("gear") and PaperDollFrame_SetLevel and CharacterFrame and CharacterFrame:IsShown() then
+		pcall(PaperDollFrame_SetLevel) -- redraw "Level 17 Hunter", then our item level is added
+	else
+		updateLevelText()
 	end
 end
 
@@ -1828,11 +1956,14 @@ gearEvents:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 gearEvents:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 gearEvents:RegisterEvent("PLAYER_LEVEL_UP")
 gearEvents:RegisterEvent("PLAYER_LOGIN")
+gearEvents:RegisterEvent("BAG_UPDATE_DELAYED")
 gearEvents:SetScript("OnEvent", function(_, event)
 	if event == "PLAYER_LOGIN" and CharacterFrame then
 		CharacterFrame:HookScript("OnShow", updateAllGearBorders)
 	end
-	if event == "GET_ITEM_INFO_RECEIVED" and not (CharacterFrame and CharacterFrame:IsShown()) then return end
+	-- Item info and bag changes only matter while the character window is open.
+	if (event == "GET_ITEM_INFO_RECEIVED" or event == "BAG_UPDATE_DELAYED")
+		and not (CharacterFrame and CharacterFrame:IsShown()) then return end
 	updateAllGearBorders()
 end)
 
