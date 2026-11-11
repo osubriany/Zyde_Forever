@@ -89,7 +89,7 @@ end
 -- AHledger, Zygor) is off when that addon isn't loaded.
 ---------------------------------------------------------------------------
 local FEATURES = {
-	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "Icons to the right of your character: Battle Shout missing and Overpower ready (warriors), no Aspect on (hunters), and Well-Rested running low" },
+	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "Icons to the right of your character. Warriors: Battle Shout missing or running out, Overpower / Execute / Revenge ready, wrong stance, Sunder stacks when tanking. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing, Mongoose Bite ready, Mend Pet. Everyone: Well-Rested low, gear needs repair, low on food or water" },
 	{ key = "ammo", short = "count, refill, warning", label = "Hunter ammo", desc = "Arrows or bullets left and how long they last (in the XP readout), a warning when you leave town low, and a Fill quiver button at ammo vendors (hunters)" },
 	{ key = "petCare", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast warning in dungeons (hunters)" },
 	{ key = "markerWheel", short = "hold key, click marker", label = "Marker wheels", desc = "Hold a key for a wheel of target markers (skull, cross, moon...) or world markers, and click one to place it" },
@@ -480,7 +480,11 @@ local function update()
 	else
 		-- Always check (keeps the remembered expiry fresh), but only show in combat.
 		local missing = shoutMissing()
-		states.shout = F("shout") and missing and UnitAffectingCombat("player") or false
+		-- Running out (under 10 seconds left): show it blinking so you can refresh it in time.
+		local left = shoutExpires - GetTime()
+		local low = not missing and shoutExpires ~= math.huge and left > 0 and left < 10
+		states.shout = F("shout") and (missing or low) and UnitAffectingCombat("player") or false
+		icons[1].frame:SetAlpha(low and (0.35 + 0.65 * math.abs(math.sin(GetTime() * 4))) or 1)
 		states.overpower = F("overpower") and overpowerReady() or false
 	end
 	-- Well-Rested reminder: any class, any time.
@@ -1898,6 +1902,7 @@ end)
 
 -- Shared with UnitFrames.lua
 ns.isSecret, ns.safe, ns.stash = isSecret, safe, stash
+ns.knownRank, ns.spellTexture = knownRank, spellTexture
 ns.newEdges, ns.placeEdges = newEdges, placeEdges
 
 ---------------------------------------------------------------------------
