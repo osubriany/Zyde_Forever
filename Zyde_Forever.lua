@@ -616,6 +616,8 @@ for _, id in ipairs(ASPECTS) do isAspect[id] = true end
 local isHunter = playerClass == "HUNTER"
 local aspectSeen = false -- last known: an aspect is up
 
+-- Is an aspect on? true, false, or nil when the game hides your buffs (in
+-- combat, and in dungeons even out of combat) so we can't tell.
 local function aspectUp()
 	if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
 		for _, id in ipairs(ASPECTS) do
@@ -623,13 +625,16 @@ local function aspectUp()
 		end
 	end
 	-- By name too ("Aspect of the ..."), for ranks or IDs not listed above.
+	local hidden = false
 	for i = 1, 40 do
 		local a = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex and safe(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
 		if not a then break end
 		local id, name = a.spellId, a.name
 		if not isSecret(id) and isAspect[id] then return true end
 		if type(name) == "string" and not isSecret(name) and name:find("^Aspect of the ") then return true end
+		if isSecret(id) and isSecret(name) then hidden = true end
 	end
+	if hidden then return nil end
 	return false
 end
 
@@ -647,10 +652,11 @@ local hawkTile = ns.AddReminder("aspect", "ZydeForeverAspect", "Interface\\Icons
 	if not F("aspect") or not knownRank(ASPECT_HAWK) then return false end
 	if UnitIsDeadOrGhost("player") or UnitOnTaxi("player") then return false end
 	local up = aspectUp()
+	if up == nil then return false end -- buffs hidden: stay quiet rather than nag wrongly
 	if up then
 		aspectSeen = true
 	elseif InCombatLockdown() and aspectSeen then
-		up = true -- hidden in combat: assume it's still on
+		up = true -- (the aura list can lag a cast in combat: trust what we last saw)
 	else
 		aspectSeen = false
 	end
