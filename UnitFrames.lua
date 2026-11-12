@@ -684,7 +684,7 @@ local others, othersAt = {}, {}
 local function fillGrid(grid, base)
 	local n, unit = 0, grid.unit
 	wipe(others)
-	if UnitExists(unit) and C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+	if UnitExists(unit) and ns.F("unitAuras") and C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
 		local ownFirst = grid.harmful and unit == "target"
 		for i = 1, 40 do
 			local a = safe(C_UnitAuras.GetAuraDataByIndex, unit, i, grid.filter)
@@ -870,7 +870,7 @@ for i = 1, AURA_MAX do petAuras[i] = petAuraButton(i) end
 
 local function updatePetAuras()
 	local n = 0
-	if UnitExists("pet") and C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+	if UnitExists("pet") and ns.F("unitAuras") and C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
 		for _, filter in ipairs({ "HARMFUL", "HELPFUL" }) do
 			for i = 1, 40 do
 				if n >= AURA_MAX then break end
@@ -1369,7 +1369,8 @@ if C_Timer and C_Timer.NewTicker then
 	end)
 end
 
--- The target of target frame turns on and off right away from the /zyde window.
+-- The target of target frame and the buff / debuff icons turn on and off right away from the /zyde window.
 ns.OnFeatureChanged(function(key)
 	if key == "targetTarget" then applyTot() end
+	if key == "unitAuras" and not UF.disabled then updateTargetDebuffs() updatePlayerDebuffs() updatePetAuras() end
 end)

@@ -26,7 +26,7 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
 
 ### Interface
 - **Unit frames**: flat, clean player, target, pet, party and raid frames.
-  - Buffs and debuffs like the game's own frames: the target's debuffs (yours first) and buffs, your debuffs and buffs, with time left.
+  - Buffs and debuffs like the game's own frames: the target's debuffs (yours first) and buffs, your debuffs and buffs, with time left. (Can be turned off in `/zyde`.)
   - Party frames show each member's mana, rage or energy.
   - Optional target of target frame (on in the `/zyde` window).
   - Shift-drag any frame to move it (out of combat).
