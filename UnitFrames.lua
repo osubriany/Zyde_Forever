@@ -1272,6 +1272,24 @@ for _, e in ipairs({
 	pcall(ev.RegisterEvent, ev, e) -- some events don't exist on every client
 end
 
+-- Auras change many times a frame in a group fight: redraw each unit's icons
+-- at most once per frame, on the next one.
+local auraDirty, auraQueued = {}, false
+local function auraFlush()
+	auraQueued = false
+	if auraDirty.pet then updatePetAuras() updateName(pet) end
+	if auraDirty.target then updateTargetDebuffs() end
+	if auraDirty.player then updatePlayerDebuffs() end
+	wipe(auraDirty)
+end
+local function auraChanged(unit)
+	auraDirty[unit] = true
+	if not auraQueued then
+		auraQueued = true
+		C_Timer.After(0, auraFlush)
+	end
+end
+
 local function dispatch(f, event)
 	if unlocked and not UnitExists(f.unit) then return end
 	if HEALTH[event] then
@@ -1334,9 +1352,7 @@ ev:SetScript("OnEvent", function(_, event, unit)
 	elseif event == "UNIT_PET_EXPERIENCE" then
 		updatePetXP()
 	elseif event == "UNIT_AURA" then
-		if unit == "pet" then updatePetAuras() updateName(pet)
-		elseif unit == "target" then updateTargetDebuffs()
-		elseif unit == "player" then updatePlayerDebuffs() end
+		if unit == "pet" or unit == "target" or unit == "player" then auraChanged(unit) end
 	elseif event == "PLAYER_REGEN_DISABLED" then
 		UF.Lock(true) -- frames can't move in combat
 	elseif event == "PLAYER_REGEN_ENABLED" then
