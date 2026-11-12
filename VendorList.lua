@@ -808,10 +808,34 @@ function ah:Refresh()
 	self:SetHeight(26 + math.max(1, n) * ROW_H + 22)
 	self.title:SetText(#auctionList == 0 and "Nothing worth auctioning"
 		or ("Post on the AH (%d) - worth ~%s"):format(#auctionList, R.money(math.floor(total))))
-	self:ClearAllPoints()
-	self:SetPoint("TOPLEFT", host, "TOPRIGHT", 4, 0)
+	self.host = host
+	self:Place()
 	self:Show()
 end
+
+-- Beside the auction house window; below AHledger's posting panel while that
+-- is open (it sits in the same spot). Checked twice a second while shown,
+-- since AHledger opens and closes its panel on its own.
+ah:SetClampedToScreen(true)
+function ah:Place()
+	local led = _G.AHledgerPostingPanel
+	local below = led and led:IsShown() and led or nil
+	if self.placedBelow == below and self.placedHost == self.host and self:GetNumPoints() > 0 then return end
+	self.placedBelow, self.placedHost = below, self.host
+	self:ClearAllPoints()
+	if below then
+		self:SetPoint("TOPLEFT", below, "BOTTOMLEFT", 0, -4)
+	else
+		self:SetPoint("TOPLEFT", self.host, "TOPRIGHT", 4, 0)
+	end
+end
+local placeTick = 0
+ah:SetScript("OnUpdate", function(self, elapsed)
+	placeTick = placeTick + elapsed
+	if placeTick < 0.5 then return end
+	placeTick = 0
+	if self.host then self:Place() end
+end)
 
 ---------------------------------------------------------------------------
 -- Events
