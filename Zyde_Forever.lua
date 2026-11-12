@@ -625,16 +625,20 @@ local function aspectUp()
 		end
 	end
 	-- By name too ("Aspect of the ..."), for ranks or IDs not listed above.
-	local hidden = false
+	local hidden, seen = false, 0
 	for i = 1, 40 do
 		local a = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex and safe(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
 		if not a then break end
+		seen = i
 		local id, name = a.spellId, a.name
 		if not isSecret(id) and isAspect[id] then return true end
 		if type(name) == "string" and not isSecret(name) and name:find("^Aspect of the ") then return true end
 		if isSecret(id) and isSecret(name) then hidden = true end
 	end
 	if hidden then return nil end
+	-- Boss fights: the game can hand back no buffs at all instead of hidden ones.
+	local boss = IsEncounterInProgress and safe(IsEncounterInProgress)
+	if (not isSecret(boss) and boss) or (seen == 0 and InCombatLockdown()) then return nil end
 	return false
 end
 
