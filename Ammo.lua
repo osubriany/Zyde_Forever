@@ -134,10 +134,12 @@ local function track()
 	lastID, lastCount = id, n
 end
 
+-- (in combat some of these come back "secret" and can't be tested: count those as no)
+local function yes(fn) if not fn then return false end local v = fn("player") return not ns.isSecret(v) and v == true end
+
 C_Timer.NewTicker(1, function()
 	if not IS_HUNTER then return end
-	local idle = IsResting() or (UnitIsAFK and UnitIsAFK("player")) or (UnitOnTaxi and UnitOnTaxi("player"))
-		or UnitIsDeadOrGhost("player")
+	local idle = yes(IsResting) or yes(UnitIsAFK) or yes(UnitOnTaxi) or yes(UnitIsDeadOrGhost)
 	if not idle then fieldClock = fieldClock + 1 end
 end)
 
