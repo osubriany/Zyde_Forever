@@ -906,7 +906,58 @@ local function questReason(guid, name)
 	return nil
 end
 
--- Object plates in range: list of { unit, guid, name, picked, reason }.
+-- Inside a dungeon the game hides objects' names and IDs from addons, so a
+-- quest plant can't be told from a chest. If Questie says an unfinished
+-- objective's objects spawn in this dungeon, every unreadable object here gets
+-- a dimmer glow (a guess: no ping, no reminder icon). Rechecked every 3 s.
+local hiddenObjectHint
+do -- own scope (200-local limit)
+local hintAt, hint = -math.huge, nil
+local function findHint()
+	local inside, kind = IsInInstance()
+	if not inside or not (kind == "party" or kind == "raid") then return nil end
+	if not (QuestieLoader and QuestieLoader.ImportModule) then return nil end
+	local here = plainStr(safe(GetInstanceInfo))
+	if not here then return nil end
+	local okZ, ZDB = pcall(QuestieLoader.ImportModule, QuestieLoader, "ZoneDB")
+	local okD, DB = pcall(QuestieLoader.ImportModule, QuestieLoader, "QuestieDB")
+	local okT, TT = pcall(QuestieLoader.ImportModule, QuestieLoader, "QuestieTooltips")
+	if not (okZ and okD and okT and type(ZDB) == "table" and type(DB) == "table" and type(TT) == "table") then return nil end
+	-- This dungeon's area IDs (Questie files spawns under them).
+	local areas = {}
+	local dungeons = ZDB.GetDungeons and safe(ZDB.GetDungeons, ZDB)
+	for areaId, e in pairs(type(dungeons) == "table" and dungeons or {}) do
+		if type(e) == "table" and e[1] == here then
+			areas[areaId] = true
+			for _, alt in ipairs(e[2] or {}) do areas[alt] = true end
+		end
+	end
+	if not next(areas) then return nil end
+	-- Unfinished object objectives ("o_<objectId>" in Questie's tooltip registry).
+	for key, tips in pairs(TT.lookupByKey or {}) do
+		local id = type(key) == "string" and tonumber(key:match("^o_(%d+)$"))
+		if id and type(tips) == "table" then
+			local open = false
+			for _, tip in pairs(tips) do
+				if type(tip) == "table" and tip.objective and not tip.objective.Completed then open = true break end
+			end
+			local obj = open and DB.GetObject and safe(DB.GetObject, DB, id)
+			if type(obj) == "table" and type(obj.spawns) == "table" then
+				for zone in pairs(obj.spawns) do
+					if areas[zone] then return obj.name or "a quest object" end
+				end
+			end
+		end
+	end
+	return nil
+end
+function hiddenObjectHint()
+	if GetTime() - hintAt >= 3 then hintAt, hint = GetTime(), findHint() end
+	return hint
+end
+end -- hidden object hint
+
+-- Object plates in range: list of { unit, guid, name, picked, reason, guess }.
 local verdicts = {} -- guid -> reason or false (cleared when quests change)
 local function scanObjects()
 	local found = {}
@@ -915,15 +966,19 @@ local function scanObjects()
 		if rawGuid ~= nil and isGameObject(unit) then
 			local guid = plainStr(rawGuid)
 			local name = plainStr(safe(UnitName, unit))
-			local reason
-			if guid and verdicts[guid] ~= nil then
+			local reason, guess
+			if not guid and not name then
+				-- Hidden (in a dungeon): a guess, if a quest wants objects here.
+				local hint = hiddenObjectHint()
+				if hint then reason, guess = "maybe " .. hint .. " (dungeon: the game hides object names)", true end
+			elseif guid and verdicts[guid] ~= nil then
 				reason = verdicts[guid] or nil
 			else
 				reason = questReason(guid, name)
 				if guid then verdicts[guid] = reason or false end
 			end
 			local picked = safe(UnitIsUnit, unit, "softinteract")
-			found[#found + 1] = { unit = unit, guid = guid, name = name, reason = reason,
+			found[#found + 1] = { unit = unit, guid = guid, name = name, reason = reason, guess = guess,
 				picked = not isSecret(picked) and picked == true }
 		end
 	end
@@ -984,11 +1039,13 @@ local function updateMarkers(objects) -- objects nil: hide them all
 	for _, o in ipairs(objects or wanted) do
 		if o.reason then
 			local plate = C_NamePlate and C_NamePlate.GetNamePlateForUnit(o.unit)
-			if plate then wanted[plate] = true end
+			-- (value: 1 for a sure match, a dimmer 0.5 for a dungeon guess)
+			if plate then wanted[plate] = o.guess and 0.5 or 1 end
 		end
 	end
-	for plate in pairs(wanted) do
+	for plate, alpha in pairs(wanted) do
 		local m = getMarker(plate)
+		m:SetAlpha(alpha)
 		if not m:IsShown() or not m.pulse:IsPlaying() then
 			m:Show()
 			m.pulse:Play()

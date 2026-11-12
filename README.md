@@ -80,7 +80,7 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
   - Questie's own quest tracker is turned off while this one is on, and comes back if you turn this off.
   - A long list scrolls with the mouse wheel once it reaches the bottom of the screen (`/zyde questheight <pixels>` caps it lower).
   - Text size slider in the `/zyde` window.
-- **Quest object alert**: a glow, a bobbing **!** and a ping on nearby objects you need to pick up for a quest. Loot from mobs you kill for a quest isn't marked.
+- **Quest object alert**: a glow, a bobbing **!** and a ping on nearby objects you need to pick up for a quest. Loot from mobs you kill for a quest isn't marked. In dungeons the game hides object names, so (with Questie) objects there get a dimmer glow when one of your quests needs objects in that dungeon: a guess, without the ping.
 - **Icons over nearby objects**: the game's interact icons over herbs, ore and chests, spotted from further away.
 - **Quest mobs nearby** (Questie): a gold edge on quest mobs' nameplates, a count of them near you, and a key to target one.
 - **Questie drop chances** (Questie): the drop % and your odds of getting the item on your next kill, under Questie's nameplate icon.
