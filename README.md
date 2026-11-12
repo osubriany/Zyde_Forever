@@ -66,7 +66,7 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
 - **Pet care**:
   - Keys to feed your pet the right food from your bags, and to call or revive it.
   - Reminders when it's hungry or missing.
-  - A warning if Growl is on autocast in a dungeon.
+  - A Growl autocast reminder: off in a group, on when solo.
 
 ### Groups
 - **Group finder helper**: puts groups with room for your role first, with one-click whisper to the leader.

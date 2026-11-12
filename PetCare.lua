@@ -4,8 +4,8 @@
 --   * Reminder icon (out of combat) when your pet is only content or unhappy.
 --   * "Call or revive pet" key: Revive Pet if it died, Call Pet if it's away,
 --     nothing if it's already out. Reminder icon when you have no pet out.
---   * Growl warning: on autocast inside a dungeon it pulls mobs off your
---     tank; off autocast outside one you're missing your pet's taunt.
+--   * Growl warning: on autocast in a group (or dungeon) it pulls mobs off your
+--     tank; off autocast when solo you're missing your pet's taunt.
 -- Set the keys in Options > Keybindings > AddOns > Zyde Forever.
 --
 -- Which food your pet eats: the game only tells us its diet ("Meat",
@@ -305,16 +305,17 @@ end
 
 ns.AddReminder("petGrowl", "ZydeForeverPetGrowl", spellIcon(GROWL) or "Interface\\Icons\\Ability_Physical_Taunt",
 	function(preview)
-		if preview then return IS_HUNTER, "Growl is on in a dungeon" end
+		if preview then return IS_HUNTER, "Growl is on in a group" end
 		if not on() or not petAlive() then return false end
 		local auto = growlAutocast()
 		if auto == nil then return false end
+		-- In a group (or a dungeon) Growl should be off; solo it should be on.
 		local _, instance = IsInInstance()
-		local dungeon = instance == "party" or instance == "raid"
-		if dungeon and auto then
+		local grouped = IsInGroup() or instance == "party" or instance == "raid"
+		if grouped and auto then
 			return true, "Growl is on - right-click it on the pet bar so your pet doesn't steal the tank's mobs"
 		end
-		if not dungeon and not auto and not InCombatLockdown() then
+		if not grouped and not auto and not InCombatLockdown() then
 			return true, "Growl autocast is off - right-click it on the pet bar"
 		end
 		return false
