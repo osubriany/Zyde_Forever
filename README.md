@@ -88,7 +88,7 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
 
 ### Bags & vendors
 - **Scrap list**: when your bags are full, the three cheapest items to throw away. Right-click one to keep it.
-- **Vendor / auction advice** (AHledger): "Vendor it", "Auction it" or "Keep" in item tooltips, at merchants and at the auction house. Hold Shift for the details.
+- **Vendor / auction advice** (AHledger): "Vendor it", "Auction it" or "Keep" in item tooltips, at merchants and at the auction house. Hold Shift for the details. At the auction house its "Post on the AH" list takes the spot of AHledger's posting panel, which stays hidden while it's up.
 
 ### Travel & gathering
 - **Flight master shortcut**: flight masters open the flight map directly. Hold Shift to talk to them instead.

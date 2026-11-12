@@ -813,28 +813,31 @@ function ah:Refresh()
 	self:Show()
 end
 
--- Beside the auction house window; below AHledger's posting panel while that
--- is open (it sits in the same spot). Checked twice a second while shown,
--- since AHledger opens and closes its panel on its own.
-ah:SetClampedToScreen(true)
+-- Beside the auction house window. AHledger's posting panel opens in the same
+-- spot, so while this one is up, AHledger's stays hidden (it comes back when
+-- this panel is off). AHledger makes its panel when it first needs it: look for
+-- it twice a second until it's there.
 function ah:Place()
-	local led = _G.AHledgerPostingPanel
-	local below = led and led:IsShown() and led or nil
-	if self.placedBelow == below and self.placedHost == self.host and self:GetNumPoints() > 0 then return end
-	self.placedBelow, self.placedHost = below, self.host
 	self:ClearAllPoints()
-	if below then
-		self:SetPoint("TOPLEFT", below, "BOTTOMLEFT", 0, -4)
-	else
-		self:SetPoint("TOPLEFT", self.host, "TOPRIGHT", 4, 0)
-	end
+	self:SetPoint("TOPLEFT", self.host, "TOPRIGHT", 4, 0)
 end
-local placeTick = 0
+local function hideLedger()
+	local led = _G.AHledgerPostingPanel
+	if not led then return false end
+	if not led.zydeHidden then
+		led.zydeHidden = true
+		led:HookScript("OnShow", function(p) if ah:IsShown() then p:Hide() end end)
+	end
+	if ah:IsShown() and led:IsShown() then led:Hide() end
+	return true
+end
+ah:HookScript("OnShow", hideLedger)
+local ledgerTick = 0
 ah:SetScript("OnUpdate", function(self, elapsed)
-	placeTick = placeTick + elapsed
-	if placeTick < 0.5 then return end
-	placeTick = 0
-	if self.host then self:Place() end
+	ledgerTick = ledgerTick + elapsed
+	if ledgerTick < 0.5 then return end
+	ledgerTick = 0
+	if hideLedger() then self:SetScript("OnUpdate", nil) end -- (hooked: no need to keep looking)
 end)
 
 ---------------------------------------------------------------------------
