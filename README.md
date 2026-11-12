@@ -34,7 +34,7 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
   - Hunters get a pet frame with a happiness face, the pet's buffs and an XP bar.
 - **XP readout**: a small, draggable XP % in place of the XP bar, showing rested XP and time to level. Hunters also see their arrow or bullet count here.
 - **Reminder icons**: icons to the right of your character. Shift-drag any icon to move the column.
-  - **Warrior:** Battle Shout missing or running out, Overpower / Execute / Revenge / Victory Rush ready, Thunder Clap missing on your target, wrong stance, Sunder stacks while tanking.
+  - **Warrior:** Battle Shout missing or running out, Overpower / Execute / Revenge / Victory Rush ready, Thunder Clap missing on your target, wrong stance, Sunder stacks while tanking, target **too far** for melee in a fight.
   - **Hunter:**
     - no Aspect, or Cheetah / Pack on in combat
     - Hunter's Mark missing (solo only)
@@ -153,7 +153,7 @@ Troubleshooting:
 | Command | What it shows |
 |---|---|
 | `/zyde petdebug` | Your pet's mood, buffs and food, as the game reports them |
-| `/zyde rangedebug` | Your target's range readings (Auto Shot, Wing Clip, ~10 yd) |
+| `/zyde rangedebug` | Your target's range readings (hunters: Auto Shot, Wing Clip; warriors: Rend, Hamstring, Sunder; ~10 yd) |
 | `/zyde auradebug` | Your target's debuffs as the game reports them (name, spell ID, stacks) |
 | `/zyde mobsdebug` | Nearby nameplates, and why each is or isn't counted as a quest mob |
 | `/zyde questdebug` | Why the quest object you're facing is or isn't detected |

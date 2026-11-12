@@ -89,7 +89,7 @@ end
 -- AHledger, Zygor) is off when that addon isn't loaded.
 ---------------------------------------------------------------------------
 local FEATURES = {
-	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "Icons to the right of your character (Shift-drag one to move them). Warriors: Battle Shout missing or running out, Overpower / Execute / Revenge / Victory Rush ready, Thunder Clap missing on your target, wrong stance, Sunder stacks when tanking. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing (solo), target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Shamans: weapon imbue missing or running out, Lightning Shield missing or low, Earth Shock to interrupt, a totem out of range, no Ankh. Everyone: Well-Rested low, gear needs repair, low on food or water" },
+	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "Icons to the right of your character (Shift-drag one to move them). Warriors: Battle Shout missing or running out, Overpower / Execute / Revenge / Victory Rush ready, Thunder Clap missing on your target, wrong stance, Sunder stacks when tanking, target out of melee reach in a fight. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing (solo), target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Shamans: weapon imbue missing or running out, Lightning Shield missing or low, Earth Shock to interrupt, a totem out of range, no Ankh. Everyone: Well-Rested low, gear needs repair, low on food or water" },
 	{ key = "ammo", short = "count, refill, warning", label = "Hunter ammo", desc = "Arrows or bullets left and how long they last (in the XP readout), a warning when you leave town low, and a Fill quiver button at ammo vendors (hunters)" },
 	{ key = "petCare", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast reminder: off in a group, on when solo (hunters)" },
 	{ key = "markerWheel", short = "hold key, click marker", label = "Marker wheels", desc = "Hold a key for a wheel of target markers (skull, cross, moon...) or world markers, and click one to place it" },
@@ -2703,7 +2703,7 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 	elseif msg == "wheeldebug" and ns.MarkerWheel then
 		ns.MarkerWheel.ToggleDebug()
 	elseif msg == "rangedebug" then
-		if ns.RangeDebug then ns.RangeDebug() else print("|cff66ccffZyde_Forever|r: the range check is for hunters") end
+		if ns.RangeDebug then ns.RangeDebug() else print("|cff66ccffZyde_Forever|r: the range check is for hunters and warriors") end
 	elseif msg == "auradebug" then
 		ns.AuraDebug()
 	elseif msg == "petdebug" then
@@ -2740,7 +2740,7 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "resetreminders", "move the reminder icons back beside your character (Shift-drag one to move them)" },
 			{ "errors", "show the last Lua errors (from any addon), even with error pop-ups turned off" },
 			{ "petdebug", "hunters: show what the game reports about your pet's mood, buffs and food" },
-			{ "rangedebug", "hunters: show what the game says about your target's range (Auto Shot, Wing Clip, ~10 yd)" },
+			{ "rangedebug", "hunters and warriors: show what the game says about your target's range" },
 			{ "auradebug", "list your target's debuffs as the game reports them (for the Sunder and Thunder Clap tiles)" },
 			{ "mobsdebug", "list nearby nameplates and why each is or isn't counted as a quest mob" },
 			{ "test", "preview the Battle Shout, Overpower and quest item icons" },

@@ -2,7 +2,7 @@
 -- (all under the "Reminder icons" toggle).
 --   Warrior: Execute ready, Revenge ready, Victory Rush ready, Thunder Clap
 --            missing on your target, wrong stance (out of combat),
---            Sunder Armor stacks while tanking.
+--            Sunder Armor stacks while tanking, target too far for melee.
 --   Hunter:  Cheetah / Pack on in combat (flashing), Hunter's Mark missing on
 --            an elite / rare / player target (solo only), target too far or
 --            too close to shoot, Mongoose Bite ready, Mend Pet when your pet is low.
@@ -171,6 +171,41 @@ if WARRIOR then
 		local stacks = found and math.max(1, plain(a.applications) or 1) or 0
 		if stacks >= 5 then return false end
 		return true, ("Sunder %d/5"):format(stacks)
+	end)
+
+	-- Too far: in a fight, your target is out of melee reach. Asked of instant
+	-- melee abilities (Rend, Hamstring, Sunder Armor): their range is your real
+	-- reach. Not Heroic Strike: a "next swing" ability, which can say "in range"
+	-- from anywhere. If none will say, the game's ~10 yd distance check.
+	local HAMSTRING = { 1715, 7372, 7373, 25212 }
+	local REACH = { REND, HAMSTRING, SUNDER }
+	local function inReach()
+		for _, ids in ipairs(REACH) do
+			local id = knownRank(ids)
+			local r = id and inRange(id)
+			if r ~= nil then return r end
+		end
+		local near = CheckInteractDistance and plain(safe(CheckInteractDistance, "target", 3))
+		if near ~= nil then return near == true end
+		return nil
+	end
+	-- /zyde rangedebug for warriors: what each check says right now.
+	ns.RangeDebug = function()
+		local p = "|cff66ccffZyde_Forever|r range: "
+		print(p .. "target " .. tostring(plain(UnitName("target"))) .. ", " .. (InCombatLockdown() and "IN COMBAT" or "out of combat"))
+		for _, s in ipairs({ { "Rend", REND }, { "Hamstring", HAMSTRING }, { "Sunder Armor", SUNDER } }) do
+			local id = knownRank(s[2])
+			print(p .. s[1] .. (id and (" (" .. id .. ") in range " .. tostring(inRange(id))) or " not known"))
+		end
+		local raw = CheckInteractDistance and safe(CheckInteractDistance, "target", 3)
+		print(p .. "~10 yd distance check: " .. (isSecret(raw) and "hidden" or tostring(raw)))
+		print(p .. "in reach verdict " .. tostring(inReach()))
+	end
+	ns.AddReminder("meleeRange", "ZydeForeverMeleeRange", "Interface\\Icons\\Ability_Warrior_Charge", function(preview)
+		if preview then return true, "|cffff4444Too far|r" end
+		if not on() or not inCombat() or not hostileTarget() or UnitOnTaxi("player") then return false end
+		if inReach() ~= false then return false end -- (in reach, or can't tell: quiet)
+		return true, "|cffff4444Too far|r"
 	end)
 
 	-- Victory Rush: usable for a short while after a kill that gives XP.
