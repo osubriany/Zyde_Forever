@@ -470,20 +470,22 @@ refresh = function()
 					r.title:SetText(q.title)
 					r.badge:SetSize(Q(20), Q(13))
 					local ly, shown, lineH = -Q(15), 0, Q(12)
+					-- A fixed width, so a long objective wraps and its real height is known.
+					local lineW = Q(WIDTH) - 4 - (Q(20) + 16) - 4
 					for _, o in ipairs(q.objectives) do
 						if not o.done and not q.ready then
 							shown = shown + 1
 							local fs = lineOf(r, shown)
 							fs:ClearAllPoints()
 							fs:SetPoint("TOPLEFT", r, "TOPLEFT", Q(20) + 16, ly)
-							fs:SetPoint("RIGHT", r, "RIGHT", -4, 0)
+							fs:SetWidth(lineW)
 							fs:SetText("- " .. o.text)
 							fs:Show()
-							ly = ly - lineH
+							ly = ly - math.max(lineH, math.ceil(fs:GetStringHeight()) + 1)
 						end
 					end
 					for j = shown + 1, #r.lines do r.lines[j]:Hide() end
-					local height = Q(15) + shown * lineH + 4
+					local height = -ly + 4
 					r:SetHeight(height)
 					r:ClearAllPoints()
 					r:SetPoint("TOPLEFT", content, "TOPLEFT", 0, y)
