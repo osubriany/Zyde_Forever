@@ -556,6 +556,11 @@ panel.title:SetTextColor(0.35, 1, 0.35)
 panel.total = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 panel.total:SetPoint("BOTTOMLEFT", 8, 10)
 
+-- How to keep something off the list (small, gray, above the total).
+panel.hint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+panel.hint:SetPoint("BOTTOMLEFT", 8, 32)
+panel.hint:SetText("Shift-click an item to keep it")
+
 panel.sell = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
 panel.sell:SetSize(80, 22)
 panel.sell:SetPoint("BOTTOMRIGHT", -6, 5)
@@ -579,15 +584,15 @@ local function tile(i)
 		if not self.v then return end
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:SetBagItem(self.v.bag, self.v.slot)
-		GameTooltip:AddLine("Click or right-click: sell it.  Shift-right-click: keep it, don't sell.", 0.7, 0.7, 0.7, true)
+		GameTooltip:AddLine("Click or right-click: sell it.  Shift-click: keep it, don't sell.", 0.7, 0.7, 0.7, true)
 		GameTooltip:Show()
 	end)
 	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	-- Right-click sells, like right-clicking it in your bags at a vendor (it used
-	-- to keep it, which was easy to do by habit). Keeping takes Shift-right-click.
+	-- Click or right-click sells, like right-clicking it in your bags at a vendor
+	-- (right-click used to keep it, which was easy to do by habit). Shift-click keeps it.
 	b:SetScript("OnClick", function(self, button)
 		if not self.v then return end
-		if not (button == "RightButton" and IsShiftKeyDown()) then
+		if not (button == "LeftButton" and IsShiftKeyDown()) then
 			if MerchantFrame and MerchantFrame:IsShown() and not InCombatLockdown() then
 				C_Container.UseContainerItem(self.v.bag, self.v.slot)
 			end
@@ -621,9 +626,10 @@ function panel:Refresh()
 		end
 	end
 	local rows = math.max(1, math.ceil(n / PER_ROW))
-	self:SetSize(8 * 2 + PER_ROW * (ICON + 3), 26 + rows * (ICON + 3) + 34)
+	self:SetSize(8 * 2 + PER_ROW * (ICON + 3), 26 + rows * (ICON + 3) + 46) -- (room for the hint line)
 	self.title:SetText(#sellList == 0 and "Nothing to vendor" or ("Safe to vendor (%d)"):format(#sellList))
 	self.total:SetText(#sellList > 0 and ("Total: " .. R.money(total)) or "")
+	self.hint:SetShown(#sellList > 0)
 	local batch = math.min(SELL_BATCH, #sellList)
 	self.sell:SetText(batch > 0 and ("Sell " .. batch) or "Sell")
 	self.sell:SetEnabled(batch > 0)
