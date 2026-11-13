@@ -208,23 +208,70 @@ local function updatePct(f, cur, maxv)
 	if pct == nil or not pcall(f.pct.SetFormattedText, f.pct, "%.1f%%", pct) then f.pct:SetText("") end
 end
 
-local function updateHealth(f)
-	local unit = f.unit
-	local cur, maxv = UnitHealth(unit), UnitHealthMax(unit)
-	updatePct(f, cur, maxv)
+-- Smooth bars: the bar eases toward the new health every frame (down and up),
+-- like the unit frames. A new mob on the plate snaps straight to its health.
+-- Hidden ("secret") numbers can't be eased by us: the game's own smoothing then.
+local INTERP = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
+local SPEED = 6 -- higher = faster catch-up
+local easing = {}
+local easer = CreateFrame("Frame")
+easer:Hide()
+easer:SetScript("OnUpdate", function(self, elapsed)
+	local k = math.min(1, elapsed * SPEED)
+	local busy = false
+	for b in pairs(easing) do
+		local diff = b.goal - b.cur
+		if math.abs(diff) <= b.maxv * 0.002 then
+			b.cur = b.goal
+			easing[b] = nil
+		else
+			b.cur = b.cur + diff * k
+			busy = true
+		end
+		b:SetValue(b.cur)
+	end
+	if not busy then self:Hide() end
+end)
+
+local function setHealthBar(b, cur, maxv, snap)
 	if isSecret(cur) or isSecret(maxv) then
-		pcall(f.hp.SetMinMaxValues, f.hp, 0, maxv)
-		pcall(f.hp.SetValue, f.hp, cur)
-		local c = reactionColor(unit)
-		f.hp:SetStatusBarColor(c[1], c[2], c[3])
+		easing[b], b.cur = nil, nil
+		pcall(b.SetMinMaxValues, b, 0, maxv)
+		if INTERP and not snap then
+			if not pcall(b.SetValue, b, cur, INTERP) then pcall(b.SetValue, b, cur) end
+		else
+			pcall(b.SetValue, b, cur)
+		end
 		return
 	end
 	maxv = (maxv and maxv > 0) and maxv or 1
-	f.hp:SetMinMaxValues(0, maxv)
-	f.hp:SetValue(cur or 0)
+	cur = cur or 0
+	b.maxv = maxv
+	b:SetMinMaxValues(0, maxv)
+	if snap or b.cur == nil then
+		b.cur, b.goal = cur, cur
+		easing[b] = nil
+		b:SetValue(cur)
+		return
+	end
+	b.goal = cur
+	if b.cur ~= cur then
+		easing[b] = true
+		easer:Show()
+	end
+end
+
+local function updateHealth(f, snap)
+	local unit = f.unit
+	local cur, maxv = UnitHealth(unit), UnitHealthMax(unit)
+	updatePct(f, cur, maxv)
+	setHealthBar(f.hp, cur, maxv, snap)
 	local c = reactionColor(unit)
 	-- Warriors: Execute range.
-	if IS_WARRIOR and cur and cur > 0 and cur / maxv < 0.2 and c ~= COLOR.tapped then c = COLOR.execute end
+	if IS_WARRIOR and not isSecret(cur) and not isSecret(maxv) and cur and maxv and maxv > 0
+		and cur > 0 and cur / maxv < 0.2 and c ~= COLOR.tapped then
+		c = COLOR.execute
+	end
 	f.hp:SetStatusBarColor(c[1], c[2], c[3])
 end
 
@@ -500,6 +547,7 @@ local function unskin(unit)
 	skinned[unit] = nil
 	f.unit = nil
 	f:Hide()
+	easing[f.hp], f.hp.cur = nil, nil
 	if f.plate then
 		giveBackBlizzAuras(f)
 		hideBlizzard(f.plate, false)
@@ -509,7 +557,7 @@ local function unskin(unit)
 end
 
 local function updateAll(f)
-	updateHealth(f)
+	updateHealth(f, true) -- (new mob on this plate: no easing from the last one)
 	updateName(f)
 	updateCast(f)
 	updateAuras(f)
