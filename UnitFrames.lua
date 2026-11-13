@@ -807,7 +807,7 @@ end
 -- container (TargetFrame:GetAuraContainer()) that the game fills itself, and
 -- can do so in combat. While Zyde's target frame is on, that container is
 -- moved under it (where the debuffs go); it goes back when the icons are off.
-local container, containerParent, returning
+local container, containerParent, returning, placing
 local function gameContainer()
 	if not (TargetFrame and type(TargetFrame.GetAuraContainer) == "function") then return nil end
 	local ok, c = pcall(TargetFrame.GetAuraContainer, TargetFrame)
@@ -820,10 +820,15 @@ local function takeContainer()
 	if not c then return nil end
 	if container ~= c then container, containerParent = c, c:GetParent() end
 	if c:GetParent() ~= target then c:SetParent(target) end
-	c:ClearAllPoints()
-	c:SetPoint("TOPLEFT", target, "BOTTOMLEFT", 0, -(CAST_H + 9))
-	c:SetWidth(target:GetWidth())
-	if (c:GetHeight() or 0) < 10 then c:SetHeight(40) end
+	-- Only its spot: its size follows how many auras it holds, which the game
+	-- keeps secret, so it isn't read or set here.
+	if placing then return c end
+	placing = true
+	pcall(function()
+		c:ClearAllPoints()
+		c:SetPoint("TOPLEFT", target, "BOTTOMLEFT", 0, -(CAST_H + 9))
+	end)
+	placing = false
 	return c
 end
 local function returnContainer()
