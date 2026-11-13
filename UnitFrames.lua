@@ -831,6 +831,19 @@ local function takeContainer()
 	placing = false
 	return c
 end
+-- The game's aura icons show only the clock swipe: turn on their countdown
+-- numbers too (each time, as the game adds icons when new auras land).
+local function showCountdowns(frame, depth)
+	depth = depth or 1
+	for _, child in ipairs({ frame:GetChildren() }) do
+		if child.GetObjectType and child:GetObjectType() == "Cooldown" then
+			if child.SetHideCountdownNumbers then pcall(child.SetHideCountdownNumbers, child, false) end
+		elseif depth < 4 then
+			showCountdowns(child, depth + 1)
+		end
+	end
+end
+
 local function returnContainer()
 	if not container or returning then return end
 	returning = true
@@ -849,7 +862,9 @@ local function updateTargetDebuffs()
 		fillGrid(targetBuffs, 22)
 		return
 	end
-	if takeContainer() then
+	local c = takeContainer()
+	if c then
+		showCountdowns(c)
 		-- The game draws them: hide ours.
 		for _, b in ipairs(targetDebuffs.buttons) do b:Hide() end
 		for _, b in ipairs(targetBuffs.buttons) do b:Hide() end
