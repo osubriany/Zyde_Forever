@@ -706,6 +706,26 @@ ns.AuraDebug = function()
 				table.sort(m)
 				lines[#lines + 1] = "CONTAINER methods: " .. table.concat(m, " ")
 			end
+			lines[#lines + 1] = "CONTAINER templates: buff " .. tostring(select(2, pcall(c.GetBuffTemplate, c))) .. ", debuff " .. tostring(select(2, pcall(c.GetDebuffTemplate, c)))
+			-- Its icons aren't its children: find frames anchored to it.
+			local found = 0
+			local f = EnumerateFrames()
+			while f and found < 20 do
+				local ok, _, rel = pcall(f.GetPoint, f, 1)
+				if ok and rel == c then
+					found = found + 1
+					local keys = {}
+					for k in pairs(f) do if type(k) == "string" and #keys < 15 then keys[#keys + 1] = k end end
+					local cd = f.Cooldown or f.cooldown
+					local hide = cd and select(2, pcall(function() return cd.GetHideCountdownNumbers and cd:GetHideCountdownNumbers() end))
+					local par = f:GetParent()
+					lines[#lines + 1] = ("ANCHORED %s parent %s shown %s cooldown %s hideNumbers %s keys: %s"):format(tostring(select(2, pcall(f.GetObjectType, f))),
+						tostring(par and (par:GetName() or (par == c and "CONTAINER") or "unnamed")), tostring(f:IsShown()), tostring(cd ~= nil),
+						isSecret(hide) and "secret" or tostring(hide), table.concat(keys, " "))
+				end
+				f = EnumerateFrames(f)
+			end
+			lines[#lines + 1] = "ANCHORED total " .. found
 			local regions = {}
 			for _, r in ipairs({ c:GetRegions() }) do regions[#regions + 1] = tostring(select(2, pcall(r.GetObjectType, r))) end
 			lines[#lines + 1] = "CONTAINER regions: " .. table.concat(regions, " ")
