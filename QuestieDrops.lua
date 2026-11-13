@@ -149,6 +149,17 @@ local function refresh(token)
 	local ok, icon = pcall(questieIcon, plate)
 	if not ok or not icon then return end
 
+	-- Zyde's nameplates show the quest icon, count and drop chance on the right:
+	-- Questie's icon on the left stays hidden there (Questie may redraw it after
+	-- the plate was set up, so this is done again on each of its updates).
+	local zp = plate.zydePlate
+	if zp and zp:IsShown() and zp.quest and zp.quest:IsShown() then
+		icon:SetAlpha(0)
+		if icon.zydeDrop then icon.zydeDrop:Hide() icon.zydeOdds:Hide() end
+		return
+	end
+	icon:SetAlpha(1)
+
 	if not ns.F("questieDrops") then
 		if icon.zydeDrop then icon.zydeDrop:Hide() icon.zydeOdds:Hide() end
 		return
