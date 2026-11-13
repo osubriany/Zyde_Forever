@@ -545,15 +545,47 @@ end)
 ns.AuraDebug = function()
 	local P = "|cff66ccffZyde_Forever|r: "
 	if not UnitExists("target") then print(P .. "target something first") return end
-	if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then print(P .. "this client has no aura data") return end
-	local n = 0
-	for i = 1, 40 do
-		local a = safe(C_UnitAuras.GetAuraDataByIndex, "target", i, "HARMFUL")
-		if not a then break end
-		n = n + 1
-		local function show(v) if isSecret(v) then return "hidden" end return tostring(v) end
-		print(("%s%d. %s  id %s  stacks %s  yours %s"):format(P, i, show(a.name), show(a.spellId),
-			show(a.applications), show(a.isFromPlayerOrPlayerPet)))
+	local function show(v) if isSecret(v) then return "hidden" end return tostring(v) end
+	print(P .. "target debuffs, " .. (InCombatLockdown() and "IN COMBAT" or "out of combat")
+		.. ", unit frame icons " .. (ns.F("unitAuras") and "on" or "OFF in /zyde")
+		.. ", nameplates " .. (ns.F("plates") and "on" or "off"))
+	-- 1) What Zyde uses: C_UnitAuras.GetAuraDataByIndex.
+	if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+		for _, filter in ipairs({ "HARMFUL", "HARMFUL|PLAYER" }) do
+			local n, first = 0, nil
+			for i = 1, 40 do
+				local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, "target", i, filter)
+				if not ok then print(P .. "  by index (" .. filter .. "): error " .. tostring(a)) break end
+				if not a then break end
+				n = n + 1
+				if n <= 6 then
+					print(("%s  %d. %s  id %s  stacks %s  yours %s  ends %s"):format(P, i, show(a.name), show(a.spellId),
+						show(a.applications), show(a.isFromPlayerOrPlayerPet), show(a.expirationTime)))
+				end
+			end
+			print(P .. "  by index (" .. filter .. "): " .. n .. " found")
+		end
+	else
+		print(P .. "  no C_UnitAuras.GetAuraDataByIndex on this client")
 	end
-	if n == 0 then print(P .. "no debuffs on your target") end
+	-- 2) Other ways the game offers, to see which one Forever answers.
+	if C_UnitAuras and C_UnitAuras.GetAuraSlots then
+		local ok, r = pcall(function() return select("#", C_UnitAuras.GetAuraSlots("target", "HARMFUL")) - 1 end)
+		print(P .. "  aura slots: " .. (ok and tostring(r) or ("error " .. tostring(r))))
+	end
+	if C_UnitAuras and C_UnitAuras.GetUnitAuras then
+		local ok, list = pcall(C_UnitAuras.GetUnitAuras, "target", "HARMFUL")
+		print(P .. "  GetUnitAuras: " .. (ok and (type(list) == "table" and (#list .. " found") or tostring(list)) or ("error " .. tostring(list))))
+	end
+	local legacy = _G.UnitDebuff or _G.UnitAura
+	if legacy then
+		local n = 0
+		for i = 1, 40 do
+			local ok, name = pcall(legacy, "target", i, _G.UnitDebuff and nil or "HARMFUL")
+			if not ok or name == nil then break end
+			n = n + 1
+			if n <= 3 then print(P .. "  legacy " .. i .. ": " .. show(name)) end
+		end
+		print(P .. "  legacy UnitDebuff: " .. n .. " found")
+	end
 end
