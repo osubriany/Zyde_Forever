@@ -161,6 +161,18 @@ end
 local function upgradeReason(bag, slot, link, equipLoc, quality, classID, subclassID)
 	local slots = SLOTS[equipLoc]
 	if not slots then return nil end
+	-- GearAdvisor scores the item's stats for your class and spec: its verdict
+	-- wins over item level. (Item level alone kept rings "about the same" as
+	-- yours out of the sell list.) Item level only when it can't say.
+	local GA = rawget(_G, "GearAdvisorAPI")
+	local r = GA and GA.Compare and GA.Compare(link)
+	if r and r.kind == "upgrade" then
+		return ("upgrade for you (+%.1f%%, GearAdvisor)"):format(r.pct or 0)
+	elseif r and r.kind == "future" then
+		return ("future upgrade (+%.1f%% from level %s, GearAdvisor)"):format(r.pct or 0, tostring(r.later or "?"))
+	elseif r and r.kind and r.kind ~= "loading" and r.kind ~= "unsupported" then
+		return nil -- same, worse, too far off, or not for you
+	end
 	local fit, wanted = armorFit(classID, subclassID, equipLoc)
 	if fit == "wrong" then return nil end -- e.g. leather for a warrior: not for you
 	local use = usability(bag, slot)
