@@ -803,12 +803,51 @@ local function returnBlizz()
 	wipe(blizzTaken)
 end
 
+-- Forever's target frame has no aura buttons of its own: it has one aura
+-- container (TargetFrame:GetAuraContainer()) that the game fills itself, and
+-- can do so in combat. While Zyde's target frame is on, that container is
+-- moved under it (where the debuffs go); it goes back when the icons are off.
+local container, containerParent, returning
+local function gameContainer()
+	if not (TargetFrame and type(TargetFrame.GetAuraContainer) == "function") then return nil end
+	local ok, c = pcall(TargetFrame.GetAuraContainer, TargetFrame)
+	if ok and type(c) == "table" and c.SetParent then return c end
+	return nil
+end
+UF.gameAuraContainer = gameContainer
+local function takeContainer()
+	local c = gameContainer()
+	if not c then return nil end
+	if container ~= c then container, containerParent = c, c:GetParent() end
+	if c:GetParent() ~= target then c:SetParent(target) end
+	c:ClearAllPoints()
+	c:SetPoint("TOPLEFT", target, "BOTTOMLEFT", 0, -(CAST_H + 9))
+	c:SetWidth(target:GetWidth())
+	if (c:GetHeight() or 0) < 10 then c:SetHeight(40) end
+	return c
+end
+local function returnContainer()
+	if not container or returning then return end
+	returning = true
+	if containerParent and container:GetParent() ~= containerParent then container:SetParent(containerParent) end
+	if TargetFrame.AnchorAuraContainer then pcall(TargetFrame.AnchorAuraContainer, TargetFrame) end
+	returning = false
+end
+
 local function updateTargetDebuffs()
-	if UF.disabled then returnBlizz() return end -- (Zyde unit frames off: the game's frame keeps its icons)
+	if returning then return end
+	if UF.disabled then returnContainer() returnBlizz() return end -- (Zyde unit frames off: the game's frame keeps its icons)
 	if not ns.F("unitAuras") then
+		returnContainer()
 		returnBlizz()
 		fillGrid(targetDebuffs, CAST_H + 9)
 		fillGrid(targetBuffs, 22)
+		return
+	end
+	if takeContainer() then
+		-- The game draws them: hide ours.
+		for _, b in ipairs(targetDebuffs.buttons) do b:Hide() end
+		for _, b in ipairs(targetBuffs.buttons) do b:Hide() end
 		return
 	end
 	local buffs, debuffs = blizzTargetButtons()
@@ -829,6 +868,12 @@ if type(_G.TargetFrame_UpdateAuras) == "function" then
 end
 if TargetFrame and type(TargetFrame.UpdateAuras) == "function" then
 	hooksecurefunc(TargetFrame, "UpdateAuras", function() updateTargetDebuffs() end)
+end
+-- The game re-anchors its container to its own frame: put it back under ours.
+for _, m in ipairs({ "AnchorAuraContainer", "UpdateAuraContainerAnchors", "ConfigureAuraContainer" }) do
+	if TargetFrame and type(TargetFrame[m]) == "function" then
+		hooksecurefunc(TargetFrame, m, function() updateTargetDebuffs() end)
+	end
 end
 local function updatePlayerDebuffs()
 	local used = fillGrid(playerDebuffs, 16)

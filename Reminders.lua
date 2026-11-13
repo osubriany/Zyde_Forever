@@ -593,6 +593,11 @@ ns.AuraDebug = function()
 	end
 	-- 3) The game's own icons, which Zyde shows when addons can't read auras.
 	local UFm = ns.UnitFrames
+	if UFm and UFm.gameAuraContainer then
+		local c = UFm.gameAuraContainer()
+		local kids = c and select("#", c:GetChildren()) or 0
+		print(P .. "  game's target aura container: " .. (c and ("found, " .. (c:IsVisible() and "visible" or "not visible") .. ", " .. kids .. " children, under " .. tostring(c:GetParent() and c:GetParent():GetName())) or "none"))
+	end
 	if UFm and UFm.blizzTargetButtons then
 		local buffs, debuffs, total = UFm.blizzTargetButtons()
 		if buffs then
