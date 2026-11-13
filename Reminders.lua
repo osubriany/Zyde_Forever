@@ -602,27 +602,35 @@ ns.AuraDebug = function()
 		end
 	end
 	if TargetFrame then
-		local tf = TargetFrame
-		local pools = tf.auraPools
-		local active, kinds = 0, {}
-		if pools and pools.EnumerateActive then
-			for b in pools:EnumerateActive() do
-				active = active + 1
-				local k = (b.Border and "border " or "") .. (b.isDebuff and "isDebuff " or "") .. tostring(b:GetName() or "unnamed")
-				if #kinds < 3 then kinds[#kinds + 1] = k end
+		-- Where does the game's target frame keep its aura icons? (Everything
+		-- on it named like an aura, its aura-like children, and a few globals.)
+		local ok, err = pcall(function()
+			local tf = TargetFrame
+			local parent = tf:GetParent()
+			print(P .. ("  TargetFrame: shown %s, visible %s, parent %s, UpdateAuras %s, TargetFrame_UpdateAuras %s")
+				:format(tostring(tf:IsShown()), tostring(tf:IsVisible()), tostring(parent and parent:GetName() or "unnamed"),
+				type(tf.UpdateAuras), type(_G.TargetFrame_UpdateAuras)))
+			local keys = {}
+			for k, v in pairs(tf) do
+				if type(k) == "string" and (k:lower():find("aura") or k:lower():find("buff")) then
+					keys[#keys + 1] = k .. "=" .. type(v)
+				end
 			end
-		end
-		local parent = tf:GetParent()
-		print(P .. ("  TargetFrame: shown %s, visible %s, parent %s, auraPools %s (%d active: %s), TargetFrameDebuff1 %s, UpdateAuras %s, TargetFrame_UpdateAuras %s")
-			:format(tostring(tf:IsShown()), tostring(tf:IsVisible()), tostring(parent and parent:GetName() or "unnamed"),
-			tostring(pools ~= nil), active, table.concat(kinds, ", "), tostring(_G.TargetFrameDebuff1 ~= nil),
-			type(tf.UpdateAuras), type(_G.TargetFrame_UpdateAuras)))
-		local kids = {}
-		for _, c in ipairs({ tf:GetChildren() }) do
-			local n = c:GetName()
-			if n and (n:find("Buff") or n:find("Debuff") or n:find("Aura")) and #kids < 4 then kids[#kids + 1] = n end
-		end
-		if #kids > 0 then print(P .. "  aura-like children: " .. table.concat(kids, ", ")) end
+			table.sort(keys)
+			print(P .. "  TargetFrame fields: " .. (#keys > 0 and table.concat(keys, ", ") or "none named like auras"))
+			local kids = {}
+			for _, c in ipairs({ tf:GetChildren() }) do
+				local n = c:GetName() or c:GetDebugName() or "?"
+				if n:lower():find("aura") or n:lower():find("buff") then kids[#kids + 1] = n end
+			end
+			print(P .. "  aura-like children: " .. (#kids > 0 and table.concat(kids, ", ", 1, math.min(#kids, 6)) or "none"))
+			local globals = {}
+			for _, g in ipairs({ "TargetFrameBuff1", "TargetFrameDebuff1", "TargetFrameAura1", "TargetFrameBuffs", "TargetFrameDebuffs" }) do
+				if _G[g] then globals[#globals + 1] = g .. (_G[g]:IsShown() and " (shown)" or "") end
+			end
+			print(P .. "  aura globals: " .. (#globals > 0 and table.concat(globals, ", ") or "none"))
+		end)
+		if not ok then print(P .. "  TargetFrame check failed: " .. tostring(err)) end
 	end
 	local plate = C_NamePlate and C_NamePlate.GetNamePlateForUnit("target")
 	if plate and ns.PlateAuraFrame then
