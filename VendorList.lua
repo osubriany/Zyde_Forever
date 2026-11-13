@@ -690,7 +690,7 @@ ah.title:SetPoint("TOPLEFT", 8, -7)
 ah.title:SetTextColor(1, 0.82, 0.2)
 ah.hint = ah:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 ah.hint:SetPoint("BOTTOMLEFT", 8, 7)
-ah.hint:SetText("Click: put in the sell slot   Shift-right-click: keep it")
+ah.hint:SetText("Click: put in the sell slot   Shift-click: keep it")
 
 local function ahFrame()
 	return (AuctionHouseFrame and AuctionHouseFrame:IsShown() and AuctionHouseFrame)
@@ -796,7 +796,7 @@ local function row(i)
 	r:SetScript("OnClick", function(self, button)
 		local v = self.v
 		if not v then return end
-		if button == "RightButton" and IsShiftKeyDown() then
+		if button == "LeftButton" and IsShiftKeyDown() then -- (like the vendor popup)
 			R.kept()[v.itemID] = true
 			GameTooltip:Hide()
 			print("|cff66ccffZyde_Forever|r: keeping " .. (v.link or "item") .. " (/zyde scrapreset to undo)")
