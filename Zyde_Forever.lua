@@ -1177,8 +1177,17 @@ local hideBarArt -- forward: the art, bag bar and micro menu part
 local function hideBlizzardBars()
 	-- Experience bar: replaced by the XP readout, so only hidden with it on.
 	if F("xp") then
-		stash(MainStatusTrackingBarContainer)
-		stash(SecondaryStatusTrackingBarContainer)
+		-- Made invisible and click-through, not moved: Edit Mode expects these
+		-- bars to stay under the game's own bar manager (moving them broke it).
+		for _, c in ipairs({ MainStatusTrackingBarContainer, SecondaryStatusTrackingBarContainer }) do
+			if c then
+				fade(c)
+				if c.EnableMouse then c:EnableMouse(false) end
+				for _, child in ipairs({ c:GetChildren() }) do
+					if child.EnableMouse and not (child.IsProtected and child:IsProtected()) then child:EnableMouse(false) end
+				end
+			end
+		end
 		if not MainStatusTrackingBarContainer then stash(StatusTrackingBarManager) end
 		stash(MainMenuExpBar)
 		stash(ExhaustionTick)

@@ -594,9 +594,9 @@ ns.AuraDebug = function()
 	-- 3) The game's own icons, which Zyde shows when addons can't read auras.
 	local UFm = ns.UnitFrames
 	if UFm and UFm.blizzTargetButtons then
-		local buffs, debuffs = UFm.blizzTargetButtons()
+		local buffs, debuffs, total = UFm.blizzTargetButtons()
 		if buffs then
-			print(P .. ("  game's target frame icons: %d buffs, %d debuffs showing"):format(#buffs, #debuffs))
+			print(P .. ("  game's target frame icons: %d buffs, %d debuffs showing (%d icon frames found)"):format(#buffs, #debuffs, total or 0))
 		else
 			print(P .. "  game's target frame icons: none found (TargetFrame " .. (TargetFrame and "exists" or "missing") .. ")")
 		end

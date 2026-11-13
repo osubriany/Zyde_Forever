@@ -733,34 +733,41 @@ local playerBuffs = auraGrid(player, "player", false, 20, 10, 20, true)
 -- our own grids (debuffs under, buffs above the name). Ours are the fallback.
 local blizzTaken = {} -- the game's aura buttons we've moved onto our frame
 
--- The game's target aura buttons in use: buffs, debuffs (each in order).
-local function blizzTargetButtons()
-	local buffs, debuffs = {}, {}
-	if not TargetFrame then return nil end
-	local found = false
-	-- Classic-style named buttons
-	for i = 1, 40 do
-		local b = _G["TargetFrameBuff" .. i]
-		if b then found = true if b:IsShown() then buffs[#buffs + 1] = b end end
-		local d = _G["TargetFrameDebuff" .. i]
-		if d then found = true if d:IsShown() then debuffs[#debuffs + 1] = d end end
-	end
-	-- Newer pooled buttons
-	local pools = TargetFrame.auraPools
-	if pools and pools.EnumerateActive then
-		found = true
-		local list = {}
-		for b in pools:EnumerateActive() do list[#list + 1] = b end
-		table.sort(list, function(a, b) return (a:GetID() or 0) < (b:GetID() or 0) end)
-		for _, b in ipairs(list) do
-			if b:IsShown() then
-				local debuff = b.Border ~= nil or b.isDebuff
-				if debuff then debuffs[#debuffs + 1] = b else buffs[#buffs + 1] = b end
-			end
+-- The game's target aura buttons in use: buffs, debuffs. Found by what they
+-- are (an icon with a cooldown swipe, under the game's target frame), since
+-- Forever's buttons have no names. Ones already moved onto our frame are
+-- remembered, as they're no longer under the game's frame.
+local seenOrder, nextOrder = {}, 0
+local function isAuraButton(b)
+	return type(b.Icon) == "table" and type(b.Cooldown) == "table" and (b.auraInstanceID ~= nil or b.Count ~= nil or b.Border ~= nil)
+end
+local function collect(frame, depth, out, seen)
+	for _, c in ipairs({ frame:GetChildren() }) do
+		if not seen[c] and c ~= TargetFrame.totFrame and c ~= _G.TargetFrameToT then
+			seen[c] = true
+			if isAuraButton(c) then out[#out + 1] = c
+			elseif depth < 3 then collect(c, depth + 1, out, seen) end
 		end
 	end
-	if not found then return nil end
-	return buffs, debuffs
+end
+local function blizzTargetButtons()
+	if not (TargetFrame and type(TargetFrame.UpdateAuras) == "function") then return nil end
+	local all, seen = {}, {}
+	collect(TargetFrame, 1, all, seen)
+	for b in pairs(blizzTaken) do
+		if not seen[b] then seen[b] = true all[#all + 1] = b end
+	end
+	for _, b in ipairs(all) do
+		if not seenOrder[b] then nextOrder = nextOrder + 1 seenOrder[b] = nextOrder end
+	end
+	table.sort(all, function(a, b) return seenOrder[a] < seenOrder[b] end)
+	local buffs, debuffs = {}, {}
+	for _, b in ipairs(all) do
+		if b:IsShown() then
+			if b.Border ~= nil or b.isDebuff then debuffs[#debuffs + 1] = b else buffs[#buffs + 1] = b end
+		end
+	end
+	return buffs, debuffs, #all
 end
 UF.blizzTargetButtons = blizzTargetButtons
 
