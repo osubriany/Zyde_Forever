@@ -632,6 +632,46 @@ ns.AuraDebug = function()
 		end)
 		if not ok then print(P .. "  TargetFrame check failed: " .. tostring(err)) end
 	end
+	-- 4) A full dump of the game's target frame for Zyde's author: saved in
+	-- ZydeForeverDB.debugDump (written to disk at the next /reload).
+	if TargetFrame then
+		local lines = {}
+		local function flags(f)
+			local t = {}
+			for _, k in ipairs({ "Icon", "icon", "Cooldown", "cooldown", "Count", "count", "Border", "Stealable", "auraInstanceID", "isDebuff", "unit" }) do
+				local ok, v = pcall(function() return f[k] end)
+				if ok and v ~= nil then t[#t + 1] = k end
+			end
+			return table.concat(t, " ")
+		end
+		local function walk(f, depth, path)
+			if depth > 5 or #lines > 400 then return end
+			for i, c in ipairs({ f:GetChildren() }) do
+				local ok, name = pcall(c.GetName, c)
+				local okT, kind = pcall(c.GetObjectType, c)
+				local shown = c.IsShown and c:IsShown()
+				local p = path .. "/" .. ((ok and name) or ("#" .. i))
+				lines[#lines + 1] = ("%s [%s] %s %s"):format(p, okT and kind or "?", shown and "shown" or "hidden", flags(c))
+				walk(c, depth + 1, p)
+			end
+		end
+		for k, v in pairs(TargetFrame) do
+			if type(k) == "string" then
+				local extra = ""
+				if type(v) == "table" and v.EnumerateActive then
+					local n = 0
+					pcall(function() for _ in v:EnumerateActive() do n = n + 1 end end)
+					extra = " (pool, " .. n .. " active)"
+				end
+				lines[#lines + 1] = "field " .. k .. " = " .. type(v) .. extra
+			end
+		end
+		table.sort(lines)
+		walk(TargetFrame, 1, "TargetFrame")
+		ZydeForeverDB = ZydeForeverDB or {}
+		ZydeForeverDB.debugDump = lines
+		print(P .. ("  saved a dump of the game's target frame (%d lines): /reload so Zyde's author can read it"):format(#lines))
+	end
 	local plate = C_NamePlate and C_NamePlate.GetNamePlateForUnit("target")
 	if plate and ns.PlateAuraFrame then
 		local c = ns.PlateAuraFrame(plate)
