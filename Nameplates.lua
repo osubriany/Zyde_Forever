@@ -6,8 +6,7 @@
 --     dragon for rares, a skull for bosses
 --   * a cast bar under it while it casts: orange = you can interrupt, gray = you can't
 --   * your own debuffs on it (Hunter's Mark, Serpent Sting, Sunder, Rend...) with time left
---   * threat (in a group): the outline turns orange / red when a mob is about
---     to / does attack you; when you're the tank, when it's attacking someone else
+--   * aggro: a pulsing glow and "AGGRO" when a mob attacks you, "LOOSE" when you tank and one isn't on you (see updateThreat)
 --   * warriors: the bar changes color below 20% health (Execute range)
 --   * quests (Questie): the quest icon, your count ("3/8") and the drop chance
 --     together on the right, in place of Questie's own icon on the left
@@ -81,6 +80,24 @@ local function build(plate)
 
 	f.hp = bar(f, H)
 	f.hp:SetAllPoints()
+	-- Aggro: a pulsing glow outside the bar and a word inside it (see updateThreat).
+	f.aggro = CreateFrame("Frame", nil, f)
+	f.aggro:SetAllPoints(f.hp)
+	f.aggro:SetFrameLevel(f.hp:GetFrameLevel() + 3)
+	f.aggro.edges = ns.newEdges(f.aggro, "OVERLAY", 7)
+	ns.placeEdges(f.aggro.edges, f.aggro, -6, 2)
+	f.aggro.tag = text(f.aggro, 8)
+	f.aggro.tag:SetPoint("LEFT", f.aggro, "LEFT", 3, 0)
+	f.aggro.pulse = f.aggro:CreateAnimationGroup()
+	f.aggro.pulse:SetLooping("BOUNCE")
+	do
+		local a = f.aggro.pulse:CreateAnimation("Alpha")
+		a:SetFromAlpha(1)
+		a:SetToAlpha(0.35)
+		a:SetDuration(0.5)
+		a:SetSmoothing("IN_OUT")
+	end
+	f.aggro:Hide()
 	-- Your target: a white edge just outside the bar (see updateTarget).
 	f.sel = ns.newEdges(f.hp, "OVERLAY", 7)
 	ns.placeEdges(f.sel, f.hp, -3, 2)
@@ -412,22 +429,50 @@ local function tanking()
 	return false
 end
 
--- Threat (only in a group: solo, everything is on you anyway).
+-- Threat: who the mob is after, from your side.
+--   Not tanking: "AGGRO" when it's attacking you (orange "AGGRO?" when it's
+--   about to). In a group, or solo with a pet out (your pet should hold it).
+--   Tanking (tank role, or a warrior in Defensive Stance), in a group: "LOOSE"
+--   when a mob fighting your group isn't attacking you.
+-- Shown as a pulsing glow around the bar and the word inside it, plus the
+-- outline color.
+local function fightingUs(unit)
+	-- Its target is you, your pet or someone in your group.
+	local t = unit .. "target"
+	if not UnitExists(t) then return false end
+	if plain(UnitIsUnit(t, "player")) or plain(UnitIsUnit(t, "pet")) then return true end
+	return plain(UnitInParty(t)) == true or plain(UnitInRaid(t)) ~= nil
+end
+
+local function setAggro(f, text, c)
+	local a = f.aggro
+	if not text then
+		if a:IsShown() then a.pulse:Stop() a:Hide() end
+		return
+	end
+	for _, t in ipairs(a.edges) do t:SetColorTexture(c[1], c[2], c[3], 1) end
+	a.tag:SetText(text)
+	a.tag:SetTextColor(1, 1, 1)
+	if not a:IsShown() then a:Show() a.pulse:Play() end
+end
+
 local function updateThreat(f)
 	local unit = f.unit
-	local c = EDGE
-	if IsInGroup() and plain(UnitAffectingCombat(unit)) then
+	local c, text = EDGE, nil
+	local grouped = IsInGroup()
+	if plain(UnitAffectingCombat(unit)) and (grouped or UnitExists("pet")) then
 		local status = UnitThreatSituation and plain(UnitThreatSituation("player", unit))
-		if tanking() then
+		if tanking() and grouped then
 			-- 3 = it's on you, safely. Anything else: it's on someone else.
-			if status == 2 then c = THREAT_WARN
-			elseif status ~= nil and status < 2 then c = THREAT_BAD end
-		else
-			if status == 3 then c = THREAT_BAD
-			elseif status == 2 then c = THREAT_WARN end
+			if status == 2 then c, text = THREAT_WARN, "LOOSE"
+			elseif (status == nil or status < 2) and fightingUs(unit) then c, text = THREAT_BAD, "LOOSE" end
+		elseif not tanking() then
+			if status == 3 then c, text = THREAT_BAD, "AGGRO"
+			elseif status == 2 then c, text = THREAT_WARN, "AGGRO?" end
 		end
 	end
 	setEdge(f.hp, c)
+	setAggro(f, text, c)
 end
 
 ---------------------------------------------------------------------------

@@ -36,7 +36,7 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
   - Your target's plate stands out: a white edge, a little bigger, the other plates slightly faded. It also shows its health % (one decimal) inside the bar.
   - Full name above the bar; level badge with + for elites, a silver dragon for rares, a skull for bosses.
   - Cast bar (orange = you can interrupt, gray = you can't) and your own debuffs with time left.
-  - In a group, the outline turns orange or red when a mob is about to attack you, or (when you tank) when it's on someone else.
+  - Aggro: a pulsing glow and "AGGRO" on mobs attacking you (orange "AGGRO?" when about to), in a group or solo with a pet out. When you tank (tank role, or a warrior in Defensive Stance) in a group: "LOOSE" on mobs fighting your group that aren't on you.
   - Warriors: the bar changes color below 20% health (Execute range).
   - With Questie: the quest icon, your count (3/8) and the drop chance sit together on the right.
   - Friendly and object nameplates keep the game's look. In dungeons and boss fights the game may hide some details (health, threat, debuff times).
