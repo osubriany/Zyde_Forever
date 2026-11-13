@@ -1,6 +1,6 @@
 -- Zyde_Forever: your own named markers on the world map, kept between sessions.
---   Shift-click the map    drop a marker there and name it
---   Shift-click a marker   remove it
+--   Alt-click the map      drop a marker there and name it
+--   Alt-click a marker     remove it
 --   Right-click a marker   rename it
 --   Hover a marker         its name
 -- Saved per account (every character sees them), per map: ZydeForeverDB.mapNotes[mapID].
@@ -101,7 +101,7 @@ local function pinFrame(i)
 	p.label:SetShadowOffset(1, -1)
 	p:SetScript("OnClick", function(self, button)
 		if not self.note then return end
-		if button == "LeftButton" and IsShiftKeyDown() then
+		if button == "LeftButton" and IsAltKeyDown() then
 			local list = notes(self.mapID)
 			for k, n in ipairs(list) do
 				if n == self.note then table.remove(list, k) break end
@@ -116,7 +116,7 @@ local function pinFrame(i)
 		if not self.note then return end
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:AddLine(self.note.label or "Marker", 1, 0.82, 0.2)
-		GameTooltip:AddLine("Right-click: rename.  Shift-click: remove.", 0.7, 0.7, 0.7)
+		GameTooltip:AddLine("Right-click: rename.  Alt-click: remove.", 0.7, 0.7, 0.7)
 		GameTooltip:Show()
 	end)
 	p:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -151,7 +151,7 @@ function refresh()
 end
 
 ---------------------------------------------------------------------------
--- Shift-click on the map: drop a marker. Where you pressed is read when the
+-- Alt-click on the map: drop a marker. Where you pressed is read when the
 -- button goes down (a click on a continent map can open a zone on release).
 ---------------------------------------------------------------------------
 local pressed, hooked
@@ -162,7 +162,7 @@ local function setup()
 	local sc = WorldMapFrame.ScrollContainer
 	sc:HookScript("OnMouseDown", function(_, button)
 		pressed = nil
-		if button ~= "LeftButton" or not IsShiftKeyDown() or not on() then return end
+		if button ~= "LeftButton" or not IsAltKeyDown() or not on() then return end
 		local x, y = sc:GetNormalizedCursorPosition()
 		if ns.isSecret(x) or ns.isSecret(y) or type(x) ~= "number" or type(y) ~= "number" then return end
 		if x < 0 or x > 1 or y < 0 or y > 1 then return end
@@ -171,7 +171,7 @@ local function setup()
 	sc:HookScript("OnMouseUp", function(_, button)
 		local p = pressed
 		pressed = nil
-		if not p or button ~= "LeftButton" or not IsShiftKeyDown() then return end
+		if not p or button ~= "LeftButton" or not IsAltKeyDown() then return end
 		local info = C_Map.GetMapInfo and C_Map.GetMapInfo(p.mapID)
 		askName(p, "Name this map marker" .. (info and info.name and (" (" .. info.name .. ")") or "") .. ":")
 	end)
@@ -215,6 +215,6 @@ ns.MapNotesCommand = function(arg)
 	for _, list in pairs(all) do
 		if #list > 0 then total, maps = total + #list, maps + 1 end
 	end
-	print(P .. ("%d map marker%s on %d map%s. Shift-click the map to add one, shift-click a marker to remove it, right-click to rename. /zyde mapnotes clear empties the open map.")
+	print(P .. ("%d map marker%s on %d map%s. Alt-click the map to add one, alt-click a marker to remove it, right-click to rename. /zyde mapnotes clear empties the open map.")
 		:format(total, total == 1 and "" or "s", maps, maps == 1 and "" or "s"))
 end
