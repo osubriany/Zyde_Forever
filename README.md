@@ -38,7 +38,8 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
   - Full name above the bar; level badge with + for elites, a silver dragon for rares, a skull for bosses.
   - Cast bar (orange = you can interrupt, gray = you can't) and your own debuffs with time left.
   - Aggro: a pulsing glow and "AGGRO" on mobs attacking you (orange "AGGRO?" when about to), in a group or solo with a pet out. When you tank (tank role, or a warrior in Defensive Stance) in a group: "LOOSE" on mobs fighting your group that aren't on you.
-  - Warriors: the bar changes color below 20% health (Execute range).
+  - Bosses (dungeon and raid) have a purple bar.
+  - Warriors: the bar turns orange below 20% health (Execute range).
   - With Questie: the quest icon, your count (3/8) and the drop chance sit together on the right.
   - Friendly and object nameplates keep the game's look. In dungeons and boss fights the game may hide some details (health, threat, debuff times).
 - **XP readout**: a small, draggable XP % in place of the XP bar, showing rested XP and time to level. Hunters also see their arrow or bullet count here.

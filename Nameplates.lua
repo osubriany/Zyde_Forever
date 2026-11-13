@@ -7,7 +7,8 @@
 --   * a cast bar under it while it casts: orange = you can interrupt, gray = you can't
 --   * your own debuffs on it (Hunter's Mark, Serpent Sting, Sunder, Rend...) with time left
 --   * aggro: a pulsing glow and "AGGRO" when a mob attacks you, "LOOSE" when you tank and one isn't on you (see updateThreat)
---   * warriors: the bar changes color below 20% health (Execute range)
+--   * bosses (dungeon and raid): a purple bar (see isBoss)
+--   * warriors: the bar turns orange below 20% health (Execute range)
 --   * quests (Questie): the quest icon, your count ("3/8") and the drop chance
 --     together on the right, in place of Questie's own icon on the left
 -- Friendly nameplates and object nameplates keep the game's look.
@@ -29,7 +30,7 @@ local AURA, AURA_MAX = 16, 5  -- debuff icon size, how many
 
 local COLOR = {
 	hostile = { 0.78, 0.29, 0.23 }, neutral = { 0.88, 0.72, 0.27 }, friendly = { 0.55, 0.76, 0.35 },
-	tapped = { 0.5, 0.5, 0.5 }, execute = { 0.65, 0.35, 0.95 },
+	tapped = { 0.5, 0.5, 0.5 }, execute = { 1, 0.5, 0.1 }, boss = { 0.6, 0.25, 0.85 },
 }
 local EDGE = { 0, 0, 0, 0.9 }                 -- normal outline
 local THREAT_WARN = { 1, 0.6, 0.1, 1 }        -- orange
@@ -288,12 +289,53 @@ local function setHealthBar(b, cur, maxv, snap)
 	end
 end
 
+-- Bosses (dungeon and raid): purple bar. A boss is a skull-level or "world
+-- boss" mob, one the game calls a boss, one in the boss frames during an
+-- encounter, or one in GearAdvisor's boss list (every dungeon boss, by NPC ID
+-- and name: most Classic dungeon bosses are just "elite" to the game).
+local bossNpc, bossName
+local function bossLists()
+	if bossNpc then return end
+	bossNpc, bossName = {}, {}
+	local GA = ns.GA
+	for _, d in ipairs(GA and GA.BossLoot and GA.BossLoot.dungeons or {}) do
+		for _, b in ipairs(d.bosses or {}) do
+			if b.npc then bossNpc[b.npc] = true end
+			if type(b.name) == "string" then bossName[b.name:lower()] = true end
+		end
+	end
+end
+
+local function isBoss(unit)
+	local class = plain(UnitClassification(unit))
+	local lvl = plain(UnitLevel(unit))
+	if class == "worldboss" or (lvl and lvl < 0) then return true end
+	if UnitIsBossMob and plain(safe(UnitIsBossMob, unit)) == true then return true end
+	for i = 1, 5 do
+		if UnitExists("boss" .. i) and plain(UnitIsUnit(unit, "boss" .. i)) then return true end
+	end
+	bossLists()
+	local guid = plain(safe(UnitGUID, unit))
+	if type(guid) == "string" then
+		local kind, _, _, _, _, id = strsplit("-", guid)
+		if (kind == "Creature" or kind == "Vehicle") and bossNpc[tonumber(id) or 0] then return true end
+	end
+	local name = plain(UnitName(unit))
+	if type(name) == "string" and bossName[name:lower()] then
+		-- (by name only inside a dungeon or raid: some boss names are common words)
+		local _, kind = IsInInstance()
+		if kind == "party" or kind == "raid" then return true end
+	end
+	return false
+end
+
 local function updateHealth(f, snap)
 	local unit = f.unit
 	local cur, maxv = UnitHealth(unit), UnitHealthMax(unit)
 	updatePct(f, cur, maxv)
 	setHealthBar(f.hp, cur, maxv, snap)
 	local c = reactionColor(unit)
+	if f.boss and c ~= COLOR.tapped then c = COLOR.boss end
 	-- Warriors: Execute range.
 	if IS_WARRIOR and not isSecret(cur) and not isSecret(maxv) and cur and maxv and maxv > 0
 		and cur > 0 and cur / maxv < 0.2 and c ~= COLOR.tapped then
@@ -628,6 +670,7 @@ local function updateTarget(f)
 end
 
 local function updateAll(f)
+	f.boss = isBoss(f.unit)
 	updateHealth(f, true) -- (new mob on this plate: no easing from the last one)
 	updateTarget(f)
 	updateName(f)
@@ -693,7 +736,7 @@ ev:SetScript("OnEvent", function(_, event, unit)
 		for _, e in ipairs({ "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "UNIT_HEALTH", "UNIT_MAXHEALTH",
 			"UNIT_NAME_UPDATE", "UNIT_LEVEL", "UNIT_FACTION", "UNIT_FLAGS", "UNIT_CLASSIFICATION_CHANGED", "UNIT_AURA",
 			"UNIT_THREAT_SITUATION_UPDATE", "UNIT_THREAT_LIST_UPDATE", "QUEST_LOG_UPDATE", "UPDATE_SHAPESHIFT_FORM",
-			"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_TARGET_CHANGED", "RAID_TARGET_UPDATE" }) do
+			"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_TARGET_CHANGED", "RAID_TARGET_UPDATE", "INSTANCE_ENCOUNTER_ENGAGE_UNIT" }) do
 			pcall(ev.RegisterEvent, ev, e)
 		end
 		for e in pairs(CAST) do pcall(ev.RegisterEvent, ev, e) end
@@ -712,6 +755,11 @@ ev:SetScript("OnEvent", function(_, event, unit)
 		return
 	end
 	if event == "NAME_PLATE_UNIT_REMOVED" then unskin(unit) return end
+	if event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT" then
+		-- A boss fight started: the boss frames now name the bosses.
+		for _, p in pairs(skinned) do p.boss = isBoss(p.unit) updateHealth(p) end
+		return
+	end
 	if event == "RAID_TARGET_UPDATE" then
 		for _, p in pairs(skinned) do updateMark(p) end
 		return
