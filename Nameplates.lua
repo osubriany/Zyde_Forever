@@ -119,6 +119,12 @@ local function build(plate)
 	f.dragon:SetSize(14, 14)
 	f.dragon:SetPoint("RIGHT", f.level, "LEFT", 1, 0)
 	f.dragon:Hide()
+	-- Raid marker (skull, cross...), left of the level badge.
+	f.mark = f:CreateTexture(nil, "OVERLAY")
+	f.mark:SetSize(18, 18)
+	f.mark:SetPoint("RIGHT", f, "LEFT", -38, 0)
+	f.mark:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+	f.mark:Hide()
 
 	-- Cast bar
 	f.cast = bar(f, CAST_H)
@@ -296,8 +302,20 @@ local function updateHealth(f, snap)
 	f.hp:SetStatusBarColor(c[1], c[2], c[3])
 end
 
+-- The game's own plate shows raid markers, but it's invisible: show it here.
+local function updateMark(f)
+	local i = GetRaidTargetIndex and plain(GetRaidTargetIndex(f.unit))
+	if type(i) == "number" and i >= 1 and i <= 8 and ns.setMarkTexture then
+		ns.setMarkTexture(f.mark, i)
+		f.mark:Show()
+	else
+		f.mark:Hide()
+	end
+end
+
 local function updateName(f)
 	local unit = f.unit
+	updateMark(f)
 	if not pcall(f.name.SetText, f.name, UnitName(unit)) then f.name:SetText("") end
 	local lvl = plain(UnitLevel(unit))
 	local class = plain(UnitClassification(unit))
@@ -681,7 +699,7 @@ ev:SetScript("OnEvent", function(_, event, unit)
 		for _, e in ipairs({ "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "UNIT_HEALTH", "UNIT_MAXHEALTH",
 			"UNIT_NAME_UPDATE", "UNIT_LEVEL", "UNIT_FACTION", "UNIT_FLAGS", "UNIT_CLASSIFICATION_CHANGED", "UNIT_AURA",
 			"UNIT_THREAT_SITUATION_UPDATE", "UNIT_THREAT_LIST_UPDATE", "QUEST_LOG_UPDATE", "UPDATE_SHAPESHIFT_FORM",
-			"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_TARGET_CHANGED" }) do
+			"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_TARGET_CHANGED", "RAID_TARGET_UPDATE" }) do
 			pcall(ev.RegisterEvent, ev, e)
 		end
 		for e in pairs(CAST) do pcall(ev.RegisterEvent, ev, e) end
@@ -700,6 +718,10 @@ ev:SetScript("OnEvent", function(_, event, unit)
 		return
 	end
 	if event == "NAME_PLATE_UNIT_REMOVED" then unskin(unit) return end
+	if event == "RAID_TARGET_UPDATE" then
+		for _, p in pairs(skinned) do updateMark(p) end
+		return
+	end
 	if event == "PLAYER_TARGET_CHANGED" then
 		for _, p in pairs(skinned) do
 			updatePct(p, UnitHealth(p.unit), UnitHealthMax(p.unit))

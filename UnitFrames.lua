@@ -181,6 +181,23 @@ local function decorate(f, cfg, visualOnly)
 	f.text = makeText(f.hp, cfg.font)
 	f.text:SetPoint("RIGHT", f.hp, "RIGHT", -8, 0)
 
+	-- Raid marker (skull, cross...) centered on the top edge.
+	local ms = math.max(12, math.min(20, math.floor(cfg.h * 0.55)))
+	f.mark = f.hp:CreateTexture(nil, "OVERLAY", nil, 7)
+	f.mark:SetSize(ms, ms)
+	f.mark:SetPoint("CENTER", f.hp, "TOP", 0, 0)
+	f.mark:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+	f.mark:Hide()
+	-- Group icons on the top-left corner: tank / healer, leader, master looter.
+	f.groupIcons = {}
+	for i = 1, 3 do
+		local t = f.hp:CreateTexture(nil, "OVERLAY", nil, 7)
+		t:SetSize(12, 12)
+		t:SetPoint("CENTER", f.hp, "TOPLEFT", 8 + (i - 1) * 13, 0)
+		t:Hide()
+		f.groupIcons[i] = t
+	end
+
 	if cfg.power > 0 then
 		f.power = makeBar(f, cfg.power)
 		f.power:SetPoint("TOPLEFT", f.hp, "BOTTOMLEFT", 0, -1)
@@ -425,6 +442,72 @@ local function updateRange(f)
 	f:SetAlpha((checked and inRange == false) and 0.45 or 1)
 end
 
+-- Raid marker: the game's sheet of 8 icons, 4 across.
+local function setMarkTexture(tex, i)
+	local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
+	tex:SetTexCoord(col * 0.25, (col + 1) * 0.25, row * 0.25, (row + 1) * 0.25)
+end
+ns.setMarkTexture = setMarkTexture -- (Nameplates.lua uses it too)
+
+local function updateMark(f)
+	if not f.mark then return end
+	local i = GetRaidTargetIndex and UnitExists(f.unit) and plain(GetRaidTargetIndex(f.unit))
+	if type(i) == "number" and i >= 1 and i <= 8 then
+		setMarkTexture(f.mark, i)
+		f.mark:Show()
+	else
+		f.mark:Hide()
+	end
+end
+
+-- The master looter's unit, or nil (loot method isn't Master Loot).
+local function masterLooter()
+	local fn = (C_PartyInfo and C_PartyInfo.GetLootMethod) or GetLootMethod
+	if not fn then return nil end
+	local ok, method, partyID, raidID = pcall(fn)
+	method, partyID, raidID = plain(method), plain(partyID), plain(raidID)
+	local master = method == "master" or (Enum and Enum.LootMethod and method == Enum.LootMethod.Masterlooter)
+	if not ok or not master then return nil end
+	if IsInRaid() and raidID then return "raid" .. raidID end
+	if partyID == 0 then return "player" end
+	if partyID then return "party" .. partyID end
+	return nil
+end
+
+-- Role icons from the game's role sheet: tank, healer (damage isn't shown).
+local ROLE_COORDS = { TANK = { 0, 19 / 64, 22 / 64, 41 / 64 }, HEALER = { 20 / 64, 39 / 64, 1 / 64, 20 / 64 } }
+
+local function updateGroupIcons(f)
+	if not f.groupIcons then return end
+	local n = 0
+	local function add(tex, coords)
+		n = n + 1
+		local t = f.groupIcons[n]
+		t:SetTexture(tex)
+		if coords then t:SetTexCoord(coords[1], coords[2], coords[3], coords[4]) else t:SetTexCoord(0, 1, 0, 1) end
+		t:Show()
+	end
+	local unit = f.unit
+	if IsInGroup() and (f.isGroup or unit == "player") and UnitExists(unit) then
+		local role = UnitGroupRolesAssigned and plain(UnitGroupRolesAssigned(unit))
+		if ROLE_COORDS[role or ""] then add("Interface\\LFGFrame\\UI-LFG-ICON-PORTRAITROLES", ROLE_COORDS[role]) end
+		if UnitIsGroupLeader and plain(UnitIsGroupLeader(unit)) then add("Interface\\GroupFrame\\UI-Group-LeaderIcon") end
+		local ml = masterLooter()
+		if ml and plain(UnitIsUnit(unit, ml)) then add("Interface\\GroupFrame\\UI-Group-MasterLooter") end
+	end
+	for i = n + 1, #f.groupIcons do f.groupIcons[i]:Hide() end
+end
+
+-- Target: a thin gold edge for elites and bosses, silver for rares.
+local CLASS_EDGE = { elite = { 1, 0.82, 0.2 }, worldboss = { 1, 0.82, 0.2 }, rare = { 0.78, 0.82, 0.88 }, rareelite = { 0.78, 0.82, 0.88 } }
+local function updateClassEdge(f)
+	if not f.classEdge then return end
+	local c = UnitExists(f.unit) and CLASS_EDGE[plain(UnitClassification(f.unit)) or ""]
+	for _, t in ipairs(f.classEdge) do
+		if c then t:SetColorTexture(c[1], c[2], c[3], 1) t:Show() else t:Hide() end
+	end
+end
+
 local function updateAll(f, snap)
 	if not f.unit or not f.hp then return end
 	if unlocked and not UnitExists(f.unit) then return end
@@ -432,6 +515,9 @@ local function updateAll(f, snap)
 	updatePower(f, snap)
 	updateName(f)
 	updateRange(f)
+	updateMark(f)
+	updateGroupIcons(f)
+	updateClassEdge(f)
 end
 
 ---------------------------------------------------------------------------
@@ -484,6 +570,10 @@ target.name:SetPoint("BOTTOMLEFT", target, "TOPLEFT", 1, 4)
 target.name:SetPoint("BOTTOMRIGHT", target, "TOPRIGHT", -1, 4)
 target.name:SetJustifyH("LEFT")
 target.name:SetWordWrap(false)
+-- Elite / rare edge just outside the frame (see updateClassEdge).
+target.classEdge = ns.newEdges(target, "OVERLAY", 7)
+ns.placeEdges(target.classEdge, target, -3, 1)
+for _, t in ipairs(target.classEdge) do t:Hide() end
 
 ---------------------------------------------------------------------------
 -- Target cast bar: just under the target frame, only while it casts.
@@ -1424,6 +1514,7 @@ for _, e in ipairs({
 	"UNIT_CONNECTION", "UNIT_NAME_UPDATE", "UNIT_LEVEL", "UNIT_FACTION", "UNIT_FLAGS",
 	"UNIT_CLASSIFICATION_CHANGED", "PLAYER_UPDATE_RESTING", "PLAYER_LEVEL_UP",
 	"UNIT_PET", "UNIT_HAPPINESS", "PET_UI_UPDATE", "UNIT_AURA", "UNIT_PET_EXPERIENCE", "UNIT_TARGET",
+	"RAID_TARGET_UPDATE", "PARTY_LEADER_CHANGED", "PARTY_LOOT_METHOD_CHANGED", "PLAYER_ROLES_ASSIGNED",
 }) do
 	pcall(ev.RegisterEvent, ev, e) -- some events don't exist on every client
 end
@@ -1493,6 +1584,11 @@ ev:SetScript("OnEvent", function(_, event, unit)
 		updateRaid(true)
 		updateResting()
 		updatePlayerDebuffs()
+	elseif event == "RAID_TARGET_UPDATE" or event == "PARTY_LEADER_CHANGED"
+		or event == "PARTY_LOOT_METHOD_CHANGED" or event == "PLAYER_ROLES_ASSIGNED" then
+		-- Markers and group icons on every frame (these name no unit).
+		for _, fr in ipairs(frames) do updateMark(fr) updateGroupIcons(fr) end
+		for _, b in ipairs(raidButtons) do if b.unit then updateMark(b) updateGroupIcons(b) end end
 	elseif event == "PLAYER_UPDATE_RESTING" then
 		updateResting()
 	elseif event == "PLAYER_LEVEL_UP" then
