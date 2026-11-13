@@ -78,7 +78,10 @@ local function hasAura(unit, filter, idSet)
 	local names = spellNames(idSet)
 	local hidden = false
 	for i = 1, 40 do
-		local a = safe(C_UnitAuras.GetAuraDataByIndex, unit, i, filter)
+		local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, filter)
+		-- In combat Forever refuses to show addons your target's auras at all
+		-- ("Auras cannot be accessed when secret"): that's "can't tell", not "none".
+		if not ok then return false, true end
 		if not a then break end
 		local id, name = plain(a.spellId), plain(a.name)
 		if (id and idSet[id]) or (name and names[name]) then return true, false, a end
