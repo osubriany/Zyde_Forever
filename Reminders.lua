@@ -601,6 +601,29 @@ ns.AuraDebug = function()
 			print(P .. "  game's target frame icons: none found (TargetFrame " .. (TargetFrame and "exists" or "missing") .. ")")
 		end
 	end
+	if TargetFrame then
+		local tf = TargetFrame
+		local pools = tf.auraPools
+		local active, kinds = 0, {}
+		if pools and pools.EnumerateActive then
+			for b in pools:EnumerateActive() do
+				active = active + 1
+				local k = (b.Border and "border " or "") .. (b.isDebuff and "isDebuff " or "") .. tostring(b:GetName() or "unnamed")
+				if #kinds < 3 then kinds[#kinds + 1] = k end
+			end
+		end
+		local parent = tf:GetParent()
+		print(P .. ("  TargetFrame: shown %s, visible %s, parent %s, auraPools %s (%d active: %s), TargetFrameDebuff1 %s, UpdateAuras %s, TargetFrame_UpdateAuras %s")
+			:format(tostring(tf:IsShown()), tostring(tf:IsVisible()), tostring(parent and parent:GetName() or "unnamed"),
+			tostring(pools ~= nil), active, table.concat(kinds, ", "), tostring(_G.TargetFrameDebuff1 ~= nil),
+			type(tf.UpdateAuras), type(_G.TargetFrame_UpdateAuras)))
+		local kids = {}
+		for _, c in ipairs({ tf:GetChildren() }) do
+			local n = c:GetName()
+			if n and (n:find("Buff") or n:find("Debuff") or n:find("Aura")) and #kids < 4 then kids[#kids + 1] = n end
+		end
+		if #kids > 0 then print(P .. "  aura-like children: " .. table.concat(kids, ", ")) end
+	end
 	local plate = C_NamePlate and C_NamePlate.GetNamePlateForUnit("target")
 	if plate and ns.PlateAuraFrame then
 		local c = ns.PlateAuraFrame(plate)
