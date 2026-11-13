@@ -673,6 +673,30 @@ ns.AuraDebug = function()
 		end
 		table.sort(lines)
 		walk(TargetFrame, 1, "TargetFrame")
+		-- The aura container (moved under Zyde's frame), with its cooldowns' number setting.
+		local c = ns.UnitFrames and ns.UnitFrames.gameAuraContainer and ns.UnitFrames.gameAuraContainer()
+		if c then
+			local function walkC(f, depth, path)
+				if depth > 6 or #lines > 600 then return end
+				for i, ch in ipairs({ f:GetChildren() }) do
+					local okT, kind = pcall(ch.GetObjectType, ch)
+					local extra = ""
+					if okT and kind == "Cooldown" then
+						local okH, hide = pcall(function() return ch.GetHideCountdownNumbers and ch:GetHideCountdownNumbers() end)
+						extra = " hideNumbers=" .. (okH and (isSecret(hide) and "secret" or tostring(hide)) or "error")
+					end
+					local keys = {}
+					for k in pairs(ch) do if type(k) == "string" and #keys < 12 then keys[#keys + 1] = k end end
+					local p = path .. "/" .. (ch:GetName() or ("#" .. i))
+					lines[#lines + 1] = ("%s [%s] %s%s keys: %s"):format(p, okT and kind or "?", ch:IsShown() and "shown" or "hidden", extra, table.concat(keys, " "))
+					walkC(ch, depth + 1, p)
+				end
+			end
+			local keys = {}
+			for k, v in pairs(c) do if type(k) == "string" and type(v) ~= "function" then keys[#keys + 1] = k end end
+			lines[#lines + 1] = "CONTAINER fields: " .. table.concat(keys, " ")
+			walkC(c, 1, "CONTAINER")
+		end
 		ZydeForeverDB = ZydeForeverDB or {}
 		ZydeForeverDB.debugDump = lines
 		print(P .. ("  saved a dump of the game's target frame (%d lines): /reload so Zyde's author can read it"):format(#lines))
