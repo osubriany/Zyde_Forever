@@ -33,7 +33,7 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
   - The target's cast bar.
   - Hunters get a pet frame with a happiness face, the pet's buffs and an XP bar.
 - **Nameplates**: flat enemy nameplates in the unit frames' style.
-  - Your target's plate shows its health % (one decimal) inside the bar.
+  - Your target's plate stands out: a white edge, a little bigger, the other plates slightly faded. It also shows its health % (one decimal) inside the bar.
   - Full name above the bar; level badge with + for elites, a silver dragon for rares, a skull for bosses.
   - Cast bar (orange = you can interrupt, gray = you can't) and your own debuffs with time left.
   - In a group, the outline turns orange or red when a mob is about to attack you, or (when you tank) when it's on someone else.

@@ -1,6 +1,6 @@
 -- Zyde_Forever: flat nameplates for enemies, in the unit frames' style.
 --   * a flat bar in the hostile / neutral / tapped color, thin dark outline
---   * your target's plate: its health % with one decimal, inside the bar
+--   * your target's plate: a white edge, a little bigger (others a bit faded), its health % inside the bar
 --   * the full name above it (smaller, so long names fit)
 --   * a level badge on the left: difficulty color, "+" for elites, a silver
 --     dragon for rares, a skull for bosses
@@ -81,6 +81,10 @@ local function build(plate)
 
 	f.hp = bar(f, H)
 	f.hp:SetAllPoints()
+	-- Your target: a white edge just outside the bar (see updateTarget).
+	f.sel = ns.newEdges(f.hp, "OVERLAY", 7)
+	ns.placeEdges(f.sel, f.hp, -3, 2)
+	for _, t in ipairs(f.sel) do t:SetColorTexture(1, 1, 1, 0.9) t:Hide() end
 	-- Health % (your target's plate only), inside the bar on the right.
 	f.pct = text(f.hp, 9)
 	f.pct:SetPoint("RIGHT", f.hp, "RIGHT", -3, 0)
@@ -556,8 +560,19 @@ local function unskin(unit)
 	end
 end
 
+-- Your target stands out: a white edge, a bit bigger, and the other plates
+-- a little faded while you have a target.
+local function updateTarget(f)
+	local isTarget = plain(UnitIsUnit(f.unit, "target")) == true
+	for _, t in ipairs(f.sel) do t:SetShown(isTarget) end
+	f:SetScale(isTarget and 1.15 or 1)
+	f:SetAlpha((isTarget or not UnitExists("target")) and 1 or 0.75)
+	if isTarget then f:SetFrameLevel(f.plate:GetFrameLevel() + 20) else f:SetFrameLevel(f.plate:GetFrameLevel() + 5) end
+end
+
 local function updateAll(f)
 	updateHealth(f, true) -- (new mob on this plate: no easing from the last one)
+	updateTarget(f)
 	updateName(f)
 	updateCast(f)
 	updateAuras(f)
@@ -641,7 +656,10 @@ ev:SetScript("OnEvent", function(_, event, unit)
 	end
 	if event == "NAME_PLATE_UNIT_REMOVED" then unskin(unit) return end
 	if event == "PLAYER_TARGET_CHANGED" then
-		for _, p in pairs(skinned) do updatePct(p, UnitHealth(p.unit), UnitHealthMax(p.unit)) end
+		for _, p in pairs(skinned) do
+			updatePct(p, UnitHealth(p.unit), UnitHealthMax(p.unit))
+			updateTarget(p)
+		end
 		return
 	end
 	if event == "QUEST_LOG_UPDATE" then
