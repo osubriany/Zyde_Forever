@@ -476,8 +476,10 @@ ns.MarkDebug = function()
 	if not UnitExists("target") then print(P .. "target something first") return end
 	local ok, i = pcall(GetRaidTargetIndex, "target")
 	print(P .. "GetRaidTargetIndex: " .. (not ok and ("error " .. tostring(i)) or (isSecret(i) and "hidden (secret)" or tostring(i))))
-	local shown = applyMark(target.mark, "target")
-	print(P .. "target frame marker " .. (shown and "shown" or "hidden") .. ", frame " .. (target:IsVisible() and "visible" or "not visible"))
+	local tf = byUnit.target -- (the target frame is made further down this file)
+	if not tf then print(P .. "Zyde's target frame isn't there (unit frames off?)") return end
+	local shown = applyMark(tf.mark, "target")
+	print(P .. "target frame marker " .. (shown and "shown" or "hidden") .. ", frame " .. (tf:IsVisible() and "visible" or "not visible"))
 end
 
 local function updateMark(f)
