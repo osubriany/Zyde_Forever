@@ -18,6 +18,7 @@ Ammo.lua
 PetCare.lua
 Reminders.lua
 MarkerWheel.lua
+MapNotes.lua
 Tidy.lua
 Guild.lua
 VendorList.lua

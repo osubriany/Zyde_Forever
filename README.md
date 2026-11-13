@@ -91,6 +91,7 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
 - **Vendor / auction advice** (AHledger): "Vendor it", "Auction it" or "Keep" in item tooltips, at merchants and at the auction house. Hold Shift for the details. At the auction house its "Post on the AH" list takes the spot of AHledger's posting panel, which stays hidden while it's up.
 
 ### Travel & gathering
+- **Map markers**: your own named markers on the world map, kept between sessions (every character sees them). Shift-click the map to drop one and name it, shift-click a marker to remove it, right-click to rename it.
 - **Flight master shortcut**: flight masters open the flight map directly. Hold Shift to talk to them instead.
 - **Keep tracking after death**: turns Find Minerals, Find Herbs and similar tracking back on after you die.
 - **One Button Fishing**: the same key casts and reels in.
@@ -154,6 +155,7 @@ Troubleshooting:
 |---|---|
 | `/zyde petdebug` | Your pet's mood, buffs and food, as the game reports them |
 | `/zyde rangedebug` | Your target's range readings (hunters: Auto Shot, Wing Clip; warriors: Rend, Hamstring, Sunder; ~10 yd) |
+| `/zyde mapnotes` | How many map markers you have; `/zyde mapnotes clear` removes all markers from the map that is open |
 | `/zyde auradebug` | Your target's debuffs as the game reports them (name, spell ID, stacks) |
 | `/zyde mobsdebug` | Nearby nameplates, and why each is or isn't counted as a quest mob |
 | `/zyde questdebug` | Why the quest object you're facing is or isn't detected |

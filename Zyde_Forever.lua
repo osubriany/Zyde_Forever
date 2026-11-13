@@ -101,6 +101,7 @@ local FEATURES = {
 	{ key = "barTidy", short = "short keys, no empty slots", label = "Tidy action bars", desc = "Short keybind labels on action buttons (a-1 becomes A1, Mouse Button 4 becomes M4) and empty slots hidden - they show again while you drag a spell or item" },
 	{ key = "gear", short = "borders, item levels", label = "Character screen gear", desc = "Rarity borders and item levels; a green arrow when your bags hold an upgrade for a slot (scored by GearAdvisor if loaded), empty slots quiet gray unless your bags can fill them, and your average item level in the header", reload = true },
 	{ key = "fishing", short = "one-key fishing", label = "One Button Fishing", desc = "Same key casts and reels in (set the key in Keybindings)" },
+	{ key = "mapNotes", short = "shift-click to mark", label = "Map markers", desc = "Your own named markers on the world map, kept between sessions. Shift-click the map to drop one and name it, shift-click a marker to remove it, right-click to rename it" },
 	{ key = "flight", short = "skip flight chat", label = "Flight master shortcut", desc = "Flight masters open the map directly (hold Shift to talk)" },
 	{ key = "tracking", short = "re-enable after death", label = "Keep tracking after death", desc = "Turns Find Minerals, Find Herbs... back on after you die" },
 	{ key = "questTracker", short = "ready first, nearest first", label = "Quest tracker", desc = "Replaces the game's quest tracker: quests ready to turn in at the top, then this zone's quests nearest first, other zones folded away; finished objective lines hidden", reload = true },
@@ -2334,7 +2335,7 @@ local CATEGORIES = {
 	{
 		{ "Questing & leveling", { "questTracker", "questFont", "questAlert", "questIcons", "questMobs", "questieDrops", "zygor" } },
 		{ "Bags & vendors", { "scrap", "vendor" } },
-		{ "Travel & gathering", { "flight", "tracking", "fishing" } },
+		{ "Travel & gathering", { "mapNotes", "flight", "tracking", "fishing" } },
 	},
 }
 
@@ -2704,6 +2705,8 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		ns.MarkerWheel.ToggleDebug()
 	elseif msg == "rangedebug" then
 		if ns.RangeDebug then ns.RangeDebug() else print("|cff66ccffZyde_Forever|r: the range check is for hunters and warriors") end
+	elseif msg == "mapnotes" or msg == "mapnotes clear" then
+		if ns.MapNotesCommand then ns.MapNotesCommand(msg:match("^mapnotes%s+(%S+)")) end
 	elseif msg == "auradebug" then
 		ns.AuraDebug()
 	elseif msg == "petdebug" then
@@ -2741,6 +2744,7 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "errors", "show the last Lua errors (from any addon), even with error pop-ups turned off" },
 			{ "petdebug", "hunters: show what the game reports about your pet's mood, buffs and food" },
 			{ "rangedebug", "hunters and warriors: show what the game says about your target's range" },
+			{ "mapnotes", "how many map markers you have (shift-click the map to add one); /zyde mapnotes clear empties the open map" },
 			{ "auradebug", "list your target's debuffs as the game reports them (for the Sunder and Thunder Clap tiles)" },
 			{ "mobsdebug", "list nearby nameplates and why each is or isn't counted as a quest mob" },
 			{ "test", "preview the Battle Shout, Overpower and quest item icons" },
