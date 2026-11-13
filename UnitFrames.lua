@@ -449,15 +449,39 @@ local function setMarkTexture(tex, i)
 end
 ns.setMarkTexture = setMarkTexture -- (Nameplates.lua uses it too)
 
-local function updateMark(f)
-	if not f.mark then return end
-	local i = GetRaidTargetIndex and UnitExists(f.unit) and plain(GetRaidTargetIndex(f.unit))
-	if type(i) == "number" and i >= 1 and i <= 8 then
-		setMarkTexture(f.mark, i)
-		f.mark:Show()
-	else
-		f.mark:Hide()
+-- Show unit's raid marker on texture `tex`; returns true if it has one.
+-- When the game hides which marker it is from addons (a "secret" number),
+-- the texture is asked to pick the icon itself (no maths needed on our side).
+local function applyMark(tex, unit)
+	local i = GetRaidTargetIndex and UnitExists(unit) and safe(GetRaidTargetIndex, unit) or nil
+	if not isSecret(i) then
+		if type(i) ~= "number" or i < 1 or i > 8 then tex:Hide() return false end
+		setMarkTexture(tex, i)
+		tex:Show()
+		return true
 	end
+	if (tex.SetSpriteSheetCell and pcall(tex.SetSpriteSheetCell, tex, i, 4, 4))
+		or (SetRaidTargetIconTexture and pcall(SetRaidTargetIconTexture, tex, i)) then
+		tex:Show()
+		return true
+	end
+	tex:Hide()
+	return false
+end
+ns.applyMark = applyMark
+
+-- /zyde markdebug: what the game says about your target's raid marker.
+ns.MarkDebug = function()
+	local P = "|cff66ccffZyde_Forever|r: "
+	if not UnitExists("target") then print(P .. "target something first") return end
+	local ok, i = pcall(GetRaidTargetIndex, "target")
+	print(P .. "GetRaidTargetIndex: " .. (not ok and ("error " .. tostring(i)) or (isSecret(i) and "hidden (secret)" or tostring(i))))
+	local shown = applyMark(target.mark, "target")
+	print(P .. "target frame marker " .. (shown and "shown" or "hidden") .. ", frame " .. (target:IsVisible() and "visible" or "not visible"))
+end
+
+local function updateMark(f)
+	if f.mark then applyMark(f.mark, f.unit) end
 end
 
 -- The master looter's unit, or nil (loot method isn't Master Loot).

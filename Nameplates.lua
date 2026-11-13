@@ -304,13 +304,7 @@ end
 
 -- The game's own plate shows raid markers, but it's invisible: show it here.
 local function updateMark(f)
-	local i = GetRaidTargetIndex and plain(GetRaidTargetIndex(f.unit))
-	if type(i) == "number" and i >= 1 and i <= 8 and ns.setMarkTexture then
-		ns.setMarkTexture(f.mark, i)
-		f.mark:Show()
-	else
-		f.mark:Hide()
-	end
+	if ns.applyMark then ns.applyMark(f.mark, f.unit) end
 end
 
 local function updateName(f)

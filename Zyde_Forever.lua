@@ -2789,6 +2789,8 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		if ns.RangeDebug then ns.RangeDebug() else print("|cff66ccffZyde_Forever|r: the range check is for hunters and warriors") end
 	elseif msg == "mapnotes" or msg == "mapnotes clear" then
 		if ns.MapNotesCommand then ns.MapNotesCommand(msg:match("^mapnotes%s+(%S+)")) end
+	elseif msg == "markdebug" then
+		if ns.MarkDebug then ns.MarkDebug() end
 	elseif msg == "auradebug" then
 		ns.AuraDebug()
 	elseif msg == "petdebug" then
