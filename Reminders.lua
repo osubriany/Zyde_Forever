@@ -591,4 +591,23 @@ ns.AuraDebug = function()
 		end
 		print(P .. "  legacy UnitDebuff: " .. n .. " found")
 	end
+	-- 3) The game's own icons, which Zyde shows when addons can't read auras.
+	local UFm = ns.UnitFrames
+	if UFm and UFm.blizzTargetButtons then
+		local buffs, debuffs = UFm.blizzTargetButtons()
+		if buffs then
+			print(P .. ("  game's target frame icons: %d buffs, %d debuffs showing"):format(#buffs, #debuffs))
+		else
+			print(P .. "  game's target frame icons: none found (TargetFrame " .. (TargetFrame and "exists" or "missing") .. ")")
+		end
+	end
+	local plate = C_NamePlate and C_NamePlate.GetNamePlateForUnit("target")
+	if plate and ns.PlateAuraFrame then
+		local c = ns.PlateAuraFrame(plate)
+		local shownIcons = 0
+		if c then for _, child in ipairs({ c:GetChildren() }) do if child:IsShown() then shownIcons = shownIcons + 1 end end end
+		print(P .. "  game's nameplate debuff row: " .. (c and (("found (%s), %d shown parts"):format(c:GetName() or "unnamed", shownIcons)) or "none on this plate"))
+	else
+		print(P .. "  target has no nameplate in view")
+	end
 end

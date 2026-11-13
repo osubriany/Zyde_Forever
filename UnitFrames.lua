@@ -727,9 +727,101 @@ local targetBuffs = auraGrid(target, "target", false, 20, 10, 20, true)
 local playerDebuffs = auraGrid(player, "player", true, 24, 8, 16, true)
 local playerBuffs = auraGrid(player, "player", false, 20, 10, 20, true)
 
+-- In combat Forever won't let addons read the target's auras at all, but the
+-- game's own target frame still draws them. So when it has aura icons, those
+-- are used: moved from the (hidden) game frame onto ours and laid out like
+-- our own grids (debuffs under, buffs above the name). Ours are the fallback.
+local blizzTaken = {} -- the game's aura buttons we've moved onto our frame
+
+-- The game's target aura buttons in use: buffs, debuffs (each in order).
+local function blizzTargetButtons()
+	local buffs, debuffs = {}, {}
+	if not TargetFrame then return nil end
+	local found = false
+	-- Classic-style named buttons
+	for i = 1, 40 do
+		local b = _G["TargetFrameBuff" .. i]
+		if b then found = true if b:IsShown() then buffs[#buffs + 1] = b end end
+		local d = _G["TargetFrameDebuff" .. i]
+		if d then found = true if d:IsShown() then debuffs[#debuffs + 1] = d end end
+	end
+	-- Newer pooled buttons
+	local pools = TargetFrame.auraPools
+	if pools and pools.EnumerateActive then
+		found = true
+		local list = {}
+		for b in pools:EnumerateActive() do list[#list + 1] = b end
+		table.sort(list, function(a, b) return (a:GetID() or 0) < (b:GetID() or 0) end)
+		for _, b in ipairs(list) do
+			if b:IsShown() then
+				local debuff = b.Border ~= nil or b.isDebuff
+				if debuff then debuffs[#debuffs + 1] = b else buffs[#buffs + 1] = b end
+			end
+		end
+	end
+	if not found then return nil end
+	return buffs, debuffs
+end
+UF.blizzTargetButtons = blizzTargetButtons
+
+-- Lay the game's buttons out in rows on our frame.
+local function placeBlizz(list, perRow, base, up)
+	local x, row, rowH = 0, 0, 0
+	for i, b in ipairs(list) do
+		if not blizzTaken[b] then
+			blizzTaken[b] = b:GetParent() or true
+			b:SetParent(target)
+		end
+		local w, h = b:GetWidth(), b:GetHeight()
+		if i > 1 and (i - 1) % perRow == 0 then
+			row = row + 1
+			x = 0
+		end
+		rowH = math.max(rowH, h)
+		b:ClearAllPoints()
+		if up then
+			b:SetPoint("BOTTOMLEFT", target, "TOPLEFT", 1 + x, base + row * (h + 14))
+		else
+			b:SetPoint("TOPLEFT", target, "BOTTOMLEFT", 1 + x, -(base + row * (h + 14)))
+		end
+		x = x + w + 3
+	end
+end
+
+-- Give the game's buttons back to its own frame (icons turned off).
+local function returnBlizz()
+	for b, parent in pairs(blizzTaken) do
+		if type(parent) == "table" then b:SetParent(parent) end
+	end
+	wipe(blizzTaken)
+end
+
 local function updateTargetDebuffs()
+	if UF.disabled then returnBlizz() return end -- (Zyde unit frames off: the game's frame keeps its icons)
+	if not ns.F("unitAuras") then
+		returnBlizz()
+		fillGrid(targetDebuffs, CAST_H + 9)
+		fillGrid(targetBuffs, 22)
+		return
+	end
+	local buffs, debuffs = blizzTargetButtons()
+	if buffs then
+		-- The game's icons: hide ours.
+		for _, b in ipairs(targetDebuffs.buttons) do b:Hide() end
+		for _, b in ipairs(targetBuffs.buttons) do b:Hide() end
+		placeBlizz(debuffs, 8, CAST_H + 9, false)
+		placeBlizz(buffs, 10, 22, true)
+		return
+	end
 	fillGrid(targetDebuffs, CAST_H + 9)
 	fillGrid(targetBuffs, 22) -- (the name sits just above the frame)
+end
+-- After the game redraws its icons, lay them out again.
+if type(_G.TargetFrame_UpdateAuras) == "function" then
+	hooksecurefunc("TargetFrame_UpdateAuras", function() updateTargetDebuffs() end)
+end
+if TargetFrame and type(TargetFrame.UpdateAuras) == "function" then
+	hooksecurefunc(TargetFrame, "UpdateAuras", function() updateTargetDebuffs() end)
 end
 local function updatePlayerDebuffs()
 	local used = fillGrid(playerDebuffs, 16)

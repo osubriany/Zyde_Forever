@@ -292,13 +292,53 @@ local function updateCast(f)
 	cb:Show()
 end
 
+-- The game's own debuff row on its plate: it can still read your debuffs in
+-- combat when addons can't, so it's kept visible (above our bar) while the
+-- rest of the game's plate is invisible. Our own icons are the fallback.
+local function blizzAuraFrame(plate)
+	local uf = plate.UnitFrame
+	return uf and (uf.AurasFrame or uf.BuffFrame) or nil
+end
+ns.PlateAuraFrame = blizzAuraFrame -- (for /zyde auradebug)
+
+local function takeBlizzAuras(f)
+	local c = blizzAuraFrame(f.plate)
+	if not (c and c.SetIgnoreParentAlpha) then f.blizzAuras = nil return end
+	if not c.zydeOrig then
+		c.zydeOrig = {}
+		for i = 1, c:GetNumPoints() do c.zydeOrig[i] = { c:GetPoint(i) } end
+	end
+	c:SetIgnoreParentAlpha(true)
+	c:ClearAllPoints()
+	c:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 16)
+	f.blizzAuras = c
+	for _, a in ipairs(f.auras) do a:Hide() end
+end
+
+local function giveBackBlizzAuras(f)
+	local c = f.blizzAuras
+	f.blizzAuras = nil
+	if not c then return end
+	c:SetIgnoreParentAlpha(false)
+	if c.zydeOrig and #c.zydeOrig > 0 then
+		c:ClearAllPoints()
+		for _, p in ipairs(c.zydeOrig) do c:SetPoint(unpack(p)) end
+	end
+end
+
 local function updateAuras(f)
+	if f.blizzAuras then
+		-- (the game may move its row back: keep it above our bar)
+		local p, rel = f.blizzAuras:GetPoint(1)
+		if p ~= "BOTTOMLEFT" or rel ~= f then takeBlizzAuras(f) end
+		return
+	end
 	local n, unit = 0, f.unit
 	if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
 		for i = 1, 40 do
 			if n >= AURA_MAX then break end
-			local a = safe(C_UnitAuras.GetAuraDataByIndex, unit, i, "HARMFUL|PLAYER")
-			if not a then break end
+			local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HARMFUL|PLAYER")
+			if not ok or not a then break end
 			n = n + 1
 			local b = f.auras[n]
 			if not pcall(b.icon.SetTexture, b.icon, a.icon) then b.icon:SetTexture(134400) end
@@ -474,6 +514,7 @@ local function unskin(unit)
 	f.unit = nil
 	f:Hide()
 	if f.plate then
+		giveBackBlizzAuras(f)
 		hideBlizzard(f.plate, false)
 		local qi = questieIcon(f.plate)
 		if qi then qi:SetAlpha(1) end
@@ -500,6 +541,7 @@ local function skin(unit)
 	f.plate, f.unit = plate, unit
 	skinned[unit] = f
 	hideBlizzard(plate, true)
+	takeBlizzAuras(f)
 	f:Show()
 	updateAll(f)
 end
@@ -551,7 +593,7 @@ ev:SetScript("OnEvent", function(_, event, unit)
 		-- Quest counts change without an event for each kill: re-read them every 2 s.
 		C_Timer.NewTicker(2, function()
 			wipe(questCache)
-			for _, f in pairs(skinned) do updateQuest(f) end
+			for _, f in pairs(skinned) do updateQuest(f) updateAuras(f) end
 		end)
 		skinAll()
 		return
