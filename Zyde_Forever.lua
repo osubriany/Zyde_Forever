@@ -90,8 +90,8 @@ end
 ---------------------------------------------------------------------------
 local FEATURES = {
 	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "Icons to the right of your character (Shift-drag one to move them). Warriors: Battle Shout missing or running out, Overpower / Execute / Revenge / Victory Rush ready, Thunder Clap missing on your target, wrong stance, Sunder stacks when tanking, target out of melee reach in a fight. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing (solo), target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Shamans: weapon imbue missing or running out, Lightning Shield missing or low, Earth Shock to interrupt, a totem out of range, no Ankh. Everyone: Well-Rested low, gear needs repair, low on food or water" },
-	{ key = "ammo", short = "count, refill, warning", label = "Hunter ammo", desc = "Arrows or bullets left and how long they last (in the XP readout), a warning when you leave town low, and a Fill quiver button at ammo vendors (hunters)" },
-	{ key = "petCare", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast reminder: off in a group, on when solo (hunters)" },
+	{ key = "ammo", class = "HUNTER", short = "count, refill, warning", label = "Hunter ammo", desc = "Arrows or bullets left and how long they last (in the XP readout), a warning when you leave town low, and a Fill quiver button at ammo vendors (hunters)" },
+	{ key = "petCare", class = "HUNTER", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast reminder: off in a group, on when solo (hunters)" },
 	{ key = "markerWheel", short = "hold key, click marker", label = "Marker wheels", desc = "Hold a key for a wheel of target markers (skull, cross, moon...) or world markers, and click one to place it" },
 	{ key = "hideBars", short = "cleaner action bars", label = "Hide Blizzard bar art", desc = "Hides the action bar art, bag bar and micro menu", reload = true },
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
@@ -2331,25 +2331,51 @@ end)
 ---------------------------------------------------------------------------
 ---------------------------------------------------------------------------
 -- Options window (/zyde): turn each feature on or off. Saved per account.
+-- Kept short: only what applies to you shows (class options for your class,
+-- addon features only with that addon), related options sit on one indented
+-- line under their parent, and each row's details are in its tooltip.
 ---------------------------------------------------------------------------
 local options
 local ROW = 24
 local HEAD = 28      -- height of a category heading
-local COL_W = 420    -- width of one column of features
+local COL_W = 330    -- width of one column of features
 
--- The window's categories: two columns, each a list of { heading, feature keys }.
+-- The window's categories: two columns, each a list of { heading, entries }.
+-- An entry is a feature key, or
+--   { key, children = {...} }     a feature with options under it (they gray
+--                                 out while it's off)
+--   { group = "Name", children }  a name with several features on one line
+-- Children are feature keys or slider keys (see SLIDERS in buildOptions).
 -- A feature missing here still shows, under "Other" at the end.
 local CATEGORIES = {
 	{
-		{ "Interface", { "unitFrames", "unitAuras", "targetTarget", "plates", "xp", "reminders", "hideBars", "barTidy", "gear" } },
+		{ "Interface", {
+			{ "unitFrames", children = { "unitAuras", "targetTarget" } },
+			"plates", "xp", "reminders",
+			{ group = "Action bars", children = { "hideBars", "barTidy" } },
+			"gear",
+		} },
 		{ "Hunter", { "ammo", "petCare" } },
 		{ "Groups", { "lfg", "guildRoster", "markerWheel" } },
 	},
 	{
-		{ "Questing & leveling", { "questTracker", "questFont", "questAlert", "questIcons", "questMobs", "questieDrops", "zygor" } },
+		{ "Questing & leveling", {
+			{ "questTracker", children = { "questFont" } },
+			{ group = "Quest objects", children = { "questAlert", "questIcons" } },
+			{ group = "Questie", children = { "questMobs", "questieDrops" } },
+			"zygor",
+		} },
 		{ "Bags & vendors", { "scrap", "vendor" } },
 		{ "Travel & gathering", { "mapNotes", "flight", "tracking", "fishing" } },
 	},
+}
+
+-- Short names for options shown on an indented line beside each other.
+local CHILD_LABEL = {
+	unitAuras = "Buffs / debuffs", targetTarget = "Target of target",
+	hideBars = "Hide bar art", barTidy = "Tidy keys & slots",
+	questAlert = "Glow alert", questIcons = "Icons over nodes",
+	questMobs = "Quest mobs", questieDrops = "Drop chances",
 }
 
 -- Short names for "needs ..." notes (Zygor's folder name is long).
@@ -2361,22 +2387,38 @@ local function addonTitle(name)
 end
 
 local function buildOptions()
-	-- Sliders that sit in the feature lists like a feature row (by key in CATEGORIES).
+	-- Sliders that sit in the lists like an option (by key in CATEGORIES).
 	local SLIDERS = {
 		questFont = {
-			label = "Quest tracker text size", min = 10, max = 20,
+			label = "Text size", min = 10, max = 20, parent = "questTracker",
 			desc = "How big the quest tracker's text is (13 is the normal size). The tracker grows with it.",
 			get = function() return ns.QuestTracker and ns.QuestTracker.GetFontSize() or 13 end,
 			set = function(v) if ns.QuestTracker then ns.QuestTracker.SetFontSize(v) end end,
-			enabled = function() return F("questTracker") end,
 		},
 	}
 
+	-- Shown here? Class options only for that class; addon features only
+	-- when the addon is loaded (the rest are listed at the bottom).
+	local hiddenFor = {} -- addon -> true, for the bottom note
+	local function visible(key)
+		if SLIDERS[key] then return true end
+		local f = FEATURE_BY_KEY[key]
+		if not f then return false end
+		if f.class and f.class ~= playerClass then return false end
+		if f.needs and not addonOn(f.needs) then hiddenFor[addonTitle(f.needs)] = true return false end
+		return true
+	end
+
 	-- Anything not placed in a category goes under "Other" in the second column.
 	local placed, other = {}, {}
+	local function mark(e)
+		if type(e) == "string" then placed[e] = true return end
+		if e[1] then placed[e[1]] = true end
+		for _, c in ipairs(e.children or {}) do placed[c] = true end
+	end
 	for _, col in ipairs(CATEGORIES) do
 		for _, cat in ipairs(col) do
-			for _, k in ipairs(cat[2]) do placed[k] = true end
+			for _, e in ipairs(cat[2]) do mark(e) end
 		end
 	end
 	for _, f in ipairs(FEATURES) do
@@ -2387,20 +2429,7 @@ local function buildOptions()
 		table.insert(CATEGORIES[2], { "Other", other })
 	end
 
-	-- Height: the taller column.
-	local tallest = 0
-	for _, col in ipairs(CATEGORIES) do
-		local h = 0
-		for _, cat in ipairs(col) do
-			local n = 0
-			for _, k in ipairs(cat[2]) do if FEATURE_BY_KEY[k] or SLIDERS[k] then n = n + 1 end end
-			h = h + HEAD + n * ROW
-		end
-		tallest = math.max(tallest, h)
-	end
-
 	local o = CreateFrame("Frame", "ZydeForeverOptions", UIParent, "BackdropTemplate")
-	o:SetSize(24 + 2 * COL_W + 250, 104 + tallest)
 	o:SetPoint("CENTER")
 	o:SetFrameStrata("DIALOG")
 	o:SetMovable(true)
@@ -2420,12 +2449,13 @@ local function buildOptions()
 	title:SetTextColor(0.69, 0.35, 1)
 	local sub = o:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -3)
-	sub:SetText("Hover a feature for details.  /zyde help for commands.")
+	sub:SetText("Hover an option for details.  /zyde help for commands.")
 
 	local close = CreateFrame("Button", nil, o, "UIPanelCloseButton")
 	close:SetPoint("TOPRIGHT", 2, 2)
 
-	o.rows = {}
+	o.rows, o.sliders = {}, {}
+
 	local function heading(x, y, text)
 		local h = o:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 		h:SetPoint("TOPLEFT", x + 4, y - 8)
@@ -2438,53 +2468,49 @@ local function buildOptions()
 		line:SetWidth(COL_W - 24)
 	end
 
-	local function featureRow(feat, x, y)
+	local function tooltip(owner, feat)
+		GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+		GameTooltip:AddLine(feat.label)
+		GameTooltip:AddLine(feat.desc, 1, 1, 1, true)
+		local blocked = featureBlocked(feat.key)
+		if blocked then GameTooltip:AddLine("Off: " .. blocked .. ".", 1, 0.4, 0.3, true) end
+		if feat.reload then GameTooltip:AddLine("Turning it off fully takes a /reload.", 0.7, 0.7, 0.7, true) end
+		GameTooltip:Show()
+	end
+
+	-- A checkbox for one feature. small: the short label, for an indented line.
+	local function checkbox(feat, x, y, small, parentKey)
 		local cb = CreateFrame("CheckButton", nil, o, "UICheckButtonTemplate")
-		cb:SetSize(24, 24)
-		cb:SetPoint("TOPLEFT", x, y)
-		cb.label = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-		cb.label:SetPoint("LEFT", cb, "RIGHT", 4, 0)
-		cb.label:SetWidth(180)
+		cb:SetSize(small and 20 or 24, small and 20 or 24)
+		cb:SetPoint("TOPLEFT", x, small and y - 2 or y)
+		cb.label = cb:CreateFontString(nil, "OVERLAY", small and "GameFontHighlightSmall" or "GameFontHighlight")
+		cb.label:SetPoint("LEFT", cb, "RIGHT", 2, 0)
+		cb.label:SetText(small and (CHILD_LABEL[feat.key] or feat.label) or feat.label)
 		cb.label:SetJustifyH("LEFT")
-		cb.label:SetWordWrap(false)
-		-- A few words on what it does beside the name; a note (needs an
-		-- addon / reload to apply) takes its place when there is one.
-		cb.short = cb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		cb.short:SetPoint("LEFT", cb.label, "RIGHT", 8, 0)
-		cb.short:SetWidth(COL_W - 230)
-		cb.short:SetJustifyH("LEFT")
-		cb.short:SetWordWrap(false)
-		cb.short:SetTextColor(0.6, 0.6, 0.65)
-		cb.feat = feat
+		-- Only when there's something to say: "reload to apply", "LootTriage already does this".
+		cb.note = cb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		cb.note:SetPoint("LEFT", cb.label, "RIGHT", 6, 0)
+		cb.feat, cb.parentKey, cb.small = feat, parentKey, small
 		cb:SetScript("OnClick", function(self)
 			setFeature(feat.key, self:GetChecked())
 			if feat.key == "xp" or feat.key == "hideBars" then pcall(hideBlizzardBars) end
 			o:Refresh()
 		end)
-		cb:SetScript("OnEnter", function(self)
-			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-			GameTooltip:AddLine(feat.label)
-			GameTooltip:AddLine(feat.desc, 1, 1, 1, true)
-			local blocked = featureBlocked(feat.key)
-			if blocked then GameTooltip:AddLine("Off: " .. blocked .. ".", 1, 0.4, 0.3, true) end
-			if feat.reload then GameTooltip:AddLine("Turning it off fully takes a /reload.", 0.7, 0.7, 0.7, true) end
-			GameTooltip:Show()
-		end)
+		cb:SetScript("OnEnter", function(self) tooltip(self, feat) end)
 		cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
 		o.rows[#o.rows + 1] = cb
+		return cb
 	end
 
-	-- A slider row: name where a feature's name goes, the slider beside it.
-	o.sliders = {}
 	local function sliderRow(def, x, y)
 		local s = CreateFrame("Slider", nil, o, "BackdropTemplate")
 		s.def = def
-		s.label = o:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-		s.label:SetPoint("TOPLEFT", x + 28, y - 5)
+		s.label = o:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		s.label:SetPoint("TOPLEFT", x + 4, y - 6)
 		s.label:SetText(def.label)
 		s:SetOrientation("HORIZONTAL")
-		s:SetSize(150, 10)
-		s:SetPoint("TOPLEFT", x + 212, y - 7)
+		s:SetSize(130, 10)
+		s:SetPoint("LEFT", s.label, "RIGHT", 10, 0)
 		s:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
 		s:SetBackdropColor(0, 0, 0, 0.6)
 		s:SetBackdropBorderColor(0.69, 0.35, 1, 0.5)
@@ -2517,85 +2543,131 @@ local function buildOptions()
 		o.sliders[#o.sliders + 1] = s
 	end
 
+	-- One indented line of children: checkboxes side by side, or a slider.
+	local INDENT = 26
+	local function childLine(children, x, y, parentKey)
+		local cx, used = x + INDENT, false
+		for _, k in ipairs(children) do
+			if SLIDERS[k] then
+				sliderRow(SLIDERS[k], cx, y)
+				used = true
+			elseif visible(k) then
+				local cb = checkbox(FEATURE_BY_KEY[k], cx, y, true, parentKey)
+				cx = cx + 24 + math.ceil(cb.label:GetStringWidth()) + 14
+				used = true
+			end
+		end
+		return used
+	end
+
+	local function anyVisible(list)
+		for _, k in ipairs(list) do if visible(k) then return true end end
+		return false
+	end
+
+	-- Lay out both columns, top to bottom.
+	local tallest = 0
 	for c, col in ipairs(CATEGORIES) do
 		local x, y = 12 + (c - 1) * COL_W, -46
 		for _, cat in ipairs(col) do
-			heading(x, y, cat[1])
-			y = y - HEAD
-			for _, k in ipairs(cat[2]) do
-				local feat = FEATURE_BY_KEY[k]
-				if feat then
-					featureRow(feat, x, y)
-					y = y - ROW
-				elseif SLIDERS[k] then
-					sliderRow(SLIDERS[k], x, y)
-					y = y - ROW
+			local entries = {}
+			for _, e in ipairs(cat[2]) do
+				if type(e) == "string" then
+					if visible(e) then entries[#entries + 1] = e end
+				elseif e.group then
+					if anyVisible(e.children) then entries[#entries + 1] = e end
+				elseif visible(e[1]) then
+					entries[#entries + 1] = e
+				end
+			end
+			if #entries > 0 then
+				heading(x, y, cat[1])
+				y = y - HEAD
+				for _, e in ipairs(entries) do
+					if type(e) == "string" then
+						if SLIDERS[e] then sliderRow(SLIDERS[e], x, y) else checkbox(FEATURE_BY_KEY[e], x, y) end
+						y = y - ROW
+					elseif e.group then
+						-- "Action bars:  [x] Hide bar art  [x] Tidy keys & slots"
+						local name = o:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+						name:SetPoint("TOPLEFT", x + 4, y - 5)
+						name:SetText(e.group)
+						childLine(e.children, x + math.max(84, math.ceil(name:GetStringWidth()) + 14) - INDENT, y, nil)
+						y = y - ROW
+					else
+						checkbox(FEATURE_BY_KEY[e[1]], x, y)
+						y = y - ROW
+						if childLine(e.children, x, y, e[1]) then y = y - ROW end
+					end
 				end
 			end
 		end
+		tallest = math.max(tallest, -y)
 	end
 
+	-- Bottom: the other addons Zyde works with, and what's hidden without them.
+	o.addonLine = o:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	o.addonLine:SetPoint("BOTTOMLEFT", 14, 30)
+	o.addonLine:SetJustifyH("LEFT")
+	o.hiddenLine = o:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	o.hiddenLine:SetPoint("BOTTOMLEFT", 14, 14)
+	o.hiddenLine:SetJustifyH("LEFT")
+	local missing = {}
+	for name in pairs(hiddenFor) do missing[#missing + 1] = name end
+	table.sort(missing)
+	o.hiddenLine:SetText(#missing > 0 and ("More options appear with " .. table.concat(missing, ", ") .. ".") or "")
+	local hover = CreateFrame("Frame", nil, o)
+	hover:SetPoint("TOPLEFT", o.addonLine, "TOPLEFT", -2, 2)
+	hover:SetPoint("BOTTOMRIGHT", o.addonLine, "BOTTOMRIGHT", 2, -2)
+	hover:EnableMouse(true)
+	hover:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:AddLine("Other addons Zyde works with")
+		for _, a in ipairs(ns.ADDONS) do
+			local state = ns.addonState(a.name)
+			local r, g, b = 1, 0.3, 0.3
+			if state == "on" then r, g, b = 0.35, 1, 0.35 elseif state == "off" then r, g, b = 1, 0.6, 0.2 end
+			GameTooltip:AddDoubleLine(a.title, state == "on" and "Installed" or (state == "off" and "Disabled" or "Not installed"), 1, 1, 1, r, g, b)
+			GameTooltip:AddLine(a.used, 0.7, 0.7, 0.7, true)
+		end
+		GameTooltip:Show()
+	end)
+	hover:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+	-- Reload: only when a change needs it.
 	local reload = CreateFrame("Button", nil, o, "UIPanelButtonTemplate")
 	reload:SetSize(110, 22)
 	reload:SetPoint("BOTTOMRIGHT", -12, 12)
 	reload:SetText("Reload UI")
 	reload:SetScript("OnClick", function() ReloadUI() end)
+	o.reload = reload
 	o.reloadHint = o:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	o.reloadHint:SetPoint("RIGHT", reload, "LEFT", -8, 0)
 	o.reloadHint:SetText("Some changes need a reload")
-	o.reloadHint:Hide()
 
-	-- Right side: the other addons some features use, and whether you have them.
-	local side = CreateFrame("Frame", nil, o, "BackdropTemplate")
-	side:SetPoint("TOPLEFT", o, "TOPLEFT", 12 + 2 * COL_W, -46)
-	side:SetPoint("BOTTOMRIGHT", o, "BOTTOMRIGHT", -12, 44)
-	side:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
-	side:SetBackdropColor(1, 1, 1, 0.04)
-	local head = side:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	head:SetPoint("TOPLEFT", 10, -8)
-	head:SetText("Other addons used")
-	head:SetTextColor(0.69, 0.35, 1)
+	o:SetSize(24 + 2 * COL_W, 46 + tallest + 58)
 
-	o.addonRows = {}
-	local y = -30
-	for _, a in ipairs(ns.ADDONS) do
-		local name = side:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-		name:SetPoint("TOPLEFT", 10, y)
-		name:SetText(a.title)
-		local status = side:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		status:SetPoint("TOPRIGHT", -10, y - 1)
-		local used = side:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-		used:SetPoint("TOPLEFT", 10, y - 16)
-		used:SetPoint("RIGHT", side, "RIGHT", -10, 0)
-		used:SetJustifyH("LEFT")
-		used:SetText(a.used)
-		o.addonRows[#o.addonRows + 1] = { addon = a, status = status }
-		y = y - 16 - math.max(14, math.ceil(#a.used / 34) * 12) - 10
-	end
-
-	o.changed = {}
 	function o:Refresh()
 		local needReload = false
 		for _, cb in ipairs(self.rows) do
 			local feat = cb.feat
 			local blocked = featureBlocked(feat.key)
-			cb.label:SetText(feat.label)
+			local parentOff = cb.parentKey and not featureWanted(cb.parentKey)
+			local changed = feat.reload and self.startState[feat.key] ~= featureWanted(feat.key)
+			needReload = needReload or changed
 			if blocked then
 				cb:SetChecked(false)
 				cb:Disable()
 				cb.label:SetTextColor(0.5, 0.5, 0.5)
-				local note = feat.needs and not addonOn(feat.needs) and ("needs " .. addonTitle(feat.needs)) or blocked
-				cb.short:SetText("|cffff6650" .. note .. "|r")
+				cb.note:SetText("|cffff6650" .. blocked .. "|r")
 			else
-				cb:Enable()
 				cb:SetChecked(featureWanted(feat.key))
-				cb.label:SetTextColor(1, 1, 1)
-				local changed = feat.reload and self.startState[feat.key] ~= featureWanted(feat.key)
-				cb.short:SetText(changed and "|cffffd200reload to apply|r" or (feat.short or ""))
-				needReload = needReload or changed
+				if parentOff then cb:Disable() else cb:Enable() end
+				local v = parentOff and 0.5 or 1
+				cb.label:SetTextColor(v, v, v)
+				cb.note:SetText(changed and "|cffffd200reload to apply|r" or "")
 			end
 		end
-		self.reloadHint:SetShown(needReload)
 		for _, s in ipairs(self.sliders) do
 			local v = s.def.get()
 			s.loading = true
@@ -2603,24 +2675,21 @@ local function buildOptions()
 			s.loading = false
 			s.last = v
 			s.value:SetText(v)
-			local live = s.def.enabled()
+			local live = not s.def.parent or F(s.def.parent)
 			if live then s:Enable() else s:Disable() end
 			s.label:SetTextColor(live and 1 or 0.5, live and 1 or 0.5, live and 1 or 0.5)
 			s:SetAlpha(live and 1 or 0.5)
 		end
-		for _, r in ipairs(self.addonRows) do
-			local state = ns.addonState(r.addon.name)
-			if state == "on" then
-				r.status:SetText("Installed")
-				r.status:SetTextColor(0.35, 1, 0.35)
-			elseif state == "off" then
-				r.status:SetText("Disabled")
-				r.status:SetTextColor(1, 0.6, 0.2)
-			else
-				r.status:SetText("Not installed")
-				r.status:SetTextColor(1, 0.3, 0.3)
-			end
+		self.reload:SetShown(needReload)
+		self.reloadHint:SetShown(needReload)
+		-- Addons: green installed, orange disabled, red missing (hover for details).
+		local parts = {}
+		for _, a in ipairs(ns.ADDONS) do
+			local state = ns.addonState(a.name)
+			local color = state == "on" and "|cff59ff59" or (state == "off" and "|cffff9933" or "|cffff4d4d")
+			parts[#parts + 1] = color .. a.title .. "|r"
 		end
+		self.addonLine:SetText("Addons:  " .. table.concat(parts, "  "))
 	end
 	o:SetScript("OnShow", function(self) self:Refresh() end)
 	o:Hide()
