@@ -61,7 +61,7 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
 - **Ammo**:
   - Arrows / bullets left and how long they'll last.
   - A warning when you leave town low.
-  - A **Fill quiver** button at ammo vendors.
+  - A **Fill quiver** button at ammo vendors. It only fills your quiver or ammo pouch, never your normal bags, and grays out once it's full.
   - A waypoint to the nearest ammo vendor (click the Arrows line, or `/zyde ammovendor`).
 - **Pet care**:
   - Keys to feed your pet the right food from your bags, and to call or revive it.

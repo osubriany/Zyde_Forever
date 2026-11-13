@@ -271,24 +271,26 @@ local function bestOffer(kind)
 	return best
 end
 
--- How many of item `id` fit: free quiver / pouch slots plus room left in
--- stacks of it you already have. Without a quiver, up to 2 stacks in your
--- normal bags (keeping one slot free).
+-- How many of item `id` fit. With a quiver / ammo pouch: only its free slots
+-- and room left in stacks inside it, never your normal bags (once it's full,
+-- the button grays out). Without one: up to 2 stacks in your normal bags
+-- (keeping one slot free), plus room left in stacks you already have.
 local function room(kind, id, stack)
 	local fam = BAG_FAMILY[kind]
 	local n, hasAmmoBag, normalFree = 0, false, 0
+	local ammoBags = {}
 	for bag = 0, (NUM_BAG_SLOTS or 4) do
 		local free, bagType = C_Container.GetContainerNumFreeSlots(bag)
 		bagType = tonumber(bagType) or 0
 		if bag > 0 and bit.band(bagType, fam) ~= 0 then
-			hasAmmoBag = true
+			hasAmmoBag, ammoBags[bag] = true, true
 			n = n + (free or 0) * stack
 		elseif bagType == 0 then
 			normalFree = normalFree + (free or 0)
 		end
 	end
 	for _, info in ipairs(ns.Bags.items()) do
-		if info.itemID == id then
+		if info.itemID == id and (not hasAmmoBag or ammoBags[info.bag]) then
 			n = n + math.max(0, stack - (tonumber(info.stackCount) or stack))
 		end
 	end
@@ -301,9 +303,11 @@ buy:SetHeight(24)
 buy:SetFrameStrata("HIGH")
 buy:Hide()
 local plan -- what a click would buy
+local quiverFull -- the offer, when your quiver has no room for another bundle of it
+local buying = false -- a purchase is under way
 
 local function planPurchase()
-	plan = nil
+	plan, quiverFull = nil, nil
 	if not (on() and MerchantFrame and MerchantFrame:IsShown()) then return end
 	local kind = ammoKind()
 	if not kind then return end
@@ -312,6 +316,7 @@ local function planPurchase()
 	if Ammo.LearnVendor then Ammo.LearnVendor(kind) end -- for "nearest vendor" later
 	local fits, hasAmmoBag = room(kind, o.id, o.stack)
 	local batches = math.floor(fits / o.batch)
+	if hasAmmoBag and batches <= 0 then quiverFull = o return end
 	local affordable = math.floor((GetMoney() or 0) / o.price)
 	batches = math.min(batches, affordable)
 	if o.numAvailable and o.numAvailable > 0 then batches = math.min(batches, o.numAvailable) end
@@ -322,7 +327,18 @@ end
 
 local function drawBuy()
 	planPurchase()
+	if not plan and quiverFull then
+		-- Quiver full: the button stays, grayed out.
+		buy:SetText("Quiver full")
+		buy:SetWidth(buy:GetFontString():GetStringWidth() + 24)
+		buy:ClearAllPoints()
+		buy:SetPoint("TOPLEFT", MerchantFrame, "BOTTOMLEFT", 0, -4)
+		buy:Disable()
+		buy:Show()
+		return
+	end
 	if not plan then buy:Hide() return end
+	if not buying then buy:Enable() end
 	buy:SetText(("%s: %s %s (%s)"):format(plan.hasAmmoBag and "Fill quiver" or "Buy ammo",
 		num(plan.amount), plan.name, money(plan.cost)))
 	buy:SetWidth(buy:GetFontString():GetStringWidth() + 24)
@@ -345,7 +361,6 @@ buy:SetScript("OnEnter", function(self)
 end)
 buy:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-local buying = false
 buy:SetScript("OnClick", function()
 	if not plan or buying then return end
 	local p = plan
@@ -370,8 +385,7 @@ buy:SetScript("OnClick", function()
 		i = i + 1
 		if i > #calls or not (MerchantFrame and MerchantFrame:IsShown())
 			or GetMerchantItemLink(p.index) ~= p.link then
-			buying = false
-			buy:Enable()
+			buying = false -- (drawBuy turns the button back on, or grays it if the quiver is full)
 			print(P .. ("bought %s"):format(p.link))
 			C_Timer.After(0.5, drawBuy)
 			return
