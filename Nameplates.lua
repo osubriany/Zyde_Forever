@@ -293,7 +293,7 @@ local function updateCast(f)
 end
 
 -- The game's own debuff row on its plate: it can still read your debuffs in
--- combat when addons can't, so it's kept visible (above our bar) while the
+-- combat when addons can't, so it's kept visible (where the game puts it) while the
 -- rest of the game's plate is invisible. Our own icons are the fallback.
 local function blizzAuraFrame(plate)
 	local uf = plate.UnitFrame
@@ -304,13 +304,10 @@ ns.PlateAuraFrame = blizzAuraFrame -- (for /zyde auradebug)
 local function takeBlizzAuras(f)
 	local c = blizzAuraFrame(f.plate)
 	if not (c and c.SetIgnoreParentAlpha) then f.blizzAuras = nil return end
-	if not c.zydeOrig then
-		c.zydeOrig = {}
-		for i = 1, c:GetNumPoints() do c.zydeOrig[i] = { c:GetPoint(i) } end
-	end
+	-- Only made visible again: the game won't let addons measure or move
+	-- parts of its nameplates ("restricted regions"), so it stays where the
+	-- game puts it, above the plate.
 	c:SetIgnoreParentAlpha(true)
-	c:ClearAllPoints()
-	c:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 16)
 	f.blizzAuras = c
 	for _, a in ipairs(f.auras) do a:Hide() end
 end
@@ -318,21 +315,11 @@ end
 local function giveBackBlizzAuras(f)
 	local c = f.blizzAuras
 	f.blizzAuras = nil
-	if not c then return end
-	c:SetIgnoreParentAlpha(false)
-	if c.zydeOrig and #c.zydeOrig > 0 then
-		c:ClearAllPoints()
-		for _, p in ipairs(c.zydeOrig) do c:SetPoint(unpack(p)) end
-	end
+	if c then c:SetIgnoreParentAlpha(false) end
 end
 
 local function updateAuras(f)
-	if f.blizzAuras then
-		-- (the game may move its row back: keep it above our bar)
-		local p, rel = f.blizzAuras:GetPoint(1)
-		if p ~= "BOTTOMLEFT" or rel ~= f then takeBlizzAuras(f) end
-		return
-	end
+	if f.blizzAuras then return end -- (the game draws them)
 	local n, unit = 0, f.unit
 	if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
 		for i = 1, 40 do
