@@ -325,14 +325,24 @@ local function planPurchase()
 	plan = o
 end
 
+-- Under the vendor window's Merchant / Buyback tabs (they hang below its edge).
+local function placeBuy()
+	local tab = _G.MerchantFrameTab1
+	buy:ClearAllPoints()
+	if tab and tab:IsShown() then
+		buy:SetPoint("TOPLEFT", tab, "BOTTOMLEFT", 0, -2)
+	else
+		buy:SetPoint("TOPLEFT", MerchantFrame, "BOTTOMLEFT", 0, -34)
+	end
+end
+
 local function drawBuy()
 	planPurchase()
 	if not plan and quiverFull then
 		-- Quiver full: the button stays, grayed out.
 		buy:SetText("Quiver full")
 		buy:SetWidth(buy:GetFontString():GetStringWidth() + 24)
-		buy:ClearAllPoints()
-		buy:SetPoint("TOPLEFT", MerchantFrame, "BOTTOMLEFT", 0, -4)
+		placeBuy()
 		buy:Disable()
 		buy:Show()
 		return
@@ -342,8 +352,7 @@ local function drawBuy()
 	buy:SetText(("%s: %s %s (%s)"):format(plan.hasAmmoBag and "Fill quiver" or "Buy ammo",
 		num(plan.amount), plan.name, money(plan.cost)))
 	buy:SetWidth(buy:GetFontString():GetStringWidth() + 24)
-	buy:ClearAllPoints()
-	buy:SetPoint("TOPLEFT", MerchantFrame, "BOTTOMLEFT", 0, -4)
+	placeBuy()
 	buy:Show()
 end
 
