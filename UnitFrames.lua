@@ -826,7 +826,8 @@ local function takeContainer()
 	placing = true
 	pcall(function()
 		c:ClearAllPoints()
-		c:SetPoint("TOPLEFT", target, "BOTTOMLEFT", 0, -(CAST_H + 9))
+		-- Right under the frame; below the cast bar while it shows.
+		c:SetPoint("TOPLEFT", target, "BOTTOMLEFT", 0, castBar:IsShown() and -(CAST_H + 9) or -4)
 	end)
 	placing = false
 	return c
@@ -889,6 +890,9 @@ end
 if TargetFrame and type(TargetFrame.UpdateAuras) == "function" then
 	hooksecurefunc(TargetFrame, "UpdateAuras", function() updateTargetDebuffs() end)
 end
+-- The cast bar comes and goes: move the auras down for it, and back up.
+castBar:HookScript("OnShow", function() if container then updateTargetDebuffs() end end)
+castBar:HookScript("OnHide", function() if container then updateTargetDebuffs() end end)
 -- The game re-anchors its container to its own frame: put it back under ours.
 for _, m in ipairs({ "AnchorAuraContainer", "UpdateAuraContainerAnchors", "ConfigureAuraContainer" }) do
 	if TargetFrame and type(TargetFrame[m]) == "function" then
