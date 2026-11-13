@@ -569,7 +569,7 @@ local function tile(i)
 	b:SetSize(ICON, ICON)
 	local row, col = math.floor((i - 1) / PER_ROW), (i - 1) % PER_ROW
 	b:SetPoint("TOPLEFT", 8 + col * (ICON + 3), -26 - row * (ICON + 3))
-	b:RegisterForClicks("RightButtonUp")
+	b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	b.icon = b:CreateTexture(nil, "ARTWORK")
 	b.icon:SetAllPoints()
 	b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
@@ -579,12 +579,20 @@ local function tile(i)
 		if not self.v then return end
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:SetBagItem(self.v.bag, self.v.slot)
-		GameTooltip:AddLine("Right-click: keep it, don't sell", 0.7, 0.7, 0.7)
+		GameTooltip:AddLine("Click or right-click: sell it.  Shift-right-click: keep it, don't sell.", 0.7, 0.7, 0.7, true)
 		GameTooltip:Show()
 	end)
 	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	b:SetScript("OnClick", function(self)
+	-- Right-click sells, like right-clicking it in your bags at a vendor (it used
+	-- to keep it, which was easy to do by habit). Keeping takes Shift-right-click.
+	b:SetScript("OnClick", function(self, button)
 		if not self.v then return end
+		if not (button == "RightButton" and IsShiftKeyDown()) then
+			if MerchantFrame and MerchantFrame:IsShown() and not InCombatLockdown() then
+				C_Container.UseContainerItem(self.v.bag, self.v.slot)
+			end
+			return
+		end
 		R.kept()[self.v.itemID] = true
 		GameTooltip:Hide()
 		print("|cff66ccffZyde_Forever|r: keeping " .. (self.v.link or "item") .. " (/zyde scrapreset to undo)")
@@ -676,7 +684,7 @@ ah.title:SetPoint("TOPLEFT", 8, -7)
 ah.title:SetTextColor(1, 0.82, 0.2)
 ah.hint = ah:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 ah.hint:SetPoint("BOTTOMLEFT", 8, 7)
-ah.hint:SetText("Click: put in the sell slot   Right-click: keep it")
+ah.hint:SetText("Click: put in the sell slot   Shift-right-click: keep it")
 
 local function ahFrame()
 	return (AuctionHouseFrame and AuctionHouseFrame:IsShown() and AuctionHouseFrame)
@@ -782,7 +790,7 @@ local function row(i)
 	r:SetScript("OnClick", function(self, button)
 		local v = self.v
 		if not v then return end
-		if button == "RightButton" then
+		if button == "RightButton" and IsShiftKeyDown() then
 			R.kept()[v.itemID] = true
 			GameTooltip:Hide()
 			print("|cff66ccffZyde_Forever|r: keeping " .. (v.link or "item") .. " (/zyde scrapreset to undo)")

@@ -2836,7 +2836,7 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "questicons", "turn the icons over nearby objects on or off" },
 			{ "scrap", "turn the full-bags \"scrap first\" list on or off (off while LootTriage is enabled)" },
 			{ "scraptest", "preview the scrap first list now, even with bags not full" },
-			{ "scrapreset", "let items you right-clicked to keep be suggested again (scrap and vendor lists)" },
+			{ "scrapreset", "let items you chose to keep be suggested again (scrap and vendor lists)" },
 			{ "vendor", "turn the vendor / auction / keep advice in item tooltips and at merchants on or off" },
 			{ "ammovendor","hunters: waypoint to the nearest arrow or bullet vendor (or click the Arrows line)" },
 			{ "ammowarn <number>", "hunters: warn when leaving town with fewer arrows or bullets than this (default 600, 0 = off)" },
