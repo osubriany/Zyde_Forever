@@ -693,8 +693,22 @@ ns.AuraDebug = function()
 				end
 			end
 			local keys = {}
-			for k, v in pairs(c) do if type(k) == "string" and type(v) ~= "function" then keys[#keys + 1] = k end end
-			lines[#lines + 1] = "CONTAINER fields: " .. table.concat(keys, " ")
+			for k, v in pairs(c) do if type(k) == "string" then keys[#keys + 1] = k .. (type(v) == "function" and "()" or "") end end
+			table.sort(keys)
+			lines[#lines + 1] = "CONTAINER type " .. tostring(select(2, pcall(c.GetObjectType, c))) .. ", fields: " .. table.concat(keys, " ")
+			local mt = getmetatable(c)
+			local idx = mt and type(mt.__index) == "table" and mt.__index
+			if idx then
+				local m = {}
+				for k in pairs(idx) do
+					if type(k) == "string" and (k:find("Aura") or k:find("Count") or k:find("Cooldown") or k:find("Duration") or k:find("Timer") or k:find("Text")) then m[#m + 1] = k end
+				end
+				table.sort(m)
+				lines[#lines + 1] = "CONTAINER methods: " .. table.concat(m, " ")
+			end
+			local regions = {}
+			for _, r in ipairs({ c:GetRegions() }) do regions[#regions + 1] = tostring(select(2, pcall(r.GetObjectType, r))) end
+			lines[#lines + 1] = "CONTAINER regions: " .. table.concat(regions, " ")
 			walkC(c, 1, "CONTAINER")
 		end
 		ZydeForeverDB = ZydeForeverDB or {}
