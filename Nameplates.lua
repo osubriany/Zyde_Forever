@@ -1,5 +1,6 @@
 -- Zyde_Forever: flat nameplates for enemies, in the unit frames' style.
 --   * a flat bar in the hostile / neutral / tapped color, thin dark outline
+--   * your target's plate: its health % with one decimal, inside the bar
 --   * the full name above it (smaller, so long names fit)
 --   * a level badge on the left: difficulty color, "+" for elites, a silver
 --     dragon for rares, a skull for bosses
@@ -80,6 +81,10 @@ local function build(plate)
 
 	f.hp = bar(f, H)
 	f.hp:SetAllPoints()
+	-- Health % (your target's plate only), inside the bar on the right.
+	f.pct = text(f.hp, 9)
+	f.pct:SetPoint("RIGHT", f.hp, "RIGHT", -3, 0)
+	f.pct:SetTextColor(1, 1, 1)
 
 	f.name = text(f, 10)
 	f.name:SetPoint("BOTTOM", f, "TOP", 0, 3)
@@ -189,9 +194,24 @@ local function reactionColor(unit)
 	return COLOR.hostile
 end
 
+-- Health % with one decimal, on your target's plate only. When the game hides
+-- the numbers, it can still work the percentage out for us.
+local function updatePct(f, cur, maxv)
+	if not plain(UnitIsUnit(f.unit, "target")) then f.pct:SetText("") return end
+	if plain(UnitIsDeadOrGhost(f.unit)) then f.pct:SetText("") return end
+	if not isSecret(cur) and not isSecret(maxv) then
+		f.pct:SetFormattedText("%.1f%%", (maxv and maxv > 0) and (cur or 0) / maxv * 100 or 0)
+		return
+	end
+	local pct = UnitHealthPercent and CurveConstants and CurveConstants.ScaleTo100
+		and safe(UnitHealthPercent, f.unit, false, CurveConstants.ScaleTo100)
+	if pct == nil or not pcall(f.pct.SetFormattedText, f.pct, "%.1f%%", pct) then f.pct:SetText("") end
+end
+
 local function updateHealth(f)
 	local unit = f.unit
 	local cur, maxv = UnitHealth(unit), UnitHealthMax(unit)
+	updatePct(f, cur, maxv)
 	if isSecret(cur) or isSecret(maxv) then
 		pcall(f.hp.SetMinMaxValues, f.hp, 0, maxv)
 		pcall(f.hp.SetValue, f.hp, cur)
@@ -524,7 +544,7 @@ ev:SetScript("OnEvent", function(_, event, unit)
 		for _, e in ipairs({ "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "UNIT_HEALTH", "UNIT_MAXHEALTH",
 			"UNIT_NAME_UPDATE", "UNIT_LEVEL", "UNIT_FACTION", "UNIT_FLAGS", "UNIT_CLASSIFICATION_CHANGED", "UNIT_AURA",
 			"UNIT_THREAT_SITUATION_UPDATE", "UNIT_THREAT_LIST_UPDATE", "QUEST_LOG_UPDATE", "UPDATE_SHAPESHIFT_FORM",
-			"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED" }) do
+			"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_TARGET_CHANGED" }) do
 			pcall(ev.RegisterEvent, ev, e)
 		end
 		for e in pairs(CAST) do pcall(ev.RegisterEvent, ev, e) end
@@ -543,6 +563,10 @@ ev:SetScript("OnEvent", function(_, event, unit)
 		return
 	end
 	if event == "NAME_PLATE_UNIT_REMOVED" then unskin(unit) return end
+	if event == "PLAYER_TARGET_CHANGED" then
+		for _, p in pairs(skinned) do updatePct(p, UnitHealth(p.unit), UnitHealthMax(p.unit)) end
+		return
+	end
 	if event == "QUEST_LOG_UPDATE" then
 		wipe(questCache)
 		for _, f in pairs(skinned) do updateQuest(f) end
