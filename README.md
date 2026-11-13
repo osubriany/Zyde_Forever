@@ -32,6 +32,13 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
   - Shift-drag any frame to move it (out of combat).
   - The target's cast bar.
   - Hunters get a pet frame with a happiness face, the pet's buffs and an XP bar.
+- **Nameplates**: flat enemy nameplates in the unit frames' style.
+  - Full name above the bar; level badge with + for elites, a silver dragon for rares, a skull for bosses.
+  - Cast bar (orange = you can interrupt, gray = you can't) and your own debuffs with time left.
+  - In a group, the outline turns orange or red when a mob is about to attack you, or (when you tank) when it's on someone else.
+  - Warriors: the bar changes color below 20% health (Execute range).
+  - With Questie: the quest icon, your count (3/8) and the drop chance sit together on the right.
+  - Friendly and object nameplates keep the game's look. In dungeons and boss fights the game may hide some details (health, threat, debuff times).
 - **XP readout**: a small, draggable XP % in place of the XP bar, showing rested XP and time to level. Hunters also see their arrow or bullet count here.
 - **Reminder icons**: icons to the right of your character. Shift-drag any icon to move the column.
   - **Warrior:** Battle Shout missing or running out, Overpower / Execute / Revenge / Victory Rush ready, Thunder Clap missing on your target, wrong stance, Sunder stacks while tanking, target **too far** for melee in a fight.

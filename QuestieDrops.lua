@@ -189,6 +189,22 @@ local function refresh(token)
 	end
 end
 
+-- For the Zyde nameplates (Nameplates.lua): the best drop chance this mob has
+-- for an item you need, and the "next kill" odds text ("3x 78%"), or nil.
+ns.QuestieDrops = {
+	best = function(npcId)
+		local bestId, r
+		for itemId, rate in pairs(questDrops(npcId)) do
+			if not r or rate > r then bestId, r = itemId, rate end
+		end
+		if not r then return nil end
+		local n = tries()[bestId .. ":" .. npcId] or 0
+		if n == 0 then return r end
+		local p = math.min(r / 100, 1)
+		return r, ("%dx %d%%"):format(n + 1, math.floor((1 - (1 - p) ^ (n + 1)) * 100 + 0.5))
+	end,
+}
+
 local function refreshAll()
 	for _, token in ipairs(ns.Plates.units()) do refresh(token) end
 	-- forget corpses older than 10 minutes

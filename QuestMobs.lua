@@ -143,6 +143,7 @@ local glows = {} -- plate -> glow frame
 -- those addons hide.
 local function visibleBar(plate)
 	local function shown(f) return f and f.IsVisible and f:IsVisible() and f end
+	if plate.zydePlate and plate.zydePlate:IsShown() then return plate.zydePlate.hp end -- Zyde's own nameplates
 	local custom = plate.unitFrame
 	local bar = custom and (shown(custom.healthBar) or shown(custom.Health))
 	if not bar and plate.kui then bar = shown(plate.kui.HealthBar) end

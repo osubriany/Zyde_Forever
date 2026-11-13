@@ -12,6 +12,7 @@ Bags.lua
 UnitFrames.lua
 QuestieDrops.lua
 QuestMobs.lua
+Nameplates.lua
 QuestTracker.lua
 ScrapList.lua
 Ammo.lua

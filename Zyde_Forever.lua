@@ -98,6 +98,7 @@ local FEATURES = {
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames with buffs and debuffs, mana / rage / energy on party frames. Shift-drag a frame to move it", reload = true },
 	{ key = "targetTarget", short = "small frame by target", label = "Target of target", desc = "A small frame beside the target frame showing who your target is targeting (with the Zyde unit frames on). Shift-drag it to move it" },
 	{ key = "unitAuras", short = "icons on your frames", label = "Unit frame buffs / debuffs", desc = "Buff and debuff icons with time left on the Zyde unit frames: the target's debuffs (yours first) and buffs, your debuffs and buffs, and your pet's" },
+	{ key = "plates", short = "flat enemy nameplates", label = "Nameplates", desc = "Flat enemy nameplates in the unit frames' style: full name above, level badge (elite +, rare dragon, boss skull), cast bar (orange = interruptible), your debuffs with time left, threat outline in a group (orange / red), Execute-range color for warriors, and the quest icon, count and drop chance together on the right (Questie). Friendly and object nameplates keep the game's look" },
 	{ key = "barTidy", short = "short keys, no empty slots", label = "Tidy action bars", desc = "Short keybind labels on action buttons (a-1 becomes A1, Mouse Button 4 becomes M4) and empty slots hidden - they show again while you drag a spell or item" },
 	{ key = "gear", short = "borders, item levels", label = "Character screen gear", desc = "Rarity borders and item levels; a green arrow when your bags hold an upgrade for a slot (scored by GearAdvisor if loaded), empty slots quiet gray unless your bags can fill them, and your average item level in the header", reload = true },
 	{ key = "fishing", short = "one-key fishing", label = "One Button Fishing", desc = "Same key casts and reels in (set the key in Keybindings)" },
@@ -2328,7 +2329,7 @@ local COL_W = 420    -- width of one column of features
 -- A feature missing here still shows, under "Other" at the end.
 local CATEGORIES = {
 	{
-		{ "Interface", { "unitFrames", "unitAuras", "targetTarget", "xp", "reminders", "hideBars", "barTidy", "gear" } },
+		{ "Interface", { "unitFrames", "unitAuras", "targetTarget", "plates", "xp", "reminders", "hideBars", "barTidy", "gear" } },
 		{ "Hunter", { "ammo", "petCare" } },
 		{ "Groups", { "lfg", "guildRoster", "markerWheel" } },
 	},
