@@ -410,7 +410,7 @@ local function finalize(state, ctx)
 			-- a crossing you're already standing at is no step
 			if not ((leg.mode == "pass" or leg.mode == "border") and d and d <= arrived) then
 				steps[#steps + 1] = { kind = "travel", mode = leg.mode, label = leg.label, point = leg.point,
-					work = leg.seconds, mobXp = 0 }
+					work = leg.seconds, mobXp = 0, to = leg.to }
 			end
 		end
 		t = t + travel(from, e.point)

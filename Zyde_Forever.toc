@@ -69,5 +69,6 @@ LevelPlanner\UI\MapPins.lua
 LevelPlanner\UI\ZoneLevels.lua
 LevelPlanner\UI\NpcStars.lua
 LevelPlanner\UI\ItemButton.lua
+LevelPlanner\UI\TaxiArrow.lua
 LevelPlanner\Auto.lua
 LevelPlanner\Why.lua

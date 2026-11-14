@@ -369,7 +369,7 @@ function T.Legs(a, b)
 		local k = kind[i][j]
 		if k ~= "walk" then
 			legs[#legs + 1] = { mode = k, label = string.format(LABEL[k] or "Travel to %s", nodes[j].name),
-				point = n, seconds = D[i][j] }
+				point = n, seconds = D[i][j], to = nodes[j].name }
 		end
 		i = j
 	end
