@@ -347,13 +347,42 @@ local function toggleTrack(q)
 end
 
 local function openInLog(q)
-	if QuestLog_OpenToQuest then
-		pcall(QuestLog_OpenToQuest, q.questID)
-	elseif QuestLogFrame and SelectQuestLogEntry then
-		SelectQuestLogEntry(q.index)
-		ShowUIPanel(QuestLogFrame)
-		if QuestLog_Update then pcall(QuestLog_Update) end
+	-- Several ways, as clients differ; stop at the first that opens the log.
+	local function logOpen()
+		local f = _G.QuestLogFrame or _G.QuestLogExFrame
+		if f and f:IsShown() then return true end
+		local w = _G.WorldMapFrame
+		return w and w:IsShown() and _G.QuestMapFrame and _G.QuestMapFrame:IsShown() or false
 	end
+	-- The quest's place in the log now (it moves as quests come and go).
+	local index = q.index
+	if C_QuestLog and C_QuestLog.GetLogIndexForQuestID then
+		index = ns.safe(C_QuestLog.GetLogIndexForQuestID, q.questID) or index
+	end
+	-- Classic-style quest log: select the quest, then show the log.
+	local f = _G.QuestLogFrame
+	if f and SelectQuestLogEntry then
+		pcall(SelectQuestLogEntry, index)
+		if not f:IsShown() then
+			if ShowUIPanel then pcall(ShowUIPanel, f) end
+			if not f:IsShown() and ToggleQuestLog then pcall(ToggleQuestLog) end
+		end
+		if _G.QuestLog_SetSelection then pcall(_G.QuestLog_SetSelection, index) end
+		if _G.QuestLog_Update then pcall(_G.QuestLog_Update) end
+		if logOpen() then return end
+	end
+	if _G.QuestLog_OpenToQuest then
+		pcall(_G.QuestLog_OpenToQuest, index)
+		if logOpen() then return end
+		pcall(_G.QuestLog_OpenToQuest, q.questID)
+		if logOpen() then return end
+	end
+	-- Newer quest log on the map.
+	if _G.QuestMapFrame_OpenToQuestDetails then
+		pcall(_G.QuestMapFrame_OpenToQuestDetails, q.questID)
+		if logOpen() then return end
+	end
+	if _G.OpenQuestLog then pcall(_G.OpenQuestLog, q.questID) end
 end
 
 local function questRow(i)
