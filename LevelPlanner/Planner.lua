@@ -38,8 +38,16 @@ end
 -- Work time a stop adds after the previous one. Two objectives right next to each other that need
 -- the same mobs are done together: the kills count for both, so only the longer one's time counts.
 -- run = the longest work time in the current "together" group.
-local function addedWork(prevEntry, e, run)
+local function addedWork(prevEntry, e, run, start)
 	local w = e.stop.work or 0
+	if not prevEntry then
+		-- the first stop is an objective in the camp you're standing in: you've already found it
+		local d = start and e.stop.kind == "objective" and ns.Geo.Distance(start, e.point)
+		if d and d <= (ns.cfg.sameCampYards or 200) then
+			w = math.max(0, w - (ns.cfg.objectiveOverheadSeconds or 45))
+		end
+		return w, w
+	end
 	if prevEntry then
 		local d = ns.Geo.Distance(prevEntry.point, e.point)
 		if d and d <= (ns.cfg.overlapYards or 60) and sharesMobs(prevEntry.stop, e.stop) then
@@ -60,7 +68,7 @@ local function routeSeconds(route, ctx)
 	local t, prev, prevEntry, run = 0, ctx.start, nil, 0
 	for _, e in ipairs(route) do
 		local w
-		w, run = addedWork(prevEntry, e, run)
+		w, run = addedWork(prevEntry, e, run, ctx.start)
 		t = t + travel(prev, e.point) + w
 		prev, prevEntry = e.point, e
 	end
@@ -273,6 +281,34 @@ local function improve(state, pool, ctx)
 	return state
 end
 
+-- Finish what's here first: an objective whose camp you're standing in moves to the front when that
+-- costs at most Config.hereFirstSlackSeconds. Leaving and coming back later risks the camp being
+-- cleared or forgotten, and a near tie in the estimate shouldn't send you away from mobs you're
+-- already killing. Works on the kept route too (which is re-read in its old order).
+local function hereFirst(state, ctx)
+	if not ctx.start or #state.route < 2 or ns.cfg.hereFirst == false then return state end
+	local near = ns.cfg.sameCampYards or 200
+	local bestI, bestP, bestD
+	for i, e in ipairs(state.route) do
+		if e.stop.kind == "objective" then
+			for _, p in ipairs(e.stop.points) do
+				local d = ns.Geo.Distance(ctx.start, p)
+				if d and d <= near and (not bestD or d < bestD) then bestI, bestP, bestD = i, p, d end
+			end
+		end
+	end
+	if not bestI or bestI == 1 then return state end
+	local r = copy(state.route)
+	local e = table.remove(r, bestI)
+	table.insert(r, 1, { stop = e.stop, point = bestP })
+	if not feasible(r, ctx) then return state end
+	local t = routeSeconds(r, ctx)
+	if t <= state.total + (ns.cfg.hereFirstSlackSeconds or 90) then
+		state.route, state.total = r, t
+	end
+	return state
+end
+
 -- The previous route, re-read against current quest data (finished stops drop out), then topped up.
 local function carryOver(previous, pool, ctx)
 	if not (previous and previous.keys and #previous.keys > 0) then return nil end
@@ -383,7 +419,7 @@ local function finalize(state, ctx)
 		steps[#steps + 1] = setmetatable({ point = e.point, arrive = t }, { __index = e.stop })
 		keys[#keys + 1] = { key = e.stop.key, wx = e.point.wx, wy = e.point.wy, inst = e.point.inst }
 		local w
-		w, run = addedWork(prevEntry, e, run)
+		w, run = addedWork(prevEntry, e, run, start)
 		t = t + w
 		prev, prevEntry = e.point, e
 	end
@@ -436,7 +472,7 @@ function P.Plan(candidates, previous, opts)
 	end
 
 	local fresh = greedyFill({ route = {}, total = 0, xp = 0, value = 0, used = {} }, pool, ctx)
-	fresh = addExtras(fillWithGrind(improve(fresh, pool, ctx)), ctx)
+	fresh = addExtras(hereFirst(fillWithGrind(improve(fresh, pool, ctx)), ctx), ctx)
 	local plan = finalize(fresh, ctx)
 
 	-- dungeons: considered only when a run beats questing XP per minute, or when you're grouped
@@ -457,14 +493,14 @@ function P.Plan(candidates, previous, opts)
 		for _, q in ipairs(pool) do withDungeons[#withDungeons + 1] = q end
 		for _, d in ipairs(eligible) do withDungeons[#withDungeons + 1] = d end
 		local alt = improve(greedyFill({ route = {}, total = 0, xp = 0, value = 0, used = {} }, withDungeons, ctx), withDungeons, ctx)
-		local altPlan = finalize(addExtras(fillWithGrind(alt), ctx), ctx)
+		local altPlan = finalize(addExtras(hereFirst(fillWithGrind(alt), ctx), ctx), ctx)
 		-- when grouped a run is wanted even if questing is slightly faster
 		if altPlan.score > plan.score or (grouped and altPlan.score > plan.score * 0.9) then plan = altPlan end
 		pool = withDungeons
 	end
 
 	local carried = carryOver(previous, pool, ctx)
-	if carried then fillWithGrind(carried) end
+	if carried then hereFirst(fillWithGrind(carried), ctx) end
 	if carried and #carried.route > 0 then
 		local keep = finalize(addExtras(carried, ctx), ctx)
 		local threshold = (opts and opts.threshold) or cfg.switchThreshold or 0.10

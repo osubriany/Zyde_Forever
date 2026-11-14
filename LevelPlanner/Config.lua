@@ -42,6 +42,8 @@ LevelPlannerConfig = {
 	chainDepth = 2,             -- plan follow-ups this many steps down a chain
 	chainValueFactor = 0.5,     -- a quest that opens later quests is worth this share of their XP (squared for the next step)
 	sameCampYards = 200,        -- objectives this close count as one camp: "finding the spot" is counted once
+	hereFirst = true,           -- an objective in the camp you stand in goes first when it costs little
+	hereFirstSlackSeconds = 90, -- ... at most this many seconds more on the route
 	overlapYards = 60,          -- two objectives this close that need the same mobs are done together (kills count once)
 
 	-- Flight paths you haven't learned ------------------------------------------------------
