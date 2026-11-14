@@ -47,7 +47,7 @@ local function build()
 
 	f.icon = f:CreateTexture(nil, "ARTWORK")
 	f.icon:SetSize(40, 40)
-	f.icon:SetPoint("LEFT", 12, 0)
+	f.icon:SetPoint("TOPLEFT", 12, -12)
 
 	f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	f.title:SetPoint("TOPLEFT", f.icon, "TOPRIGHT", 8, 0)
@@ -61,7 +61,7 @@ local function build()
 
 	f.equip = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
 	f.equip:SetSize(120, 20)
-	f.equip:SetPoint("BOTTOMLEFT", f.icon, "BOTTOMRIGHT", 8, -4)
+	f.equip:SetPoint("TOPLEFT", f.detail, "BOTTOMLEFT", 0, -6) -- below the text, however many lines it takes
 	f.equip:SetScript("OnClick", function() Toast.equip() end)
 
 	f.close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
@@ -104,6 +104,8 @@ end
 local waiting = {} -- link -> true
 local showNextSoon -- (below)
 
+local offered = {} -- link -> true: already shown this session (equipped, closed or still up)
+
 function Toast.hide()
 	if current then waiting[current.link] = nil end
 	current, pendingEquip = nil, nil
@@ -114,6 +116,7 @@ end
 function Toast.show(link, r)
 	frame = frame or build()
 	current = { link = link, slot = r.slot }
+	offered[link] = true
 	pendingEquip = nil
 	local texture = ns.safe(C_Item and C_Item.GetItemIconByID or GetItemIcon, r.info.itemID)
 	frame.icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
@@ -121,6 +124,9 @@ function Toast.show(link, r)
 	local over = (r.vs and r.vs[1]) and ("over " .. table.concat(r.vs, " + ")) or "(empty slot)"
 	local notes = (r.notes and #r.notes > 0) and (" – " .. table.concat(r.notes, ", ")) or ""
 	frame.detail:SetText(over .. notes)
+	-- grow to fit a long item name or note that wraps onto more lines
+	local textH = (frame.title:GetStringHeight() or 12) + 3 + (frame.detail:GetStringHeight() or 10) + 6 + 20
+	frame:SetHeight(math.max(74, textH + 24)) -- 12 above, 12 below
 	setButton()
 	frame:Show()
 	if PlaySound and SOUNDKIT and SOUNDKIT.UI_EPICLOOT_TOAST then pcall(PlaySound, SOUNDKIT.UI_EPICLOOT_TOAST) end
@@ -145,36 +151,23 @@ function Toast.equip()
 end
 
 ---------------------------------------------------------------------------------------------
--- Spotting new upgrades: compare the bags' items with the last look; new gear that's an upgrade
--- gets a popup. The first look after login only remembers what's there.
+-- Spotting upgrades: any gear in your bags that is an upgrade you can wear now gets a popup, once
+-- per session. That covers new loot and also gear that turns into an upgrade later (you levelled
+-- up and can now wear it, or it came in during a loading screen).
 ---------------------------------------------------------------------------------------------
-local known        -- link -> count, from the last scan; nil until the first scan
 local quietUntil = 0   -- no popups before this time (bags fill in for a few seconds after login)
-local silentNext = false  -- next scan only remembers (you swapped gear: the old piece went to your bags)
 local function scan()
-	local now = {}
+	if GetTime() < quietUntil or not enabled() then return end
+	local found, retry = false, false
 	for _, info in ipairs(zyde.Bags.items()) do   -- Zyde's shared bag list (Bags.lua)
 		local link = info.hyperlink
-		if link then now[link] = (now[link] or 0) + 1 end
-	end
-	local first = known == nil
-	local before = known or {}
-	known = now
-	local silent = silentNext or GetTime() < quietUntil
-	silentNext = false
-	if first or silent or not enabled() then return end
-	local found = false
-	for link, n in pairs(now) do
-		if n > (before[link] or 0) and ns.Stats.isGear(link) then
+		if link and not offered[link] and not waiting[link] and ns.Stats.isGear(link) then
 			local ok, r = pcall(ns.Score.compare, link)
 			if ok and r and r.kind == "upgrade" then waiting[link] = true found = true end
-			if ok and r and r.kind == "loading" then
-				-- Data not in yet: forget it, so the next scan sees it as new again.
-				now[link] = (now[link] or 1) - 1
-				C_Timer.After(1, function() if Toast.scanSoon then Toast.scanSoon() end end)
-			end
+			if ok and r and r.kind == "loading" then retry = true end -- data not in yet: look again
 		end
 	end
+	if retry then C_Timer.After(1, function() if Toast.scanSoon then Toast.scanSoon() end end) end
 	if found and not current then Toast.showNext() end
 end
 
@@ -187,7 +180,8 @@ function Toast.showNext()
 	end
 	local best, bestR
 	for link in pairs(waiting) do
-		local ok, r = inBags[link] and pcall(ns.Score.compare, link)
+		local ok, r = false, nil
+		if inBags[link] then ok, r = pcall(ns.Score.compare, link) end -- ("x and f()" would keep only ok)
 		if ok and r and r.kind == "upgrade" then
 			if not bestR or r.pct > bestR.pct then best, bestR = link, r end
 		elseif not (ok and r and r.kind == "loading") then
@@ -221,12 +215,19 @@ end
 Toast.scanSoon = scanSoon
 
 local events = CreateFrame("Frame")
-for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "BAG_UPDATE_DELAYED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_EQUIPMENT_CHANGED" }) do
+for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "BAG_UPDATE_DELAYED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_EQUIPMENT_CHANGED", "PLAYER_LEVEL_UP" }) do
 	pcall(events.RegisterEvent, events, e)
 end
 events:SetScript("OnEvent", function(_, event)
-	if event == "PLAYER_ENTERING_WORLD" then quietUntil = GetTime() + 5 end
-	if event == "PLAYER_EQUIPMENT_CHANGED" then silentNext = true end
+	if event == "PLAYER_ENTERING_WORLD" then
+		quietUntil = GetTime() + 5
+		C_Timer.After(5.5, scanSoon) -- then offer what's already waiting in your bags
+	end
+	if event == "PLAYER_LEVEL_UP" then
+		-- the new level counts a moment later; gear you couldn't wear may be an upgrade now
+		C_Timer.After(2, scanSoon)
+		return
+	end
 	if event == "PLAYER_REGEN_DISABLED" then
 		setButton()
 		return
