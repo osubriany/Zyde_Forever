@@ -58,20 +58,22 @@ local function numberPin(pool, parent, i, size)
 	return f
 end
 
-local function dot(i)
-	local f = dots[i]
+-- A trail dot from a pool (world map or minimap), in the given colour.
+local function poolDot(pool, parent, i, size, colour)
+	local f = pool[i]
 	if not f then
-		f = CreateFrame("Frame", nil, worldLayer)
-		f:SetSize(9, 9)
-		local tex = f:CreateTexture(nil, "ARTWORK")
-		tex:SetAllPoints()
-		tex:SetTexture(DOT)
-		tex:SetVertexColor(RING_LATER[1], RING_LATER[2], RING_LATER[3])
-		tex:SetAlpha(0.9)
-		dots[i] = f
+		f = CreateFrame("Frame", nil, parent)
+		f:SetSize(size, size)
+		f.tex = f:CreateTexture(nil, "ARTWORK")
+		f.tex:SetAllPoints()
+		f.tex:SetTexture(DOT)
+		f.tex:SetAlpha(0.9)
+		pool[i] = f
 	end
+	f.tex:SetVertexColor(colour[1], colour[2], colour[3])
 	return f
 end
+local function dot(i, colour) return poolDot(dots, worldLayer, i, 9, colour or RING_LATER) end
 
 -- The next steps with a place, one per location (several turn-ins at one NPC = one pin).
 local function placesOf(plan, max)
@@ -120,6 +122,12 @@ local function drawWorld()
 	local zoom = WorldMapFrame.ScrollContainer.GetCanvasScale and WorldMapFrame.ScrollContainer:GetCanvasScale() or 1
 	local scale = 1 / math.max(zoom, 0.01)
 	local nDots, prev = 0, nil
+	-- the trail starts at you: a green line from your position to the next stop
+	local here = ns.Geo.PlayerPoint()
+	if here then
+		local px, py = onMap(here, mapID)
+		if px then prev = { px, py, fromYou = true } end
+	end
 	for i, pl in ipairs(places) do
 		local x, y = onMap(pl.point, mapID)
 		if x then
@@ -140,7 +148,7 @@ local function drawWorld()
 				for k = 2, count - 2 do
 					local t = k / count
 					nDots = nDots + 1
-					local d = dot(nDots)
+					local d = dot(nDots, prev.fromYou and RING_NOW or RING_LATER)
 					d:SetScale(scale)
 					d:ClearAllPoints()
 					d:SetPoint("CENTER", worldLayer, "TOPLEFT",
@@ -165,10 +173,12 @@ local function setupWorld()
 	-- only listen; never hand the map our functions or call its own methods (Forever taint lesson)
 	WorldMapFrame:HookScript("OnShow", drawWorld)
 	if WorldMapFrame.OnMapChanged then hooksecurefunc(WorldMapFrame, "OnMapChanged", drawWorld) end
-	local lastZoom
-	worldLayer:SetScript("OnUpdate", function()
+	local lastZoom, since = nil, 0
+	worldLayer:SetScript("OnUpdate", function(_, dt)
 		local z = WorldMapFrame.ScrollContainer.GetCanvasScale and WorldMapFrame.ScrollContainer:GetCanvasScale()
-		if z ~= lastZoom then lastZoom = z drawWorld() end
+		since = since + dt
+		-- redraw on zoom, and twice a second so the line from you follows you
+		if z ~= lastZoom or since >= 0.5 then lastZoom, since = z, 0 drawWorld() end
 	end)
 end
 
@@ -192,8 +202,10 @@ local function minimapRadius()
 end
 
 local miniElapsed = 0
+local miniDots = {}
 local function drawMini()
 	for _, f in ipairs(miniPins) do f:Hide() end
+	for _, f in ipairs(miniDots) do f:Hide() end
 	if ns.cfg.minimapPins == false or #places == 0 then return end
 	local here = ns.Geo.PlayerPoint()
 	if not here then return end
@@ -217,6 +229,19 @@ local function drawMini()
 			-- only the next step stays on the minimap's edge when it's out of range
 			if not edge or i == 1 then
 				if edge then east, north = east / dist * radius, north / dist * radius end
+				local sx, sy = east / radius * half * 0.92, north / radius * half * 0.92
+				-- green dots from you (the minimap's centre) toward the next stop
+				if i == 1 then
+					local len = math.sqrt(sx * sx + sy * sy)
+					local count = math.floor(len / 10)
+					for k = 2, count - 1 do
+						local t = k / count
+						local d = poolDot(miniDots, miniLayer, k, 6, RING_NOW)
+						d:ClearAllPoints()
+						d:SetPoint("CENTER", miniLayer, "CENTER", sx * t, sy * t)
+						d:Show()
+					end
+				end
 				local f = numberPin(miniPins, miniLayer, i, i == 1 and 20 or 16)
 				f.index, f.label = i, pl.label
 				f.text:SetText(i)
