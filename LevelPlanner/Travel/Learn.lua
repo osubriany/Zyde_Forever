@@ -145,7 +145,22 @@ local function sampleWalk(p)
 		if seg.idle >= 3 then endWalk() end -- stopped: the walk is over
 	end
 end
-function L.Bind() return ns.char.bind end
+-- Where your hearthstone takes you. When the game's home differs from what was learned (set at an
+-- innkeeper without LevelPlanner seeing it), a known flight path of the same name stands in:
+-- "Splintertree Post" -> "Splintertree Post, Ashenvale", a short walk from the inn.
+function L.Bind()
+	local bind = ns.char.bind
+	local home = GetBindLocation and GetBindLocation()
+	if not home or home == "" or (bind and bind.name == home) then return bind end
+	for contMap, list in pairs(char().taxi) do
+		for name, pos in pairs(list) do
+			if name == home or name:find(home .. ",", 1, true) == 1 then
+				return { name = home, map = contMap, x = pos.x * 100, y = pos.y * 100, guessed = true }
+			end
+		end
+	end
+	return bind
+end
 
 ----------------------------------------------------------------------------------------
 -- Flight masters
@@ -328,8 +343,16 @@ function L.Init()
 	f:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 	f:RegisterEvent("PLAYER_ENTERING_WORLD")
 	f:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+	f:RegisterEvent("CHAT_MSG_SYSTEM")
+	pcall(f.RegisterEvent, f, "HEARTHSTONE_BOUND") -- (not on every client)
+	-- "Splintertree Post is now your home." - the innkeeper's confirmation
+	local boundPattern = ERR_DEATHBIND_SUCCESS_S
+		and "^" .. ERR_DEATHBIND_SUCCESS_S:gsub("[%%%(%)%.%+%-%*%?%[%]%^%$]", "%%%0"):gsub("%%%%s", ".+") .. "$"
 	f:SetScript("OnEvent", function(_, event, a1, a2, a3)
-		if event == "TAXIMAP_OPENED" then
+		if event == "HEARTHSTONE_BOUND"
+			or (event == "CHAT_MSG_SYSTEM" and boundPattern and type(a1) == "string" and a1:find(boundPattern)) then
+			C_Timer.After(1, function() recordBind("set at innkeeper") end)
+		elseif event == "TAXIMAP_OPENED" then
 			readTaxiMap()
 		elseif event == "UI_INFO_MESSAGE" then
 			-- "New flight path discovered!"
