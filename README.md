@@ -1,6 +1,6 @@
 # Zyde Forever
 
-A quality-of-life addon for **World of Warcraft: Forever**: the classic world on the modern game client (Interface 16001). It cleans up the interface, adds reminders for warriors and hunters, makes questing and gearing smoother, and includes **GearAdvisor**, a gear upgrade scorer for your class and spec.
+A quality-of-life addon for **World of Warcraft: Forever**: the classic world on the modern game client (Interface 16001). It cleans up the interface, adds reminders for warriors and hunters, makes questing and gearing smoother, and includes **GearAdvisor**, a gear upgrade scorer for your class and spec, and the **Level planner**, which plans the fastest levelling route from your quests.
 
 Every feature can be turned on or off on its own. Type `/zyde` in game to open the options window.
 
@@ -120,6 +120,18 @@ Scores gear for your class and spec.
 - A popup when you loot an upgrade.
 - At the auction house: upgrade % on listings, and an Upgrades panel that opens when a search finds upgrades.
 
+### Level planner (`/lp`, needs Questie)
+Plans the next hour of levelling for the most XP per minute, and keeps re-planning as you go.
+- **Step list:** each step with an icon, the reason it's there, its XP and time, a live progress bar for the current objective, zone headers, and when you'll reach the next level.
+- **Arrow and map pins** to the next step (TomTom's arrow if you have TomTom). After you die, they point to your corpse.
+- **Quests:** every quest Questie knows, with pre-quests and follow-ups in chains. Solo it stays on yellow and easier quests; orange, red and elite quests wait until you're grouped (`/lp group on` or in a party). Quick grey quests near you still count.
+- **Travel:** walking, zone crossings, flight paths (learned at each flight master), boats, zeppelins, the Deeprun Tram and your hearthstone.
+- **Extra stops when they pay off:** learning new flight paths, your class trainer, selling junk and repairing, setting your hearthstone at the next hub, and grinding when quests run out.
+- **Dungeons:** a run counts as one big step with its quests picked up first. It's planned when it beats questing, or when you're grouped.
+- **Helpers:** planned quests are picked up and turned in for you (hold Shift to do it yourself); a key targets the next step's NPC and puts the star marker on it; a button for the current quest's usable item; quest log clean-up advice when your log is nearly full.
+- **Learns your pace:** your kill speed, objective times, dungeon runs and flight times make the estimates better as you play.
+- Every number is in `LevelPlannerConfig.lua` if you want to tune it.
+
 ## Keybindings
 
 Set these under **Game Menu → Options → Keybindings → AddOns → Zyde Forever**:
@@ -133,6 +145,13 @@ Set these under **Game Menu → Options → Keybindings → AddOns → Zyde Fore
 | Call or revive pet | Calls your pet, or revives it if it's dead |
 | Marker wheel (hold) | Target marker wheel |
 | World marker wheel (hold) | World marker wheel |
+
+Under **LevelPlanner**:
+
+| Binding | What it does |
+|---|---|
+| Use quest item | Uses the usable item of your current planned quest |
+| Target next step's NPC (and star it) | Targets the NPC of your next step and puts the star marker on it |
 
 ## Commands
 
@@ -189,10 +208,26 @@ GearAdvisor:
 | `/ga toast` | Turn the upgrade popup on or off |
 | `/ga ah` | An auction house upgrades report |
 
+Level planner:
+
+| Command | What it does |
+|---|---|
+| `/lp` | Show or hide the step list |
+| `/lp help` | List the level planner's commands |
+| `/lp next` | Skip the current step's quest (`/lp reset` brings skipped quests back) |
+| `/lp replan` | Plan again from scratch |
+| `/lp why <quest>` | Why a quest is or isn't in the plan (or Alt-click it in your quest log) |
+| `/lp group on` / `off` | Plan elite and orange or red quests for a group |
+| `/lp auto on` / `off` | Picking up and turning in planned quests for you |
+| `/lp cleanup` | Quests in your log the plan doesn't use |
+| `/lp learned` / `forget` | What it has learned about your pace, or clear it |
+| `/lp arrow` | Show or hide the arrow |
+| `/lp debug` | Planning details in chat |
+
 ## Notes
 
 - Built for the WoW Forever client. Some game information is hidden from addons in combat ("secret" values), so a few features pause or fall back to the last known value during fights.
-- Settings are saved per account in `ZydeForeverDB` (and `GearAdvisorDB`).
+- Settings are saved per account in `ZydeForeverDB` (and `GearAdvisorDB`, `LevelPlannerDB`); the level planner also keeps per-character data in `LevelPlannerCharDB` (your flight paths, hearthstone and pace).
 - Found a problem? `/zyde errors` shows recent errors to include in a bug report.
 
 ## Licence

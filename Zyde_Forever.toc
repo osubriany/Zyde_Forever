@@ -1,10 +1,11 @@
 ## Interface: 16001
 ## Title: Zyde Forever
-## Notes: Quality of life for WoW Forever: flat unit frames and nameplates, class reminders, a smarter quest tracker, rare announcer, map markers, vendor and AH advice, and GearAdvisor gear upgrade scoring (/zyde, /ga).
+## Notes: Quality of life for WoW Forever: flat unit frames and nameplates, class reminders, a smarter quest tracker, rare announcer, map markers, vendor and AH advice, GearAdvisor gear upgrade scoring and a levelling route planner (/zyde, /ga, /lp).
 ## Author: Zyde
 ## Version: 1.3.0
-## SavedVariables: ZydeForeverDB, GearAdvisorDB
-## OptionalDeps: Questie, AHledger, Baganator, ZygorGuidesViewerForever, NodeSightSparkles
+## SavedVariables: ZydeForeverDB, GearAdvisorDB, LevelPlannerDB
+## SavedVariablesPerCharacter: LevelPlannerCharDB
+## OptionalDeps: Questie, QuestieDB, TomTom, AHledger, Baganator, ZygorGuidesViewerForever, NodeSightSparkles
 ## X-License: GPL-3.0-or-later
 ## X-Website: https://github.com/osubriany/Zyde_Forever
 
@@ -45,3 +46,27 @@ GearAdvisor\LootRolls.lua
 GearAdvisor\Toast.lua
 GearAdvisor\Window.lua
 GearAdvisor\Commands.lua
+
+# LevelPlanner (levelling route planner, /lp), merged in 2026-11-14. Its own private table, zyde.LP.
+LevelPlanner\Config.lua
+LevelPlanner\Core.lua
+LevelPlanner\Geo.lua
+LevelPlanner\QuestSource.lua
+LevelPlanner\Estimate.lua
+LevelPlanner\Learn.lua
+LevelPlanner\Stops.lua
+LevelPlanner\Dungeons.lua
+LevelPlanner\Places.lua
+LevelPlanner\Extras.lua
+LevelPlanner\Travel\Seeds.lua
+LevelPlanner\Travel\Learn.lua
+LevelPlanner\Travel\Graph.lua
+LevelPlanner\Planner.lua
+LevelPlanner\Waypoint.lua
+LevelPlanner\UI\Arrow.lua
+LevelPlanner\UI\StepList.lua
+LevelPlanner\UI\MapPins.lua
+LevelPlanner\UI\NpcStars.lua
+LevelPlanner\UI\ItemButton.lua
+LevelPlanner\Auto.lua
+LevelPlanner\Why.lua

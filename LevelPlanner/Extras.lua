@@ -1,0 +1,263 @@
+-- Extras: things besides quests that speed up levelling.
+--   * optional stops added to a finished route when the detour pays off: class trainer, vendor /
+--     repair, setting your hearthstone at the hub ahead, learning flight paths
+--   * grinding camps as filler "quests"
+--   * quest-log clean-up advice when the log is nearly full
+local ADDON, zyde = ...
+-- Part of Zyde_Forever since 2026-11-14: LevelPlanner keeps its own private table (zyde.LP) so its
+-- names never clash with Zyde's.
+zyde.LP = zyde.LP or {}
+local ns = zyde.LP
+
+local X = {}
+ns.Extras = X
+
+----------------------------------------------------------------------------------------
+-- Your state
+----------------------------------------------------------------------------------------
+
+-- Bag slots holding grey (junk) items.
+function X.JunkSlots()
+	local C = C_Container
+	if not (C and C.GetContainerNumSlots and C.GetContainerItemInfo) then return 0 end
+	local n = 0
+	for bag = 0, 4 do
+		for slot = 1, (C.GetContainerNumSlots(bag) or 0) do
+			local info = C.GetContainerItemInfo(bag, slot)
+			if info and info.quality == 0 and not info.hasNoValue then n = n + 1 end
+		end
+	end
+	return n
+end
+
+-- Lowest durability of your equipped items, in percent (100 when nothing can break).
+function X.MinDurability()
+	local low = 100
+	for slot = 1, 18 do
+		local cur, max = GetInventoryItemDurability(slot)
+		if cur and max and max > 0 then low = math.min(low, cur / max * 100) end
+	end
+	return low
+end
+
+-- Does a vendor visit make sense now? Returns needed, urgent, reason.
+function X.VendorNeed()
+	local cfg = ns.cfg
+	if cfg.vendorVisits == false then return false end
+	local dur = X.MinDurability()
+	if dur <= 10 then return true, true, string.format("gear at %d%%", dur) end
+	if dur <= (cfg.repairBelowPercent or 30) then return true, false, string.format("gear at %d%%", dur) end
+	local free = ns.QuestSource.FreeBagSlots()
+	if free <= (cfg.vendorWhenFreeSlots or 3) and X.JunkSlots() > 0 then
+		return true, false, string.format("%d bag slot%s free", free, free == 1 and "" or "s")
+	end
+	return false
+end
+
+-- Has a class trainer visit come due?
+function X.TrainerDue()
+	local cfg = ns.cfg
+	if cfg.trainerVisits == false then return false end
+	local L = ns.playerLevel()
+	ns.char.trainedLevel = ns.char.trainedLevel or L -- first time seen: assume you're trained up
+	return L >= ns.char.trainedLevel + (cfg.trainerEveryLevels or 2)
+end
+
+----------------------------------------------------------------------------------------
+-- Optional stops
+----------------------------------------------------------------------------------------
+local function oneStopQuest(id, kind, name, label, points, work, extra)
+	local q = { id = id, name = name, xp = 0, isExtra = true, stops = {} }
+	local s = { kind = kind, questId = id, questName = name, key = id, points = points, work = work or 20,
+		mobXp = 0, logDelta = 0, bagDelta = 0, order = 1, quest = q, label = label }
+	for k, v in pairs(extra or {}) do s[k] = v end
+	q.stops[1] = s
+	return q
+end
+
+local function zoneName(p)
+	local info = p and p.map and C_Map.GetMapInfo(p.map)
+	return info and info.name or "?"
+end
+
+-- The inn that most of the route's pick-ups and turn-ins are near (a hub), if it isn't already
+-- where your hearthstone is set.
+local function hubInn(route)
+	local cfg = ns.cfg
+	local radius = cfg.hubRadiusYards or 250
+	local inns = ns.Places.NearRoute("Innkeeper", route, radius, 10)
+	local best, bestCount = nil, 0
+	for _, inn in ipairs(inns) do
+		local count = 0
+		for _, e in ipairs(route) do
+			local k = e.stop.kind
+			if k == "pickup" or k == "turnin" then
+				local d = ns.Geo.Distance(inn.point, e.point)
+				if d and d <= radius then count = count + 1 end
+			end
+		end
+		if count > bestCount then best, bestCount = inn, count end
+	end
+	if not best or bestCount < (cfg.hubMinStops or 3) then return nil end
+	local bind = ns.TravelLearn.Bind()
+	local bp = bind and ns.Geo.PointOnMap(bind.map, bind.x, bind.y)
+	local d = bp and ns.Geo.Distance(bp, best.point)
+	if d and d < 400 then return nil end -- already bound here
+	return best, bestCount
+end
+
+-- Optional stops worth considering for this route: list of {quest, worthMinutes, maxDetourMinutes}.
+-- Call inside a job.
+function X.OptionalStops(route, ctx)
+	local cfg = ns.cfg
+	local out = {}
+	if #route == 0 or not ctx.start then return out end
+
+	-- class trainer
+	if X.TrainerDue() then
+		local places = ns.Places.NearRoute("Class Trainer", route, 3000, 6)
+		if #places > 0 then
+			local pts, ids = {}, {}
+			for _, pl in ipairs(places) do pts[#pts + 1] = pl.point ids[#ids + 1] = pl.id end
+			local q = oneStopQuest("trainer", "trainer", "Class trainer",
+				string.format("Train new spells (%s, %s)", places[1].name, zoneName(places[1].point)), pts, 60, { npcIds = ids })
+			out[#out + 1] = { quest = q, worth = cfg.trainerValueMinutes or 15, maxDetour = cfg.trainerMaxDetourMinutes or 6 }
+		end
+	end
+
+	-- vendor / repair
+	local need, urgent, why = X.VendorNeed()
+	if need then
+		local places = ns.Places.NearRoute("Repair", route, 3000, 8)
+		if #places > 0 then
+			local pts, ids = {}, {}
+			for _, pl in ipairs(places) do pts[#pts + 1] = pl.point ids[#ids + 1] = pl.id end
+			local q = oneStopQuest("vendor", "vendor", "Vendor",
+				string.format("Sell junk and repair (%s)", why), pts, 60, { bagDelta = -X.JunkSlots(), npcIds = ids })
+			local worth = (cfg.vendorValueMinutes or 10) * (urgent and 3 or 1)
+			out[#out + 1] = { quest = q, worth = worth, maxDetour = (cfg.vendorMaxDetourMinutes or 5) * (urgent and 2 or 1) }
+		end
+	end
+
+	-- hearthstone at the hub ahead
+	if cfg.hearthSuggestions ~= false then
+		local inn, count = hubInn(route)
+		if inn then
+			local q = oneStopQuest("bind", "bind", "Hearthstone",
+				string.format("Set your hearthstone with %s (%s) - %d stops nearby", inn.name, zoneName(inn.point), count),
+				{ inn.point }, 20, { npcIds = { inn.id } })
+			out[#out + 1] = { quest = q, worth = cfg.bindValueMinutes or 6, maxDetour = cfg.bindMaxDetourMinutes or 2 }
+		end
+	end
+
+	-- flight paths you haven't learned
+	if cfg.learnFlightPaths ~= false then
+		for _, fm in ipairs(ns.QuestSource.FlightMasters()) do
+			ns.Check()
+			local id = "fp:" .. fm.id
+			if fm.point.inst == ctx.start.inst and not ns.Travel.KnownTaxiNear(fm.point, 150) then
+				local q = oneStopQuest(id, "flightpath", "Flight path (" .. fm.name .. ")",
+					string.format("Learn the flight path at %s (%s)", zoneName(fm.point), fm.name), { fm.point }, 20, { npcIds = { fm.id } })
+				out[#out + 1] = { quest = q, worth = cfg.flightPathValueMinutes or 8, maxDetour = cfg.flightPathMaxDetourMinutes or 4 }
+			end
+		end
+	end
+	return out
+end
+
+----------------------------------------------------------------------------------------
+-- Grinding
+----------------------------------------------------------------------------------------
+function X.GrindCandidates(here)
+	local cfg, E = ns.cfg, ns.Estimate
+	if not here then return {} end
+	local spots = ns.Places.GrindSpots(here)
+	local minutes = cfg.grindMinutes or 15
+	local out = {}
+	for _, spot in ipairs(spots) do
+		local id = "grind:" .. spot.npcId
+		if not ns.skipped[id] then
+			-- fewer spawns close together means more walking between kills
+			local sparse = math.min(2, math.max(1, 12 / spot.count))
+			local killSec = E.KillSeconds(spot.level, 0, spot.name) * sparse
+			local kills = math.floor(minutes * 60 / killSec)
+			local xp = kills * E.MobXP(spot.level, 0)
+			if xp > 0 then
+				local q = oneStopQuest(id, "grind", "Grind " .. spot.name,
+					string.format("Grind %s for %d min (~%d kills, ~%s XP)", spot.name, minutes, kills, ns.fmt(xp)),
+					{ spot.point }, minutes * 60, { mobXp = xp, mobs = { [spot.npcId] = true } })
+				q.xp = xp
+				q.value = xp * (cfg.grindValueFactor or 0.85)
+				q.workSeconds = minutes * 60
+				q.isGrind = true
+				local travel = ns.Travel.Seconds(here, spot.point)
+				q.roughRate = q.value / (travel + minutes * 60)
+				out[#out + 1] = q
+			end
+		end
+	end
+	table.sort(out, function(a, b) return a.roughRate > b.roughRate end)
+	for i = #out, (cfg.grindCandidates or 5) + 1, -1 do out[i] = nil end
+	return out
+end
+
+----------------------------------------------------------------------------------------
+-- Quest log clean-up
+----------------------------------------------------------------------------------------
+
+-- Quests in your log that the plan doesn't use, worst first: {name, reason}. Only when the log is
+-- nearly full.
+function X.CleanupAdvice(plan, candidates, ctx, force)
+	local cfg = ns.cfg
+	if not force and ctx.logCount < (cfg.cleanupAtLogCount or 18) then return nil end
+	local inPlan = {}
+	for _, e in ipairs(plan.route or {}) do
+		local q = e.stop.quest
+		inPlan[q.id] = true
+		for _, part in ipairs(q.parts or {}) do inPlan[part.id] = true end
+	end
+	local planned = {}
+	for _, q in ipairs(candidates and candidates.log or {}) do planned[q.id] = q end
+	for _, d in ipairs(candidates and candidates.dungeons or {}) do
+		for _, part in ipairs(d.parts or {}) do planned[part.id] = part end
+	end
+
+	local list = {}
+	for questId, entry in pairs(ns.QuestSource.LogEntries()) do
+		if not inPlan[questId] then
+			local q = planned[questId]
+			local name = (q and q.name) or entry.title or ("Quest " .. questId)
+			local lvl = ns.QuestSource.Levels(questId)
+			local grey = ns.Q.QuestieDB.IsTrivial and ns.safe(ns.Q.QuestieDB.IsTrivial, lvl)
+			local reason, rank
+			if grey then
+				reason, rank = "grey: little XP", 1
+			elseif ns.QuestSource.TooHigh(questId, entry) then
+				reason, rank = "too high for now - keep it, planned later", 5
+			elseif not q then
+				reason, rank = "LevelPlanner can't plan it (location unknown or blocked)", 2
+			else
+				local far = true
+				for _, s in ipairs(q.stops) do
+					for _, p in ipairs(s.points or {}) do
+						if ctx.start and p.inst == ctx.start.inst then far = false end
+					end
+				end
+				if far then
+					reason, rank = "on another continent", 3
+				else
+					local first = q.stops[1] and q.stops[1].points[1]
+					local travel = first and ctx.start and ns.Travel.Seconds(ctx.start, first) or 0
+					q.cleanupRate = (q.xp or 0) / math.max(60, travel + (q.workSeconds or 0)) * 60
+					reason, rank = string.format("slow: ~%s XP/min", ns.fmt(q.cleanupRate)), 4
+				end
+			end
+			list[#list + 1] = { name = name, reason = reason, rank = rank, rate = q and q.cleanupRate or 0 }
+		end
+	end
+	table.sort(list, function(a, b)
+		if a.rank ~= b.rank then return a.rank < b.rank end
+		return a.rate < b.rate
+	end)
+	return list
+end

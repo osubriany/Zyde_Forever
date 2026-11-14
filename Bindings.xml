@@ -14,4 +14,10 @@
 	</Binding>
 	<Binding name="CLICK ZydeForeverWorldMarkerKey:LeftButton" category="ADDONS">
 	</Binding>
+	<Binding name="CLICK LevelPlannerItemButton:LeftButton" header="LEVELPLANNER" category="ADDONS">
+		-- Level planner: uses the current quest's item (secure button LevelPlannerItemButton)
+	</Binding>
+	<Binding name="CLICK LevelPlannerTargetNPC:LeftButton" category="ADDONS">
+		-- Level planner: targets the next step's NPC and stars it (secure button LevelPlannerTargetNPC)
+	</Binding>
 </Bindings>
