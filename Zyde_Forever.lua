@@ -93,7 +93,8 @@ local FEATURES = {
 	{ key = "ammo", class = "HUNTER", short = "count, refill, warning", label = "Hunter ammo", desc = "Arrows or bullets left and how long they last (in the XP readout), a warning when you leave town low, and a Fill quiver button at ammo vendors (hunters)" },
 	{ key = "petCare", class = "HUNTER", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast reminder: off in a group, on when solo (hunters)" },
 	{ key = "markerWheel", short = "hold key, click marker", label = "Marker wheels", desc = "Hold a key for a wheel of target markers (skull, cross, moon...) or world markers, and click one to place it" },
-	{ key = "hideBars", short = "cleaner action bars", label = "Hide Blizzard bar art", desc = "Hides the action bar art, bag bar and micro menu", reload = true },
+	{ key = "hideBars", short = "cleaner action bars", label = "Hide Blizzard bar art", desc = "Hides the action bar art and the bag bar", reload = true },
+	{ key = "hideMicroMenu", short = "game menu buttons", label = "Hide micro menu", desc = "Hides the row of small game menu buttons (character, spellbook, talents, quest log, social, game menu...). Their keybinds still work", reload = true },
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames with buffs and debuffs, mana / rage / energy on party frames. Shift-drag a frame to move it", reload = true },
 	{ key = "targetTarget", short = "small frame by target", label = "Target of target", desc = "A small frame beside the target frame showing who your target is targeting (with the Zyde unit frames on). Shift-drag it to move it" },
@@ -1161,6 +1162,23 @@ local function stash(frame)
 	frame:SetParent(hidden)
 end
 
+-- /zyde microdebug: remember what moved the micro menu into the hidden holder (and from where),
+-- so a stuck micro menu can be traced to the code that did it.
+do
+	for _, name in ipairs({ "MicroMenuContainer", "MicroMenu" }) do
+		local f = _G[name]
+		if f and f.SetParent then
+			hooksecurefunc(f, "SetParent", function(self, parent)
+				if parent == hidden then
+					ns.microTrace = ns.microTrace or {}
+					ns.microTrace[#ns.microTrace + 1] = name .. " moved into the holder at " .. date("%H:%M:%S")
+						.. ":\n" .. (debugstack(2, 8, 0) or "?")
+				end
+			end)
+		end
+	end
+end
+
 -- Make decorative art invisible without touching protected visibility logic.
 local function fade(region)
 	if region and region.SetAlpha then
@@ -1197,10 +1215,39 @@ local function hideBlizzardBars()
 		stash(MainMenuExpBar)
 		stash(ExhaustionTick)
 	end
-	if F("hideBars") then hideBarArt() end
+	if F("hideBars") or F("hideMicroMenu") then hideBarArt() end
+	-- Safety net: with "Hide micro menu" off, the menu never stays in the hidden holder
+	-- (it can be carried there along with another bar).
+	local mm = MicroMenuContainer or MicroMenu
+	if not F("hideMicroMenu") and mm and mm:GetParent() == hidden
+		and not (mm.IsProtected and mm:IsProtected() and InCombatLockdown()) then
+		mm:SetParent(UIParent)
+	end
+	-- and once more a moment later, in case the game re-lays out its bars after us
+	if not F("hideMicroMenu") and C_Timer and not ns.microRecheck then
+		ns.microRecheck = true
+		C_Timer.After(2, function()
+			ns.microRecheck = nil
+			local m = MicroMenuContainer or MicroMenu
+			if m and m:GetParent() == hidden and not InCombatLockdown() then m:SetParent(UIParent) end
+		end)
+	end
 end
 
 hideBarArt = function()
+	-- Micro menu: its own toggle ("Hide micro menu").
+	if F("hideMicroMenu") then
+		stash(MicroMenuContainer)
+		if not MicroMenuContainer then
+			stash(MicroMenu)
+			stash(MicroButtonAndBagsBar)
+			if MICRO_BUTTONS then
+				for _, name in ipairs(MICRO_BUTTONS) do stash(_G[name]) end
+			end
+		end
+	end
+	if not F("hideBars") then return end
+
 	-- Main action bar art (gryphons / end caps, border, background).
 	local bar = MainActionBar or MainMenuBar
 	if bar then
@@ -1218,21 +1265,25 @@ hideBarArt = function()
 	fade(MainMenuBarRightEndCap)
 	for i = 0, 3 do fade(_G["MainMenuBarTexture" .. i]) end
 
-	-- Bag bar.
-	stash(BagsBar)
-	stash(MainMenuBarBackpackButton)
-	for i = 0, 3 do stash(_G["CharacterBag" .. i .. "Slot"]) end
-	stash(CharacterReagentBag0Slot)
-	stash(KeyRingButton)
-
-	-- Micro menu.
-	stash(MicroMenuContainer)
-	if not MicroMenuContainer then
-		stash(MicroMenu)
-		stash(MicroButtonAndBagsBar)
-		if MICRO_BUTTONS then
-			for _, name in ipairs(MICRO_BUTTONS) do stash(_G[name]) end
+	-- Bag bar. On clients with an Edit Mode bag bar it's hidden where it is, not moved: moving
+	-- it into the hidden holder took the micro menu along (the game keeps the two together),
+	-- so "Hide micro menu" off still left the menu hidden. Whenever the game shows the bag bar
+	-- again it's hidden again, the same way as the XP bars above.
+	if BagsBar then
+		if not (BagsBar.IsProtected and BagsBar:IsProtected() and InCombatLockdown()) then
+			if not BagsBar.zydeKeepHidden then
+				BagsBar.zydeKeepHidden = true
+				hooksecurefunc(BagsBar, "Show", function(self) if F("hideBars") then self:Hide() end end)
+				hooksecurefunc(BagsBar, "SetShown", function(self, shown) if shown and F("hideBars") then self:Hide() end end)
+			end
+			BagsBar:Hide()
 		end
+	else
+		-- older clients: separate bag buttons, safe to move
+		stash(MainMenuBarBackpackButton)
+		for i = 0, 3 do stash(_G["CharacterBag" .. i .. "Slot"]) end
+		stash(CharacterReagentBag0Slot)
+		stash(KeyRingButton)
 	end
 end
 
@@ -2354,7 +2405,7 @@ local CATEGORIES = {
 		{ "Interface", {
 			{ "unitFrames", children = { "unitAuras", "targetTarget" } },
 			"plates", "xp", "reminders",
-			{ group = "Action bars", children = { "hideBars", "barTidy" } },
+			{ group = "Action bars", children = { "hideBars", "hideMicroMenu", "barTidy" } },
 			"gear",
 		} },
 		{ "Hunter", { "ammo", "petCare" } },
@@ -2376,7 +2427,7 @@ local CATEGORIES = {
 -- Short names for options shown on an indented line beside each other.
 local CHILD_LABEL = {
 	unitAuras = "Buffs / debuffs", targetTarget = "Target of target",
-	hideBars = "Hide bar art", barTidy = "Tidy keys & slots",
+	hideBars = "Hide bar art", hideMicroMenu = "Hide micro menu", barTidy = "Tidy keys & slots",
 	questAlert = "Glow alert", questIcons = "Icons over nodes",
 	questMobs = "Quest mobs", questieDrops = "Drop chances",
 }
@@ -2496,7 +2547,7 @@ local function buildOptions()
 		cb.feat, cb.parentKey, cb.small = feat, parentKey, small
 		cb:SetScript("OnClick", function(self)
 			setFeature(feat.key, self:GetChecked())
-			if feat.key == "xp" or feat.key == "hideBars" then pcall(hideBlizzardBars) end
+			if feat.key == "xp" or feat.key == "hideBars" or feat.key == "hideMicroMenu" then pcall(hideBlizzardBars) end
 			o:Refresh()
 		end)
 		cb:SetScript("OnEnter", function(self) tooltip(self, feat) end)
@@ -2794,6 +2845,39 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		if ns.MapNotesCommand then ns.MapNotesCommand(msg:match("^mapnotes%s+(%S+)")) end
 	elseif msg == "markdebug" then
 		if ns.MarkDebug then ns.MarkDebug() end
+	elseif msg == "microdebug" then
+		-- where the micro menu buttons are and why they might not show: each frame, its parent
+		-- chain up to UIParent, shown / visible and alpha
+		local P = "|cff66ccffZyde_Forever|r: "
+		print(P .. "micro menu: hideMicroMenu " .. tostring(F("hideMicroMenu")) .. ", hideBars " .. tostring(F("hideBars")))
+		-- what moved it into the hidden holder this session (the code path that did it)
+		for _, t in ipairs(ns.microTrace or {}) do print(P .. t) end
+		if not ns.microTrace then print(P .. "nothing moved the micro menu into the holder this session") end
+		print(P .. ("screen: %dx%d"):format(UIParent:GetWidth(), UIParent:GetHeight()))
+		local names = { "MicroMenuContainer", "MicroMenu", "BagsBar", "MicroButtonAndBagsBar", "MainMenuBarArtFrame", "MainMenuBar",
+			"MainActionBar", "CharacterMicroButton", "SpellbookMicroButton", "MainMenuMicroButton", "QuestLogMicroButton" }
+		for _, n in ipairs(names) do
+			local f = _G[n]
+			if not f then
+				print(P .. n .. ": (none)")
+			else
+				local chain, p, guard = {}, f.GetParent and f:GetParent(), 0
+				while p and guard < 6 do
+					chain[#chain + 1] = (p.GetName and p:GetName()) or "?"
+					p = p.GetParent and p:GetParent()
+					guard = guard + 1
+				end
+				local ok, alpha = pcall(f.GetEffectiveAlpha or f.GetAlpha, f)
+				-- where it is on screen (left, bottom, width, height) and its layer
+				local l, b, w, h
+				if f.GetRect then l, b, w, h = f:GetRect() end
+				local where = l and ("at %d,%d size %dx%d"):format(l, b, w, h) or "no position"
+				local strata = f.GetFrameStrata and f:GetFrameStrata() or "?"
+				print(P .. ("%s: shown %s, visible %s, alpha %.2f, %s, layer %s, parents %s"):format(n,
+					tostring(f.IsShown and f:IsShown()), tostring(f.IsVisible and f:IsVisible()),
+					ok and alpha or -1, where, strata, table.concat(chain, " < ")))
+			end
+		end
 	elseif msg == "auradebug" then
 		ns.AuraDebug()
 	elseif msg == "petdebug" then

@@ -57,7 +57,8 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
     - a totem out of range (you no longer have its buff)
     - no Ankh when you can Reincarnate
   - **Everyone:** Well-Rested running low, gear needing repair, low on food or water.
-- **Hide Blizzard bar art**: removes the action bar art, bag bar and micro menu.
+- **Hide Blizzard bar art**: removes the action bar art and the bag bar.
+- **Hide micro menu**: removes the row of small game menu buttons (character, spellbook, talents, quest log, social, game menu). Their keybinds still work.
 - **Tidy action bars**:
   - Short keybind labels: `a-1` becomes `A1`, Mouse Button 4 becomes `M4`.
   - Empty slots are hidden, and show again while you drag a spell or item.
