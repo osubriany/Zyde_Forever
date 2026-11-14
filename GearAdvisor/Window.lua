@@ -364,10 +364,27 @@ local function dungeonRows(e, grey)
 	end
 end
 
+-- Errors show in the window and once in chat (Lua errors are hidden on many setups), so one bad
+-- item or boss can't silently stop the list from drawing.
+local reported = {}
+local function showError(where, err)
+	err = tostring(err)
+	addRow({ indent = 16, left = "|cffff4444Couldn't draw " .. where .. ":|r |cffaaaaaa" .. err .. "|r" })
+	if not reported[err] then
+		reported[err] = true
+		print("|cff33ff99GearAdvisor|r window error (" .. where .. "): " .. err)
+	end
+end
+
+local function safeDungeonRows(e, grey)
+	local ok, err = pcall(dungeonRows, e, grey)
+	if not ok then showError(e.d and e.d.name or "a dungeon", err) end
+end
+
 local function showDungeons(ctx, c)
 	if #c.dungeons == 0 then
 		addRow({ header = true, left = "No dungeon loot data found." })
-		addRow({ left = "The built-in boss loot (GearAdvisor\Data\BossLoot.lua) didn't load:" })
+		addRow({ left = "The built-in boss loot (GearAdvisor\\Data\\BossLoot.lua) didn't load:" })
 		addRow({ left = "restart the game fully. Meanwhile, bosses you kill are recorded." })
 		return
 	end
@@ -395,14 +412,14 @@ local function showDungeons(ctx, c)
 	addRow({ header = true, left = "Dungeons for level " .. ctx.level .. " (best run first)",
 		right = c.loading > 0 and ("|cffaaaaaaloading %d items...|r"):format(c.loading) or "|cffaaaaaadrop chance per kill|r" })
 	if #mine == 0 then addRow({ indent = 16, left = "|cff888888None in the data for your level.|r" }) end
-	for _, e in ipairs(mine) do dungeonRows(e, false) end
+	for _, e in ipairs(mine) do safeDungeonRows(e, false) end
 
 	if #others > 0 then
 		blank()
 		addRow({ header = true, left = (showOthers and "|cffffd100-|r " or "|cffffd100+|r ") .. "Other dungeons (" .. #others .. ")",
 			onClick = function() showOthers = not showOthers; Window.refresh() end })
 		if showOthers then
-			for _, e in ipairs(others) do dungeonRows(e, true) end
+			for _, e in ipairs(others) do safeDungeonRows(e, true) end
 		end
 	end
 end
@@ -448,10 +465,11 @@ function Window.refresh()
 		addRow({ header = true, left = "GearAdvisor can't score gear for this character." })
 		addRow({ left = tostring(ctx.reason or "") })
 	else
-		local c = collect()
-		if tab == "gear" then showGear(ctx, c)
-		elseif tab == "dungeons" then showDungeons(ctx, c)
-		else showSlots(ctx, c) end
+		local ok, c = pcall(collect)
+		if not ok then showError("the upgrade list", c); c = { dungeons = {}, groups = {}, loading = 0 } end
+		local show = (tab == "gear" and showGear) or (tab == "dungeons" and showDungeons) or showSlots
+		local ok2, err = pcall(show, ctx, c)
+		if not ok2 then showError("this tab", err) end
 		-- Items the game hasn't sent yet: look again shortly (item events also redraw it). It
 		-- ends: an item that never arrives counts as missing after 30 s (Stats.lua).
 		if c.loading > 0 and retries == 0 then
