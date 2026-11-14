@@ -490,22 +490,31 @@ local function scanDurability()
 	end
 end
 
--- Food and drink: items whose "use" is the Food / Drink / Refreshment spell.
+-- Food and drink: items whose "use" is a Food / Drink / Refreshment spell. Names are matched
+-- loosely ("Drink", "Food & Drink", "Refreshment"...). A freshly bought item often has no spell
+-- loaded yet; the game is asked to load it, and the scan runs again when it arrives.
+local requested = {}
 local function scanFood()
 	food, drink = 0, 0
 	local getSpell = (C_Item and C_Item.GetItemSpell) or GetItemSpell
+	local load = C_Item and C_Item.RequestLoadItemDataByID
 	for _, info in ipairs(ns.Bags.items()) do
 		local spell = plain(safe(getSpell, info.itemID))
 		if type(spell) == "string" then
 			local n = tonumber(info.stackCount) or 1
-			if spell == "Food" or spell == "Refreshment" or spell == "Food & Drink" then food = food + n end
-			if spell == "Drink" or spell == "Refreshment" or spell == "Food & Drink" then drink = drink + n end
+			local s = spell:lower()
+			local refresh = s:find("refresh", 1, true) ~= nil
+			if refresh or s:find("food", 1, true) then food = food + n end
+			if refresh or s:find("drink", 1, true) then drink = drink + n end
+		elseif load and info.itemID and not requested[info.itemID] then
+			requested[info.itemID] = true
+			safe(load, info.itemID)
 		end
 	end
 end
 
 local scanEv = CreateFrame("Frame")
-for _, e in ipairs({ "PLAYER_LOGIN", "UPDATE_INVENTORY_DURABILITY", "PLAYER_EQUIPMENT_CHANGED", "BAG_UPDATE_DELAYED", "GET_ITEM_INFO_RECEIVED" }) do
+for _, e in ipairs({ "PLAYER_LOGIN", "UPDATE_INVENTORY_DURABILITY", "PLAYER_EQUIPMENT_CHANGED", "BAG_UPDATE_DELAYED", "GET_ITEM_INFO_RECEIVED", "ITEM_DATA_LOAD_RESULT" }) do
 	pcall(scanEv.RegisterEvent, scanEv, e)
 end
 local scanPending = false
