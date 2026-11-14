@@ -333,6 +333,7 @@ events:SetScript("OnEvent", function(self, event, arg1)
 		ns.Why.Init()
 		ns.ItemButton.Init()
 		ns.NpcStars.Init()
+		ns.ZoneLevels.Init()
 		if ns.StepList then ns.StepList.Init() end
 		if ns.Arrow then ns.Arrow.Init() end
 		Questie.API.RegisterOnReady(onQuestieReady)

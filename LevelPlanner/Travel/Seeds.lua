@@ -27,8 +27,11 @@ local MULGORE, ALTERAC = 1412, 1416
 -- pass = true shows the crossing as its own step ("Go through Thandol Span").
 Seeds.crossings = {
 	-- Eastern Kingdoms
-	{ name = "Thandol Span", map = WETLANDS, x = 51.0, y = 9.0, other = ARATHI, pass = true },
-	{ name = "Dun Algaz", map = WETLANDS, x = 53.0, y = 70.5, other = LOCH, pass = true },
+	-- passes with "exit": two ends, so the arrow leads to the entrance on your side first
+	{ name = "Thandol Span", map = WETLANDS, x = 51.0, y = 9.0, other = ARATHI, pass = true,
+		exit = { map = ARATHI, x = 43.5, y = 91.5 } },
+	{ name = "Dun Algaz", map = WETLANDS, x = 53.0, y = 70.5, other = LOCH, pass = true,
+		exit = { map = LOCH, x = 20.0, y = 17.0 } },
 	{ name = "Dun Morogh / Loch Modan pass", map = DUNMOROGH, x = 84.0, y = 50.5, other = LOCH },
 	{ name = "Elwynn / Westfall bridge", map = ELWYNN, x = 21.0, y = 80.5, other = WESTFALL },
 	{ name = "Three Corners", map = ELWYNN, x = 92.0, y = 72.0, other = REDRIDGE },
@@ -54,9 +57,11 @@ Seeds.crossings = {
 	{ name = "Mor'shan Rampart", map = BARRENS, x = 48.5, y = 5.5, other = ASHENVALE },
 	{ name = "Barrens / Stonetalon road", map = BARRENS, x = 34.0, y = 27.0, other = STONETALON },
 	{ name = "Barrens / Dustwallow road", map = DUSTWALLOW, x = 29.5, y = 47.5, other = BARRENS },
-	{ name = "The Great Lift", map = BARRENS, x = 44.5, y = 91.0, other = NEEDLES, pass = true },
+	{ name = "The Great Lift", map = BARRENS, x = 44.5, y = 91.0, other = NEEDLES, pass = true,
+		exit = { map = NEEDLES, x = 32.0, y = 22.0 } },
 	{ name = "Darkshore / Ashenvale road", map = DARKSHORE, x = 43.5, y = 93.0, other = ASHENVALE },
-	{ name = "Talondeep Path", map = ASHENVALE, x = 42.0, y = 71.5, other = STONETALON, pass = true },
+	{ name = "Talondeep Path", map = ASHENVALE, x = 42.0, y = 71.5, other = STONETALON, pass = true,
+		exit = { map = STONETALON, x = 78.0, y = 42.5 } },
 	{ name = "Ashenvale / Felwood road", map = ASHENVALE, x = 56.0, y = 29.0, other = FELWOOD },
 	{ name = "Ashenvale / Azshara road", map = ASHENVALE, x = 93.5, y = 37.0, other = AZSHARA },
 	{ name = "Stonetalon / Desolace road", map = DESOLACE, x = 55.0, y = 6.0, other = STONETALON },

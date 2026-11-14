@@ -149,6 +149,7 @@ LevelPlannerConfig = {
 	hearthSuggestions = true,
 	hubMinStops = 3,               -- this many pick-ups / turn-ins near one inn makes it a hub
 	hubRadiusYards = 250,
+	hubBetterBy = 1.5,             -- suggest a new inn only if its upcoming quests outweigh your current one's by this much
 	bindValueMinutes = 6,
 	bindMaxDetourMinutes = 2,
 
@@ -164,6 +165,7 @@ LevelPlannerConfig = {
 	cleanupAtLogCount = 18,        -- suggest quests to abandon when the log holds this many
 
 	-- Map ---------------------------------------------------------------------------------
+	zoneLevels = true,             -- world map: hovered zone's level range under its name, coloured for you
 	mapPins = true,
 	mapPinSteps = 5,               -- numbered pins for this many next steps, with a dotted trail
 	minimapPins = true,

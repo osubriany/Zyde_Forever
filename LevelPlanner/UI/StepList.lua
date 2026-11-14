@@ -40,6 +40,7 @@ local ICON = {
 	tram = "Interface\\Icons\\INV_Misc_Map02",
 	portal = "Interface\\Icons\\INV_Misc_Map02",
 	pass = "Interface\\Icons\\INV_Misc_Map02",
+	border = "Interface\\Icons\\INV_Misc_Map02",
 	hearth = "Interface\\Icons\\INV_Misc_Rune_01",
 	bind = "Interface\\Icons\\INV_Misc_Rune_01",
 	dungeon = "Interface\\Icons\\INV_Misc_Head_Dragon_01",
@@ -316,7 +317,7 @@ local function describe(step, plan)
 	elseif k == "travel" then
 		icon = ICON[step.mode] or ICON.pass
 		local what = { fly = "Flight", boat = "Boat", zeppelin = "Zeppelin", tram = "Deeprun Tram",
-			hearth = "Hearthstone", pass = "On the way", portal = "Portal" }
+			hearth = "Hearthstone", pass = "On the way", portal = "Portal", border = "On the way" }
 		detail = what[step.mode] or "Travel"
 	elseif k == "dungeon" then
 		titleText = "Run " .. (step.names[1] or "dungeon")
@@ -390,10 +391,26 @@ function L.Update(plan)
 	-- header: totals, level-up ETA, warnings
 	local cur, max = UnitXP("player"), UnitXPMax("player")
 	local need = (not ns.isSecret(cur) and not ns.isSecret(max) and max and max > 0) and (max - cur) or nil
-	local parts = { "Next " .. ns.shortTime(plan.seconds), ns.short(plan.xp) .. " XP", ns.short(plan.rate) .. " XP/min" }
-	if need and plan.rate and plan.rate > 0 then
-		parts[#parts + 1] = string.format("|cffffd100Lvl %d in %s|r", ns.playerLevel() + 1, ns.shortTime(need / plan.rate * 60))
+	-- rested XP doubles kill XP until the rested pool is used up (quest XP isn't rested)
+	local rested = GetXPExhaustion and GetXPExhaustion() or 0
+	if ns.isSecret(rested) or type(rested) ~= "number" then rested = 0 end
+	local planMobXp = 0
+	for _, st in ipairs(plan.stops) do planMobXp = planMobXp + (st.mobXp or 0) end
+	local restedBonus = math.min(rested, planMobXp)
+	local rate = plan.seconds > 0 and (plan.xp + restedBonus) / (plan.seconds / 60) or plan.rate or 0
+	-- a ghost has the run back to the corpse to do first
+	local corpseSecs = 0
+	if UnitIsGhost and UnitIsGhost("player") and ns.Waypoint and ns.Waypoint.CorpsePoint then
+		local corpse, here = ns.Waypoint.CorpsePoint(), ns.Geo.PlayerPoint()
+		if corpse and here then corpseSecs = ns.Travel.Seconds(here, corpse) end
 	end
+	local parts = { "Next " .. ns.shortTime(plan.seconds), ns.short(plan.xp) .. " XP", ns.short(rate) .. " XP/min" }
+	if need and rate > 0 then
+		parts[#parts + 1] = string.format("|cffffd100Lvl %d in %s|r", ns.playerLevel() + 1,
+			ns.shortTime(corpseSecs + need / rate * 60))
+	end
+	if restedBonus > 0 then parts[#parts + 1] = "|cff66ccffrested|r" end
+	if corpseSecs > 0 then parts[#parts + 1] = "|cff999999+corpse run|r" end
 	if ns.IsGrouped() then parts[#parts + 1] = "|cff66ccffgrouped|r" end
 	if plan.bagFree and plan.bagFree < 1 then parts[#parts + 1] = "|cffff6666bags full|r" end
 	if plan.logCount and plan.logCount >= 20 then parts[#parts + 1] = "|cffff6666log full|r" end
@@ -428,7 +445,11 @@ function L.Update(plan)
 		if zone then prevZone = zone end
 
 		local titleText, detail, xp, icon = describe(s, plan)
-		gained = gained + (s.kind == "turnin" and s.xp or 0) + (s.mobXp or 0)
+		-- kills earn double while rested XP lasts
+		local kills = s.mobXp or 0
+		local bonus = math.min(rested, kills)
+		rested = rested - bonus
+		gained = gained + (s.kind == "turnin" and s.xp or 0) + kills + bonus
 		if need and not dinged and gained >= need then
 			dinged = true
 			detail = "|cffffd100LEVEL UP|r  " .. detail
@@ -439,7 +460,7 @@ function L.Update(plan)
 		r.xp:SetText(xp)
 		-- time only where it means something (not for a quick chat with an NPC)
 		local timed = s.kind == "objective" or s.kind == "dungeon" or s.kind == "grind"
-			or (s.kind == "travel" and s.mode ~= "pass")
+			or (s.kind == "travel" and s.mode ~= "pass" and s.mode ~= "border")
 		r.time:SetText(timed and s.work and s.work > 0 and ns.shortTime(s.work) or "")
 
 		local current = (i == 1)

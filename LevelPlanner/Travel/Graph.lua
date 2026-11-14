@@ -94,7 +94,17 @@ local function build(speed)
 
 	-- zone crossings: seeds, then learned ones
 	for _, c in ipairs(Seeds.crossings) do
-		addNode(ns.Geo.PointOnMap(c.map, c.x, c.y), c.name, c.pass and "pass" or "border", setOf(c.map, c.other))
+		if c.exit then
+			-- a pass with two ends: one node on each side, joined by the pass itself
+			local a = addNode(ns.Geo.PointOnMap(c.map, c.x, c.y), c.name, "pass", setOf(c.map))
+			local b = addNode(ns.Geo.PointOnMap(c.exit.map, c.exit.x, c.exit.y), c.name, "pass", setOf(c.exit.map))
+			if a and b then
+				local d = ns.Geo.Distance(a, b)
+				if d then addEdge(a, b, d * 1.1 / speed, "walk", true) end
+			end
+		else
+			addNode(ns.Geo.PointOnMap(c.map, c.x, c.y), c.name, c.pass and "pass" or "border", setOf(c.map, c.other))
+		end
 	end
 	for _, b in ipairs(Learn.Borders()) do
 		addNode(ns.Geo.PointOnMap(b.map, b.x, b.y), "zone crossing", "border", setOf(b.mapA, b.mapB))
@@ -300,12 +310,31 @@ function T.Legs(a, b)
 
 	local nodes, nxt, kind, D = graph.nodes, graph.nxt, graph.kind, graph.D
 	local i = via[bestV]
+	local prevMap, lastPass = a.map, nil
 	local guard = 0
 	while i and guard < 200 do
 		guard = guard + 1
 		local n = nodes[i]
 		if n.kind == "pass" then
-			legs[#legs + 1] = { mode = "pass", label = "Go through " .. n.name, point = n, seconds = 0 }
+			-- the second end of a two-ended pass is its exit
+			local exit = lastPass == n.name
+			legs[#legs + 1] = { mode = "pass", point = n, seconds = 0,
+				label = exit and (n.name .. " exit") or ("Go through " .. n.name) }
+			lastPass = n.name
+			prevMap = n.map or prevMap
+		elseif n.kind == "border" then
+			-- a zone crossing: the step names the zone you're heading into
+			local into
+			for m in pairs(n.maps or {}) do
+				if m ~= prevMap then into = m end
+			end
+			local info = into and C_Map.GetMapInfo(into)
+			legs[#legs + 1] = { mode = "border", point = n, seconds = 0,
+				label = "Into " .. (info and info.name or "the next zone") .. " (zone border)" }
+			prevMap = into or prevMap
+			lastPass = nil
+		else
+			lastPass = nil
 		end
 		if i == bestV then break end
 		local j = nxt[i][bestV]

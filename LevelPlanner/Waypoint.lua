@@ -28,7 +28,7 @@ end
 local passDone
 C_Timer.NewTicker(1, function()
 	local stop = ns.plan and ns.plan.stops and ns.plan.stops[1]
-	if not (stop and stop.kind == "travel" and stop.mode == "pass" and stop.point) then return end
+	if not (stop and stop.kind == "travel" and (stop.mode == "pass" or stop.mode == "border") and stop.point) then return end
 	local _, dist = ns.Geo.VectorTo(stop.point)
 	if dist and dist <= (ns.cfg.arrivedYards or 15) * 2 and passDone ~= stop.label then
 		passDone = stop.label
@@ -124,6 +124,7 @@ function W.ShowCorpse()
 	if p then setTarget(p, "Your corpse") end
 	return p ~= nil
 end
+W.CorpsePoint = corpsePoint -- the step list adds the run back to it to the level-up time
 
 local deathFrame = CreateFrame("Frame")
 deathFrame:RegisterEvent("PLAYER_DEAD")
@@ -142,6 +143,8 @@ end)
 -- the corpse position can arrive a moment after you release; keep trying while you are a ghost
 C_Timer.NewTicker(2, function()
 	if ns.active and isGhost() and not (lastKey or ""):find("Your corpse$") then W.ShowCorpse() end
+	-- keep the level-up time current (it includes the run back) while you're a ghost
+	if ns.active and isGhost() and ns.StepList and ns.StepList.Refresh then ns.safe(ns.StepList.Refresh) end
 end)
 
 function W.Update(plan)

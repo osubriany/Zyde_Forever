@@ -35,6 +35,18 @@ end
 
 local function char()
 	ns.char.taxi = ns.char.taxi or {}
+	-- One-time clean-up (2026-11-14): on Forever the continent's flight-node list calls every
+	-- flight path "discovered", so an earlier version saved all of them as known. That list is
+	-- recognisable by Blizzard's unused placeholder nodes ("zzOLD..."), which no flight master
+	-- ever shows; drop any such list. A flight master's own map fills in the real ones again.
+	if not ns.char.taxiCleaned then
+		for key, list in pairs(ns.char.taxi) do
+			for name in pairs(list) do
+				if name:find("^zz") then ns.char.taxi[key] = nil break end
+			end
+		end
+		ns.char.taxiCleaned = true
+	end
 	return ns.char
 end
 
@@ -137,6 +149,9 @@ local function readTaxiMap()
 	local nodes = C_TaxiMap and C_TaxiMap.GetAllTaxiNodes and ns.safe(C_TaxiMap.GetAllTaxiNodes, taxiMap)
 	local seen = {}
 	if type(nodes) == "table" and #nodes > 0 then
+		-- the flight master's map is the authority for this continent: replace, don't merge
+		list = {}
+		known[taxiMap] = list
 		for _, n in ipairs(nodes) do
 			if n.name and n.position and n.state ~= STATE_UNREACHABLE then
 				list[n.name] = { x = n.position.x, y = n.position.y }
@@ -189,9 +204,11 @@ function L.RefreshKnownFromMap()
 	if not cont then return end
 	local nodes = ns.safe(C_TaxiMap.GetTaxiNodesForMap, cont)
 	if type(nodes) ~= "table" or #nodes == 0 then return end
+	-- Only trust the list when it really tells discovered from undiscovered: at least one node
+	-- must be marked undiscovered. (On Forever every node says "discovered", so it's ignored.)
 	local reported = false
 	for _, n in ipairs(nodes) do
-		if n.isUndiscovered ~= nil then reported = true break end
+		if n.isUndiscovered == true then reported = true break end
 	end
 	if not reported then return end
 	local FPF = Enum and Enum.FlightPathFaction

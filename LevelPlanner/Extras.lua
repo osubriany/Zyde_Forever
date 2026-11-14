@@ -80,29 +80,57 @@ local function zoneName(p)
 	return info and info.name or "?"
 end
 
--- The inn that most of the route's pick-ups and turn-ins are near (a hub), if it isn't already
--- where your hearthstone is set.
+-- The inn at the heart of the quests coming up over the next few hours (a hub), when it beats
+-- where your hearthstone is set now. "Coming up" = every quest the planner has to choose from
+-- (in your log, available, follow-ups), not just this hour's route; each pick-up / turn-in counts
+-- with its quest's XP, so a hub of big quests wins over a few small ones.
+local function questStops()
+	local out = {}
+	local c = ns.candidates
+	for _, list in ipairs({ c and c.log or {}, c and c.available or {}, c and c.locked or {} }) do
+		for _, q in ipairs(list) do
+			for _, st in ipairs(q.stops or {}) do
+				if (st.kind == "pickup" or st.kind == "turnin") and st.points and st.points[1] then
+					out[#out + 1] = { point = st.points[1], weight = math.max(0.25, (q.xp or 0) / 1000) }
+				end
+			end
+		end
+	end
+	return out
+end
+
+local function hubScore(point, stops, radius)
+	local score, count = 0, 0
+	for _, st in ipairs(stops) do
+		local d = ns.Geo.Distance(point, st.point)
+		if d and d <= radius then score, count = score + st.weight, count + 1 end
+	end
+	return score, count
+end
+
 local function hubInn(route)
 	local cfg = ns.cfg
 	local radius = cfg.hubRadiusYards or 250
-	local inns = ns.Places.NearRoute("Innkeeper", route, radius, 10)
-	local best, bestCount = nil, 0
+	local stops = questStops()
+	if #stops == 0 then return nil end
+	-- inns near any upcoming pick-up or turn-in (same lookup the route uses)
+	local inns = ns.Places.NearRoute("Innkeeper", stops, radius, 12)
+	local best, bestScore, bestCount = nil, 0, 0
 	for _, inn in ipairs(inns) do
-		local count = 0
-		for _, e in ipairs(route) do
-			local k = e.stop.kind
-			if k == "pickup" or k == "turnin" then
-				local d = ns.Geo.Distance(inn.point, e.point)
-				if d and d <= radius then count = count + 1 end
-			end
-		end
-		if count > bestCount then best, bestCount = inn, count end
+		ns.Check()
+		local score, count = hubScore(inn.point, stops, radius)
+		if score > bestScore then best, bestScore, bestCount = inn, score, count end
 	end
 	if not best or bestCount < (cfg.hubMinStops or 3) then return nil end
 	local bind = ns.TravelLearn.Bind()
 	local bp = bind and ns.Geo.PointOnMap(bind.map, bind.x, bind.y)
-	local d = bp and ns.Geo.Distance(bp, best.point)
-	if d and d < 400 then return nil end -- already bound here
+	if bp then
+		local d = ns.Geo.Distance(bp, best.point)
+		if d and d < 400 then return nil end -- already bound here
+		-- only worth a stop when the new hub clearly beats where you're bound
+		local here = hubScore(bp, stops, radius)
+		if bestScore < here * (cfg.hubBetterBy or 1.5) then return nil end
+	end
 	return best, bestCount
 end
 
@@ -144,7 +172,7 @@ function X.OptionalStops(route, ctx)
 		local inn, count = hubInn(route)
 		if inn then
 			local q = oneStopQuest("bind", "bind", "Hearthstone",
-				string.format("Set your hearthstone with %s (%s) - %d stops nearby", inn.name, zoneName(inn.point), count),
+				string.format("Set your hearthstone with %s (%s) - %d upcoming quest stops nearby", inn.name, zoneName(inn.point), count),
 				{ inn.point }, 20, { npcIds = { inn.id } })
 			out[#out + 1] = { quest = q, worth = cfg.bindValueMinutes or 6, maxDetour = cfg.bindMaxDetourMinutes or 2 }
 		end

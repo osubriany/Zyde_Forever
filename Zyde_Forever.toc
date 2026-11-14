@@ -66,6 +66,7 @@ LevelPlanner\Waypoint.lua
 LevelPlanner\UI\Arrow.lua
 LevelPlanner\UI\StepList.lua
 LevelPlanner\UI\MapPins.lua
+LevelPlanner\UI\ZoneLevels.lua
 LevelPlanner\UI\NpcStars.lua
 LevelPlanner\UI\ItemButton.lua
 LevelPlanner\Auto.lua
