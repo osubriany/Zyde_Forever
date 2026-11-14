@@ -1,10 +1,12 @@
 ## Interface: 16001
 ## Title: Zyde Forever
-## Notes: Warrior reminders (Battle Shout missing, Overpower ready) beside your character, and hides the main bar art, bag bar and micro menu.
+## Notes: Quality of life for WoW Forever: flat unit frames and nameplates, class reminders, a smarter quest tracker, rare announcer, map markers, vendor and AH advice, and GearAdvisor gear upgrade scoring (/zyde, /ga).
 ## Author: Zyde
-## Version: 1.2.0
+## Version: 1.3.0
 ## SavedVariables: ZydeForeverDB, GearAdvisorDB
-## OptionalDeps: Questie, AHledger, Baganator
+## OptionalDeps: Questie, AHledger, Baganator, ZygorGuidesViewerForever, NodeSightSparkles
+## X-License: GPL-3.0-or-later
+## X-Website: https://github.com/osubriany/Zyde_Forever
 
 Zyde_Forever.lua
 Plates.lua
