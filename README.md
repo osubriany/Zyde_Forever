@@ -113,7 +113,7 @@ Scores gear for your class and spec.
   - **My Gear:** what you wear, each slot's value and its best known upgrade.
   - **Dungeons:** which dungeon at your level to run next, and its chance of dropping an upgrade per run. Upgrades are listed under each boss with their drop chance; items you can't wear yet show the level they need.
   - **By Slot:** the best upgrades known for each slot, from your bags and from dungeons.
-  - Boss loot is built in (from the cMaNGOS classic database and drops seen on Forever), including Forever's new dungeons; no loot addon needed.
+  - Boss loot is built in, including Forever's new dungeons; no loot addon needed. Drop chances come from the cMaNGOS classic database (GPL-3.0); Forever's new bosses and items come from [DungeonMaster](https://www.curseforge.com/wow/addons/dungeonmaster) by MalkDev (GPL-3.0). Forever's new items have no known drop chance yet.
 - A short verdict in item tooltips: upgrade %, or "can't wear until level N".
 - Upgrade marks on quest rewards and on items in your bags. While quest marks are on, Zygor's own quest reward arrow is turned off, and comes back if you turn them off (`/ga quest`).
 - Advice on loot rolls.
