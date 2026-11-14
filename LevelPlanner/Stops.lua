@@ -164,15 +164,25 @@ local function objectiveStop(quest, od, remaining)
 		local npcs = QS.Item(od.Id, "npcDrops")
 		local objs = QS.Item(od.Id, "objectDrops")
 		if type(npcs) == "table" and #npcs > 0 then
-			-- hostile droppers only; average their drop rate
-			local hostile, rateSum, rateN = {}, 0, 0
+			-- hostile droppers only; average their drop rate. Rares and elites (rank > 0) are left
+			-- out when normal mobs drop it too: you farm the normal mobs, and a rare's low drop rate
+			-- (Satyr Horns: rares ~5-11% next to ~42%) would make the quest look far slower than it is.
+			local hostile, normal, rateSum, rateN, normSum, normN = {}, {}, 0, 0, 0, 0
 			for _, npcId in ipairs(npcs) do
 				if not QS.IsFriendly(npcId) or QS.Npc(npcId, "friendlyToFaction") == nil then
 					hostile[#hostile + 1] = npcId
 					local r = QS.DropRate(od.Id, npcId)
-					if r then rateSum, rateN = rateSum + r, rateN + 1 end
+					local rk = QS.Npc(npcId, "rank")
+					local isNormal = not (rk == 1 or rk == 2 or rk == 3 or rk == 4)
+					if isNormal then normal[#normal + 1] = npcId end
+					if r then
+						rateSum, rateN = rateSum + r, rateN + 1
+						if isNormal then normSum, normN = normSum + r, normN + 1 end
+					end
 				end
 			end
+			if #normal > 0 then hostile = normal end
+			if normN > 0 then rateSum, rateN = normSum, normN end
 			if #hostile == 0 then hostile = npcs end
 			local rate = rateN > 0 and (rateSum / rateN) or (cfg.defaultDropRate or 0.5)
 			rate = math.max(rate, 0.05)
