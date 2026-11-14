@@ -93,6 +93,7 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
 - **Quest object alert**: a glow, a bobbing **!** and a ping on nearby objects you need to pick up for a quest. Loot from mobs you kill for a quest isn't marked. In dungeons the game hides object names, so (with Questie) objects there get a dimmer glow when one of your quests needs objects in that dungeon: a guess, without the ping.
 - **Icons over nearby objects**: the game's interact icons over herbs, ore and chests, spotted from further away.
 - **Quest mobs nearby** (Questie): a gold edge on quest mobs' nameplates, a count of them near you, and a key to target one.
+- **Rare announcer**: when a rare or rare elite shows up (nameplate, target, mouseover or minimap marker), its name flashes on screen with a sound and a chat line, once per 5 minutes. The quest mob target key goes for rares you've just seen first.
 - **Questie drop chances** (Questie): the drop % and your odds of getting the item on your next kill, under Questie's nameplate icon.
 - **Zygor target keybind** (Zygor): one key targets the current Zygor step's enemy or NPC.
 
@@ -127,7 +128,7 @@ Set these under **Game Menu → Options → Keybindings → AddOns → Zyde Fore
 |---|---|
 | One Button Fishing | Casts, and reels in when a fish bites |
 | Target Zygor Step NPC | Targets the current Zygor step's enemy or NPC |
-| Target nearest quest mob | Targets a nearby mob you need for a quest |
+| Target nearest quest mob or rare | Targets a rare you've just seen, else a nearby mob you need for a quest |
 | Feed pet (best food in bags) | Feeds your pet food it likes |
 | Call or revive pet | Calls your pet, or revives it if it's dead |
 | Marker wheel (hold) | Target marker wheel |

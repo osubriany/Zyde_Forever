@@ -283,7 +283,7 @@ end
 -- quest mob around, each /target that finds one replaces the last (order
 -- below in macroNames). Dead ones are cleared again.
 ---------------------------------------------------------------------------
-_G["BINDING_NAME_CLICK ZydeForeverQuestMobTarget:LeftButton"] = "Target nearest quest mob"
+_G["BINDING_NAME_CLICK ZydeForeverQuestMobTarget:LeftButton"] = "Target nearest quest mob or rare"
 
 local targetButton = CreateFrame("Button", "ZydeForeverQuestMobTarget", UIParent, "SecureActionButtonTemplate")
 targetButton:SetSize(1, 1)
@@ -363,12 +363,17 @@ end
 local function macroNames(mobs)
 	local plates = byName(mobs) -- most numerous last
 	local seen, names = {}, {}
+	-- Rares you've just seen come first (Rares.lua).
+	for _, name in ipairs(ns.Rares and ns.Rares.names() or {}) do
+		if #names >= MAX_NAMES then break end
+		if not seen[name] then names[#names + 1] = name seen[name] = true end
+	end
 	for i = #plates, 1, -1 do
 		if #names >= MAX_NAMES then break end
 		names[#names + 1] = plates[i].name
 		seen[plates[i].name] = true
 	end
-	for _, e in ipairs(zoneCandidates()) do
+	for _, e in ipairs(on() and zoneCandidates() or {}) do
 		if #names >= MAX_NAMES then break end
 		if not seen[e.name] then
 			names[#names + 1] = e.name
@@ -409,6 +414,10 @@ local function macroFor(mobs, namesOnly)
 		return true
 	end
 	if not namesOnly then
+		-- Rares on nameplates first, then quest mobs.
+		for _, u in ipairs(ns.Rares and ns.Rares.units() or {}) do
+			add(("/target [@%s,exists,nodead,harm] %s"):format(u, u))
+		end
 		for i = 1, math.min(MAX_UNITS, #mobs) do
 			local u = mobs[i].unit
 			add(("/target [@%s,exists,nodead,harm] %s"):format(u, u))
@@ -427,7 +436,8 @@ local function updateMacro(mobs, namesOnly)
 	if InCombatLockdown() then return end
 	local down = GetCVarBool and GetCVarBool("ActionButtonUseKeyDown")
 	targetButton:RegisterForClicks(down and "AnyDown" or "AnyUp")
-	local text = on() and macroFor(mobs, namesOnly) or ""
+	local rares = ns.Rares and (#ns.Rares.names() > 0 or #ns.Rares.units() > 0)
+	local text = (on() or rares) and macroFor(on() and mobs or {}, namesOnly) or ""
 	if text ~= lastMacro then
 		targetButton:SetAttribute("macrotext", text)
 		lastMacro = text
@@ -452,6 +462,7 @@ local function refreshSoon()
 	pending = true
 	C_Timer.After(0.1, function() pending = false refresh() end)
 end
+ns.QuestMobsRefresh = refreshSoon -- (Rares.lua: a rare just showed up)
 
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_LOGIN")
