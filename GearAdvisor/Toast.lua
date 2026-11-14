@@ -99,9 +99,16 @@ local function setButton()
 	end
 end
 
+-- Upgrades found together wait their turn: after one is equipped or closed, the next best
+-- one still in your bags (and still an upgrade, now that your gear changed) shows.
+local waiting = {} -- link -> true
+local showNextSoon -- (below)
+
 function Toast.hide()
+	if current then waiting[current.link] = nil end
 	current, pendingEquip = nil, nil
 	if frame then frame:Hide() end
+	if showNextSoon then showNextSoon() end
 end
 
 function Toast.show(link, r)
@@ -156,11 +163,11 @@ local function scan()
 	local silent = silentNext or GetTime() < quietUntil
 	silentNext = false
 	if first or silent or not enabled() then return end
-	local best, bestR
+	local found = false
 	for link, n in pairs(now) do
 		if n > (before[link] or 0) and ns.Stats.isGear(link) then
 			local ok, r = pcall(ns.Score.compare, link)
-			if ok and r and r.kind == "upgrade" and (not bestR or r.pct > bestR.pct) then best, bestR = link, r end
+			if ok and r and r.kind == "upgrade" then waiting[link] = true found = true end
 			if ok and r and r.kind == "loading" then
 				-- Data not in yet: forget it, so the next scan sees it as new again.
 				now[link] = (now[link] or 1) - 1
@@ -168,7 +175,37 @@ local function scan()
 			end
 		end
 	end
+	if found and not current then Toast.showNext() end
+end
+
+-- The best upgrade still waiting, or nothing (and the list is cleared of the rest).
+function Toast.showNext()
+	if current or not enabled() or inCombat() then return end
+	local inBags = {}
+	for _, info in ipairs(zyde.Bags.items()) do
+		if info.hyperlink then inBags[info.hyperlink] = true end
+	end
+	local best, bestR
+	for link in pairs(waiting) do
+		local ok, r = inBags[link] and pcall(ns.Score.compare, link)
+		if ok and r and r.kind == "upgrade" then
+			if not bestR or r.pct > bestR.pct then best, bestR = link, r end
+		elseif not (ok and r and r.kind == "loading") then
+			waiting[link] = nil -- gone, or no longer an upgrade
+		end
+	end
 	if best then Toast.show(best, bestR) end
+end
+
+-- (a moment after a change, so the new gear is worn when the rest are scored again)
+local nextQueued = false
+function showNextSoon()
+	if nextQueued then return end
+	nextQueued = true
+	C_Timer.After(1, function()
+		nextQueued = false
+		pcall(Toast.showNext)
+	end)
 end
 
 local queued = false
@@ -200,6 +237,7 @@ events:SetScript("OnEvent", function(_, event)
 			doEquip()
 		else
 			setButton()
+			if not current then showNextSoon() end -- (upgrades still waiting from before the fight)
 		end
 	end
 	if event == "PLAYER_EQUIPMENT_CHANGED" and current then
