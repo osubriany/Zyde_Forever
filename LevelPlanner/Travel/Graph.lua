@@ -57,6 +57,28 @@ local function setOf(...)
 	return s
 end
 
+-- The ordinary continent map a point is on (Kalimdor, Eastern Kingdoms), with its 0-1 position there.
+local CONTINENTS = { 1414, 1415, 1945 }
+local function realContinent(p)
+	for _, c in ipairs(CONTINENTS) do
+		local x, y = ns.Geo.ZoneCoords(p, c)
+		local q = x and ns.Geo.PointOnMap(c, x, y)
+		if q and q.inst == p.inst then return c, x / 100, y / 100 end
+	end
+	return nil
+end
+
+-- The city map a flight path is in, from its name ("Orgrimmar, Durotar" -> Orgrimmar's map).
+local function cityMap(contMap, name, p)
+	local first = type(name) == "string" and name:match("^([^,]+),")
+	if not (first and C_Map.GetMapChildrenInfo) then return nil end
+	local kids = ns.safe(C_Map.GetMapChildrenInfo, contMap, nil, true)
+	for _, k in ipairs(kids or {}) do
+		if k.name == first and ns.Geo.ZoneCoords(p, k.mapID) then return k.mapID end
+	end
+	return nil
+end
+
 local function npcPoint(npcId, expectedName)
 	local QS = ns.QuestSource
 	local name = QS.Npc(npcId, "name")
@@ -146,10 +168,16 @@ local function build(speed)
 			if p then taxiSeen[name] = true end
 			if p then
 				-- keep the point on its zone map, so waypoints land in the right place
-				local zone = ns.Geo.ZoneAt(contMap, pos.x, pos.y)
-				local zx, zy = ns.Geo.ZoneCoords(p, zone)
-				if zx then p.map, p.x, p.y = zone, zx, zy end
-				taxiNodes[#taxiNodes + 1] = addNode(p, name, "taxi", setOf(zone))
+				-- the flight map (e.g. 1464 for Kalimdor) has no zones under it: look on the real continent
+				local cont, cx, cy = realContinent(p)
+				local zone = cont and ns.Geo.ZoneAt(cont, cx, cy) or ns.Geo.ZoneAt(contMap, pos.x, pos.y)
+				-- the continent map doesn't show cities, so "Orgrimmar, Durotar" reads as Durotar;
+				-- a city named first in the flight path's name is where it really is
+				local city = cityMap(cont or contMap, name, p)
+				local home = city or zone
+				local zx, zy = ns.Geo.ZoneCoords(p, home)
+				if zx then p.map, p.x, p.y = home, zx, zy end
+				taxiNodes[#taxiNodes + 1] = addNode(p, name, "taxi", setOf(zone, city))
 			end
 		end
 		ns.Check()

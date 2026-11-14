@@ -21,11 +21,28 @@ local hearthCastAt
 local lastPos            -- last player position on foot, for learning zone crossings
 local prevMapPos, prevMapAt -- last position in the previous map, when the sampler saw a map change
 
+-- A real zone (or city, dungeon...) map, not a continent or the world. Right after a loading
+-- screen the game can briefly place you on the continent map, which looks like a "crossing".
+local function isZoneMap(map)
+	local info = map and C_Map.GetMapInfo(map)
+	return not (info and info.mapType and info.mapType < 3) -- 0 cosmic, 1 world, 2 continent
+end
+
+local bordersCleaned
 local function db()
 	local d = ns.db
 	d.flightTimes = d.flightTimes or {}
 	d.flightCosts = d.flightCosts or {}
 	d.borders = d.borders or {}
+	if not bordersCleaned then
+		-- drop crossings learned from such a continent-map blip (e.g. "Into Kalimdor" in Orgrimmar)
+		bordersCleaned = true
+		local keep = {}
+		for _, b in ipairs(d.borders) do
+			if isZoneMap(b.mapA) and isZoneMap(b.mapB) then keep[#keep + 1] = b end
+		end
+		d.borders = keep
+	end
 	d.detour = d.detour or {}   -- [uiMapID] = {n, mean}: real walking path / straight line, per zone
 	faction = faction or UnitFactionGroup("player") or "Neutral"
 	d.flightTimes[faction] = d.flightTimes[faction] or {}
@@ -281,6 +298,7 @@ local function recordCrossing()
 	lastPos, prevMapPos, prevMapAt = now, nil, nil
 	if not (now and before and now.map and before.map) or now.map == before.map then return end
 	if now.inst ~= before.inst or UnitOnTaxi("player") then return end
+	if not (isZoneMap(now.map) and isZoneMap(before.map)) then return end
 	local d = ns.Geo.Distance(now, before)
 	if not d or d > 60 then return end -- teleport or loading screen, not a walk
 	local borders = db().borders
