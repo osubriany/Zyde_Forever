@@ -453,19 +453,34 @@ local function finalize(state, ctx)
 	local route, start = state.route, ctx.start
 	local hearthSecs = cfg.hearthSeconds or 45
 
-	-- hearthstone: use it on the one leg where it saves the most time (it is on a 1-hour cooldown)
+	-- hearthstone: used on the legs where it saves the most time, once per cooldown. A saving later in
+	-- the route counts for less (the route is re-planned as you go, so a later leg may never happen):
+	-- a sure saving now beats a slightly bigger one in 40 minutes.
 	local hearth = ns.Travel.Hearth()
-	local hearthLeg
+	local hearthLegs = {}
 	if hearth then
-		local t, prev, bestSave = 0, start, 0
+		local cands = {}
+		local t, prev = 0, start
+		local later = cfg.hearthLaterDiscount or 0.5
 		for idx, e in ipairs(route) do
 			local normal = travel(prev, e.point)
 			if t >= hearth.readyIn then
 				local save = normal - (hearthSecs + travel(hearth.point, e.point))
-				if save > bestSave then bestSave, hearthLeg = save, idx end
+				if save > 0 then
+					cands[#cands + 1] = { idx = idx, t = t, score = save * (1 - later * math.min(1, t / ctx.horizon)) }
+				end
 			end
 			t = t + normal + (e.stop.work or 0)
 			prev = e.point
+		end
+		table.sort(cands, function(a, b) return a.score > b.score end)
+		local cd, chosen = cfg.hearthCooldownSeconds or 3600, {}
+		for _, c in ipairs(cands) do
+			local free = true
+			for _, o in ipairs(chosen) do
+				if math.abs(c.t - o.t) < cd then free = false break end
+			end
+			if free then chosen[#chosen + 1] = c hearthLegs[c.idx] = true end
 		end
 	end
 
@@ -474,7 +489,7 @@ local function finalize(state, ctx)
 	local t, prev, prevEntry, run = 0, start, nil, 0
 	for idx, e in ipairs(route) do
 		local from = prev
-		if idx == hearthLeg then
+		if hearthLegs[idx] then
 			steps[#steps + 1] = { kind = "travel", mode = "hearth", label = "Use your hearthstone (" .. hearth.name .. ")",
 				point = prev, work = hearthSecs, arrive = t, mobXp = 0 }
 			t = t + hearthSecs
@@ -507,7 +522,7 @@ local function finalize(state, ctx)
 		seconds = t,
 		rate = t > 0 and state.xp / (t / 60) or 0,            -- real XP per minute, shown
 		score = t > 0 and (state.value or state.xp) / (t / 60) or 0, -- what routes are compared on
-		hearthPlanned = hearthLeg ~= nil,
+		hearthPlanned = next(hearthLegs) ~= nil,
 	}
 end
 

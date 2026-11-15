@@ -76,9 +76,16 @@ function ns.IsGrouped()
 	return false
 end
 
--- Elite quests and elite mobs are planned when grouped (or always, if Config says so).
-function ns.AllowElite()
-	return ns.cfg.includeEliteQuests or ns.IsGrouped()
+-- Elite quests and elite mobs are planned when grouped (or always, if Config says so). A hunter
+-- solo (the pet tanks) also gets them when they're yellow or easier: `level` (the quest's or the
+-- mob's) at most Config.hunterEliteLevelsAbove over yours. Bosses (rank 3) stay out solo.
+local _, playerClass = UnitClass("player")
+function ns.AllowElite(level, rank)
+	if ns.cfg.includeEliteQuests or ns.IsGrouped() then return true end
+	if playerClass == "HUNTER" and ns.cfg.hunterSoloElites ~= false and rank ~= 3 and level then
+		return level <= ns.playerLevel() + (ns.cfg.hunterEliteLevelsAbove or 2)
+	end
+	return false
 end
 
 function ns.playerLevel()

@@ -138,7 +138,7 @@ local function objectiveStop(quest, od, remaining)
 		local need = remaining or countFromText(quest.texts, QS.Npc(ids[1] or 0, "name") or name, cfg.defaultKillCount or 8)
 		local lvl = E.NpcLevel(ids[1] or 0)
 		local rank = QS.Npc(ids[1] or 0, "rank")
-		if (rank == 1 or rank == 2 or rank == 3) and not ns.AllowElite() then return nil, "elite mobs (held back)" end
+		if (rank == 1 or rank == 2 or rank == 3) and not ns.AllowElite(lvl, rank) then return nil, "elite mobs (held back)" end
 		points = npcPoints(ids, false)
 		local mobName = QS.Npc(ids[1] or 0, "name")
 		stop.mobs = {}
@@ -189,7 +189,7 @@ local function objectiveStop(quest, od, remaining)
 			local kills = math.ceil(need / rate)
 			local lvl = E.NpcLevel(hostile[1])
 			local rank = QS.Npc(hostile[1], "rank")
-			if (rank == 1 or rank == 2 or rank == 3) and not ns.AllowElite() then return nil, "elite mobs (held back)" end
+			if (rank == 1 or rank == 2 or rank == 3) and not ns.AllowElite(lvl, rank) then return nil, "elite mobs (held back)" end
 			points = npcPoints(hostile, false)
 			stop.mobs = {}
 			for _, id in ipairs(hostile) do stop.mobs[id] = true end

@@ -179,7 +179,7 @@ function QS.ScanCandidates()
 			return "dungeon / raid"
 		end
 		if ns.safe(QDB.IsPvPQuest, id) then return "pvp" end
-		if (not ns.AllowElite()) and ns.safe(QDB.IsGroupQuest, id) then return "elite (held back until grouped)" end
+		if ns.safe(QDB.IsGroupQuest, id) and not ns.AllowElite((QS.Levels(id))) then return "elite (held back until grouped)" end
 		return nil
 	end
 

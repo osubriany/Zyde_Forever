@@ -17,6 +17,8 @@ LevelPlannerConfig = {
 	-- quest colours: yellow = up to 2 levels above you, orange = 3-4 above, red = 5+ above
 	maxLevelsAbove = 2,         -- solo: quests up to this many levels above you (2 = yellow; orange and red wait)
 	includeEliteQuests = false, -- always include elite quests, even solo (normally only when grouped)
+	hunterSoloElites = true,    -- hunters solo: elite quests and mobs when yellow or easier (the pet tanks)
+	hunterEliteLevelsAbove = 2, -- ... at most this many levels above you (yellow)
 	includeDungeonQuests = false, -- dungeon quests (phase 4 adds dungeons)
 
 	-- Grey quests: little quest XP and no XP from their mobs, but quick ones can still pay off
@@ -73,6 +75,8 @@ LevelPlannerConfig = {
 	flightCopperPerYard = 0.6,  -- cost estimate until real prices are seen at a flight master
 	flightSecondsPerGold = 60,  -- how much one gold of flight cost is "worth" in time (0 = ignore cost)
 	hearthSeconds = 45,         -- casting the hearthstone plus the loading screen
+	hearthCooldownSeconds = 3600, -- the hearthstone's cooldown: it can be planned again after this
+	hearthLaterDiscount = 0.5,  -- a saving at the end of the plan counts this much less than one now
 	useHearth = true,
 	-- boats, zeppelins and the tram: average wait plus the ride, in seconds
 	transportSeconds = { boat = 240, zeppelin = 240, tram = 150, portal = 15 },
