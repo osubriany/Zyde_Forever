@@ -228,10 +228,18 @@ title.line:SetPoint("BOTTOMRIGHT", -6, 0)
 title.text:SetText("Quests")
 title:RegisterForDrag("LeftButton")
 title:SetScript("OnDragStart", function() if IsShiftKeyDown() then frame:StartMoving() end end)
+-- Always held by its top-right corner. (After a drag the game may anchor it by its bottom or centre;
+-- then each refresh grew it upward, which made room for more, and it kept growing on every click.)
+local function anchorTop(save)
+	local right, top = frame:GetRight(), frame:GetTop()
+	if not (right and top) then return end
+	frame:ClearAllPoints()
+	frame:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", right, top)
+	if save then db().questTrackerPos = { point = "TOPRIGHT", rel = "BOTTOMLEFT", x = right, y = top } end
+end
 title:SetScript("OnDragStop", function()
 	frame:StopMovingOrSizing()
-	local point, _, rel, x, y = frame:GetPoint()
-	db().questTrackerPos = { point = point, rel = rel, x = x, y = y }
+	anchorTop(true)
 end)
 title:SetScript("OnEnter", function(self)
 	GameTooltip:SetOwner(self, "ANCHOR_LEFT")
@@ -246,7 +254,8 @@ title:SetScript("OnLeave", function() GameTooltip:Hide() end)
 ---------------------------------------------------------------------------
 -- The list scrolls: the tracker grows with its quests until it would run off
 -- the bottom of the screen, then the mouse wheel scrolls it (a thin bar on
--- the right shows where you are). /zyde questheight <pixels> caps it lower.
+-- the right shows where you are). It stops at two-thirds of the screen by default;
+-- /zyde questheight <pixels> sets another cap (0 = down to the bottom of the screen).
 ---------------------------------------------------------------------------
 local TOP_GAP, BOTTOM_MARGIN, MIN_VIEW = 24, 40, 120
 local scroll = CreateFrame("ScrollFrame", nil, frame)
@@ -284,8 +293,10 @@ scroll:SetScript("OnMouseWheel", function(_, delta) scrollTo(scroll:GetVerticalS
 local function viewLimit()
 	local top = frame:GetTop()
 	local room = top and (top - TOP_GAP - BOTTOM_MARGIN) or 500
+	-- questTrackerMaxHeight: pixels; -1 = down to the bottom of the screen; unset = two-thirds of it
 	local cap = tonumber(db().questTrackerMaxHeight)
-	if cap and cap > 0 then room = math.min(room, cap) end
+	if not cap or cap == 0 then cap = math.floor((UIParent:GetHeight() or 900) * 2 / 3) end
+	if cap > 0 then room = math.min(room, cap) end
 	return math.max(MIN_VIEW, room)
 end
 
@@ -294,6 +305,8 @@ local function place()
 	frame:ClearAllPoints()
 	if p then
 		frame:SetPoint(p.point, UIParent, p.rel or p.point, p.x, p.y)
+		-- a position saved by an older version (bottom/centre anchor): hold it by its top from now on
+		if not (p.point == "TOPRIGHT" and p.rel == "BOTTOMLEFT") then anchorTop(true) end
 	else
 		frame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -40, -300)
 	end
@@ -662,11 +675,12 @@ ns.QuestTracker = {
 	SetMaxHeight = function(px)
 		if not px then
 			local cap = tonumber(db().questTrackerMaxHeight)
-			print(P .. "quest list height: " .. ((cap and cap > 0) and (cap .. " pixels") or "down to the bottom of the screen")
+			print(P .. "quest list height: " .. ((cap and cap > 0) and (cap .. " pixels")
+				or (cap and cap < 0) and "down to the bottom of the screen" or "two-thirds of the screen (default)")
 				.. ". /zyde questheight <pixels> to change it (0 = to the bottom of the screen)")
 			return
 		end
-		db().questTrackerMaxHeight = px > 0 and px or nil
+		db().questTrackerMaxHeight = px > 0 and px or -1
 		refresh()
 		print(P .. "quest list " .. (px > 0 and ("now scrolls past " .. px .. " pixels") or "now runs to the bottom of the screen"))
 	end,
