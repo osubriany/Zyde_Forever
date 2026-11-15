@@ -297,14 +297,46 @@ local function hereFirst(state, ctx)
 			end
 		end
 	end
-	if not bestI or bestI == 1 then return state end
-	local r = copy(state.route)
-	local e = table.remove(r, bestI)
-	table.insert(r, 1, { stop = e.stop, point = bestP })
-	if not feasible(r, ctx) then return state end
-	local t = routeSeconds(r, ctx)
-	if t <= state.total + (ns.cfg.hereFirstSlackSeconds or 90) then
-		state.route, state.total = r, t
+	local slack = ns.cfg.hereFirstSlackSeconds or 90
+	if bestI and bestI > 1 then
+		local r = copy(state.route)
+		local e = table.remove(r, bestI)
+		table.insert(r, 1, { stop = e.stop, point = bestP })
+		if feasible(r, ctx) then
+			local t = routeSeconds(r, ctx)
+			if t <= state.total + slack then state.route, state.total = r, t end
+		end
+	end
+
+	-- Turn-ins close by (the town you're standing in) go first too, nearest first: putting them off
+	-- "until you're back" looks free on paper, but the XP and follow-ups are wanted now.
+	local turnNear = ns.cfg.hereTurninYards or 400
+	local list = {}
+	for i, e in ipairs(state.route) do
+		if e.stop.kind == "turnin" then
+			local d = ns.Geo.Distance(ctx.start, e.point)
+			if d and d <= turnNear then list[#list + 1] = { stop = e.stop, d = d } end
+		end
+	end
+	table.sort(list, function(a, b) return a.d < b.d end)
+	local pos = 1
+	for _, c in ipairs(list) do
+		local r = copy(state.route)
+		local from
+		for i, e in ipairs(r) do if e.stop == c.stop then from = i break end end
+		if from and from > pos then
+			local e = table.remove(r, from)
+			table.insert(r, pos, e)
+			if feasible(r, ctx) then
+				local t = routeSeconds(r, ctx)
+				if t <= state.total + slack then
+					state.route, state.total = r, t
+					pos = pos + 1
+				end
+			end
+		elseif from == pos then
+			pos = pos + 1
+		end
 	end
 	return state
 end

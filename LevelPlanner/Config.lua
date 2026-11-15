@@ -44,6 +44,7 @@ LevelPlannerConfig = {
 	sameCampYards = 200,        -- objectives this close count as one camp: "finding the spot" is counted once
 	hereFirst = true,           -- an objective in the camp you stand in goes first when it costs little
 	hereFirstSlackSeconds = 90, -- ... at most this many seconds more on the route
+	hereTurninYards = 400,      -- turn-ins this close to you (the town you're in) go first, same rule
 	overlapYards = 60,          -- two objectives this close that need the same mobs are done together (kills count once)
 
 	-- Flight paths you haven't learned ------------------------------------------------------
