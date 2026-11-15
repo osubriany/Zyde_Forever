@@ -359,7 +359,7 @@ function L.Init()
 			if a2 == ERR_NEWTAXIPATH then C_Timer.After(1, L.RefreshKnownFromMap) end
 		elseif event == "PLAYER_CONTROL_GAINED" then
 			-- also fires after stuns and fears; only a finished flight matters
-			if pendingFlight and not UnitOnTaxi("player") then
+			if pendingFlight and pendingFlight.flying and not UnitOnTaxi("player") then
 				onLanded()
 				ns.RequestReplan(true)
 			end
@@ -383,6 +383,18 @@ function L.Init()
 	-- a hearthstone that lands without a loading screen
 	C_Timer.NewTicker(1, function()
 		sampleWalk(ns.Geo.PlayerPoint())
+		-- a flight: seen in the air, then on the ground again = landed. (PLAYER_CONTROL_GAINED alone
+		-- missed every landing: at that moment the game can still say you're on the taxi.)
+		if pendingFlight then
+			if UnitOnTaxi("player") then
+				pendingFlight.flying = true
+			elseif pendingFlight.flying then
+				onLanded()
+				ns.RequestReplan(true)
+			elseif GetTime() - pendingFlight.t > 30 then
+				pendingFlight = nil -- never took off
+			end
+		end
 		if hearthCastAt and GetTime() - hearthCastAt > 3 and GetTime() - hearthCastAt < 60 then
 			local p = ns.Geo.PlayerPoint()
 			if p then hearthCastAt = nil recordBind("arrived by hearthstone") end

@@ -162,6 +162,7 @@ local function startWork()
 	local rescan = pendingRescan or not ns.candidates
 	local previous = (not ns.forceFresh) and ns.plan or nil
 	local opts = { threshold = ns.offTrail and (ns.cfg.offTrailSwitchThreshold or 0.02) or nil }
+	local why = (ns.forceFresh and "fresh" or (ns.offTrail and "off the trail, 2% bar" or "10% bar")) .. (rescan and ", quests re-read" or "")
 	pendingRescan, ns.forceFresh, ns.offTrail = false, false, false
 	if ns.StepList then ns.StepList.SetPlanning(true) end
 	ns.RunJob("plan", function()
@@ -175,6 +176,12 @@ local function startWork()
 	end, function(plan)
 		if ns.StepList then ns.StepList.SetPlanning(false) end
 		local before = ns.plan
+		-- (/lp debug) why the route did or didn't change: which first step won, and by how much
+		if ns.debug and plan then
+			local s = plan.stops and plan.stops[1]
+			ns.dprint(string.format("re-planned (%s): %s; first step: %s; %d XP/min",
+				why, plan.note or "new route", s and s.label or "-", math.floor((plan.rate or 0) + 0.5)))
+		end
 		ns.plan = plan
 		ns.OnPlanReady(plan)
 		ns.AnnounceChanges(before, plan)
