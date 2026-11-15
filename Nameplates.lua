@@ -72,10 +72,88 @@ end
 ---------------------------------------------------------------------------
 -- Building one plate's frame
 ---------------------------------------------------------------------------
+---------------------------------------------------------------------------
+-- Your debuffs through the game's aura container (clients with "secret" aura data, like Forever):
+-- the addon only says which auras and where; the game fills in the icon, stacks and timer itself,
+-- so it works in combat too, when addons may not read your target's auras. (Platynator does the
+-- same.) Setting it up is refused in combat, so a plate built mid-fight gets it afterwards.
+-- Without it: our own icons (out of combat) and the game's own debuff row (see updateAuras).
+---------------------------------------------------------------------------
+local USE_CONTAINER = C_Secrets and C_Secrets.HasSecretRestrictions and safe(C_Secrets.HasSecretRestrictions) and true or false
+
+local function auraButton(b)
+	b:SetSize(AURA, AURA)
+	if b.EnableMouseMotion then pcall(b.EnableMouseMotion, b, false) end
+	local border = b:CreateTexture(nil, "BACKGROUND", nil, -8)
+	border:SetPoint("TOPLEFT", -1, 1)
+	border:SetPoint("BOTTOMRIGHT", 1, -1)
+	border:SetColorTexture(0, 0, 0, 1)
+	local icon = b:CreateTexture(nil, "BACKGROUND", nil, -7)
+	icon:SetAllPoints()
+	icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	b:SetIcon(icon)
+	local cd = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
+	cd:SetAllPoints()
+	cd:SetFrameLevel(b:GetFrameLevel())
+	cd:SetDrawEdge(false)
+	cd:SetDrawBling(false)
+	cd:SetReverse(true)
+	if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
+	b:SetDurationCooldown(cd)
+	local time = text(b, 8)
+	time:SetDrawLayer("OVERLAY", 6)
+	time:SetPoint("BOTTOM", b, "BOTTOM", 1, 0)
+	pcall(b.SetDurationText, b, time, {})
+	local count = text(b, 10) -- stacks (Sunder 2-5)
+	count:SetDrawLayer("OVERLAY", 7)
+	count:SetPoint("TOPRIGHT", b, "TOPRIGHT", 2, 1)
+	pcall(b.SetApplicationCount, b, count, {})
+end
+
+local function setupContainer(ac)
+	if ac.ready then return true end
+	if InCombatLockdown() then return false end
+	local ok = pcall(function()
+		ac:AddAuraGroup("1", "", { initializeFrame = auraButton })
+		ac:SetAuraGroupLayout("1", { elementSpacing = 2, lineSpacing = 2 })
+		ac:SetAuraGroupFilterString("1", "HARMFUL|PLAYER")
+		ac:SetAuraGroupCandidateFilters("1", {})
+		ac:SetAuraGroupMaxFrameCount("1", AURA_MAX)
+		ac:SetAuraGroupEnabled("1", true)
+		ac:SetFlowLayoutAnchorPoint("TOPLEFT")
+		ac:SetFlowLayoutGrowthDirection(AnchorUtil.FlowDirection.Right, AnchorUtil.FlowDirection.Up)
+	end)
+	ac.ready = ok
+	return ok
+end
+
+local function makeAuraContainer(f)
+	if not USE_CONTAINER then return nil end
+	local ok, ac = pcall(CreateFrame, "AuraContainer", nil, f, "CustomAuraContainerTemplate")
+	if not ok or not ac then return nil end
+	ac:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 21) -- above the name, clear of it
+	pcall(ac.SetEnabled, ac, false)
+	setupContainer(ac)
+	return ac
+end
+
+-- Point the plate's container at its unit (or off). True when the container shows the debuffs.
+local function containerFor(f, unit)
+	local ac = f.ac
+	if not ac then return false end
+	if not unit then
+		pcall(ac.SetEnabled, ac, false)
+		return false
+	end
+	if not setupContainer(ac) then return false end
+	local ok = pcall(ac.SetUnit, ac, unit) and pcall(ac.SetEnabled, ac, true)
+	return ok
+end
+
 local function build(plate)
 	local f = CreateFrame("Frame", nil, plate)
 	f:SetSize(W, H)
-	f:SetPoint("CENTER", plate, "CENTER", 0, 0)
+	f:SetPoint("CENTER", plate, "CENTER", 0, -5) -- (a little low: room between the name and the game's debuff row above it)
 	f:SetFrameLevel(plate:GetFrameLevel() + 5)
 	f:EnableMouse(false)
 
@@ -153,7 +231,7 @@ local function build(plate)
 	for i = 1, AURA_MAX do
 		local a = CreateFrame("Frame", nil, f)
 		a:SetSize(AURA, AURA)
-		a:SetPoint("BOTTOMLEFT", f, "TOPLEFT", (i - 1) * (AURA + 2), 16)
+		a:SetPoint("BOTTOMLEFT", f, "TOPLEFT", (i - 1) * (AURA + 2), 21) -- (clear of the name)
 		a.border = a:CreateTexture(nil, "BACKGROUND")
 		a.border:SetPoint("TOPLEFT", -1, 1)
 		a.border:SetPoint("BOTTOMRIGHT", 1, -1)
@@ -171,7 +249,7 @@ local function build(plate)
 		top:SetFrameLevel(a.cd:GetFrameLevel() + 2)
 		a.time = text(top, 8)
 		a.time:SetPoint("BOTTOM", a, "BOTTOM", 1, 0)
-		a.count = text(top, 8)
+		a.count = text(top, 10) -- stacks (Sunder 1-5): bigger than the timer
 		a.count:SetPoint("TOPRIGHT", a, "TOPRIGHT", 2, 1)
 		a:SetScript("OnUpdate", function(self, elapsed)
 			self.tick = (self.tick or 0) + elapsed
@@ -187,6 +265,7 @@ local function build(plate)
 		a:Hide()
 		f.auras[i] = a
 	end
+	f.ac = makeAuraContainer(f)
 
 	-- Quest corner: icon, count, drop chance (right of the bar)
 	f.quest = CreateFrame("Frame", nil, f)
@@ -423,27 +502,56 @@ local function blizzAuraFrame(plate)
 end
 ns.PlateAuraFrame = blizzAuraFrame -- (for /zyde auradebug)
 
+-- Our own icons are used whenever the game lets addons read your debuffs (they sit a little higher
+-- and show stacks); the game's row is shown only while it won't (on Forever: your target, in combat).
 local function takeBlizzAuras(f)
 	local c = blizzAuraFrame(f.plate)
-	if not (c and c.SetIgnoreParentAlpha) then f.blizzAuras = nil return end
-	-- Only made visible again: the game won't let addons measure or move
-	-- parts of its nameplates ("restricted regions"), so it stays where the
-	-- game puts it, above the plate.
-	c:SetIgnoreParentAlpha(true)
-	f.blizzAuras = c
-	for _, a in ipairs(f.auras) do a:Hide() end
+	f.blizzAuras = (c and c.SetIgnoreParentAlpha) and c or nil
+end
+
+-- Only made visible or invisible: the game won't let addons measure or move parts of its
+-- nameplates ("restricted regions"), so it stays where the game puts it, above the plate.
+local function showBlizzAuras(f, show)
+	local c = f.blizzAuras
+	if c and f.blizzShown ~= show then
+		c:SetIgnoreParentAlpha(show)
+		f.blizzShown = show
+	end
 end
 
 local function giveBackBlizzAuras(f)
-	local c = f.blizzAuras
-	f.blizzAuras = nil
-	if c then c:SetIgnoreParentAlpha(false) end
+	showBlizzAuras(f, false)
+	f.blizzAuras, f.blizzShown = nil, nil
+end
+
+-- A stack count as the game will show it (the number can be hidden from addons in a fight).
+local function stackText(unit, a)
+	local stacks = plain(a.applications)
+	if stacks then return stacks > 1 and tostring(stacks) or "" end
+	local id = plain(a.auraInstanceID)
+	if id and C_UnitAuras.GetAuraApplicationDisplayCount then
+		local ok, s = pcall(C_UnitAuras.GetAuraApplicationDisplayCount, unit, id, 2, 99)
+		if ok then return s end
+	end
+	return ""
 end
 
 local function updateAuras(f)
-	if f.blizzAuras then return end -- (the game draws them)
+	if f.useAC then -- (the game's container draws them, see makeAuraContainer)
+		for i = 1, AURA_MAX do f.auras[i]:Hide() end
+		showBlizzAuras(f, false)
+		return
+	end
 	local n, unit = 0, f.unit
 	if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+		-- can we read them? (in a fight Forever may refuse: "Auras cannot be accessed when secret")
+		local ok = pcall(C_UnitAuras.GetAuraDataByIndex, unit, 1, "HARMFUL|PLAYER")
+		if not ok and f.blizzAuras then
+			for i = 1, AURA_MAX do f.auras[i]:Hide() end
+			showBlizzAuras(f, true)
+			return
+		end
+		showBlizzAuras(f, false)
 		for i = 1, 40 do
 			if n >= AURA_MAX then break end
 			local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HARMFUL|PLAYER")
@@ -451,8 +559,7 @@ local function updateAuras(f)
 			n = n + 1
 			local b = f.auras[n]
 			if not pcall(b.icon.SetTexture, b.icon, a.icon) then b.icon:SetTexture(134400) end
-			local stacks = plain(a.applications)
-			b.count:SetText((stacks and stacks > 1) and stacks or "")
+			if not pcall(b.count.SetText, b.count, stackText(unit, a)) then b.count:SetText("") end
 			local exp, dur = plain(a.expirationTime), plain(a.duration)
 			if exp and dur and exp > 0 and dur > 0 then
 				b.expires = exp
@@ -651,6 +758,8 @@ local function unskin(unit)
 	f.unit = nil
 	f:Hide()
 	easing[f.hp], f.hp.cur = nil, nil
+	containerFor(f, nil)
+	f.useAC = nil
 	if f.plate then
 		giveBackBlizzAuras(f)
 		hideBlizzard(f.plate, false)
@@ -692,6 +801,7 @@ local function skin(unit)
 	skinned[unit] = f
 	hideBlizzard(plate, true)
 	takeBlizzAuras(f)
+	f.useAC = containerFor(f, unit)
 	f:Show()
 	updateAll(f)
 end
@@ -778,7 +888,13 @@ ev:SetScript("OnEvent", function(_, event, unit)
 	end
 	if event == "UPDATE_SHAPESHIFT_FORM" or event == "GROUP_ROSTER_UPDATE"
 		or event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_REGEN_DISABLED" then
-		for _, f in pairs(skinned) do updateThreat(f) end
+		for _, f in pairs(skinned) do
+			updateThreat(f)
+			if event == "PLAYER_REGEN_ENABLED" and f.ac and not f.useAC then
+				f.useAC = containerFor(f, f.unit) -- (a plate first seen mid-fight: set up now)
+			end
+			if event ~= "UPDATE_SHAPESHIFT_FORM" and event ~= "GROUP_ROSTER_UPDATE" then updateAuras(f) end -- (readable or not changes)
+		end
 		return
 	end
 	local f = unit and skinned[unit]
