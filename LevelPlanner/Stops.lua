@@ -212,6 +212,10 @@ local function objectiveStop(quest, od, remaining)
 		points = pointsFromSpawns(od.Coordinates)
 		stop.work = cfg.eventSeconds or 20
 		stop.label = od.Text or "Reach the area"
+		if quest.escort then
+			stop.escort = true
+			stop.label = "Escort: " .. (od.Text or quest.name) .. " (stay with them)"
+		end
 
 	else
 		return nil, "objective type " .. tostring(od.Type)
@@ -226,6 +230,20 @@ end
 ----------------------------------------------------------------------------------------
 -- Whole quest
 ----------------------------------------------------------------------------------------
+
+-- An escort quest: an "event" objective (bring someone somewhere) on a quest the database marks as
+-- one the whole party gets when it starts (questFlags 2, set on escorts), or whose text says escort.
+function S.IsEscort(qo)
+	local hasEvent = false
+	for _, od in ipairs(qo.ObjectiveData or {}) do
+		if od.Type == "event" then hasEvent = true break end
+	end
+	if not hasEvent then return false end
+	local flags = tonumber(qo.questFlags) or 0
+	if flags % 4 >= 2 then return true end
+	local texts = type(qo.objectivesText) == "table" and table.concat(qo.objectivesText, " ") or tostring(qo.objectivesText or "")
+	return texts:lower():find("escort") ~= nil
+end
 
 -- logEntry: Questie's quest log entry when the quest is already picked up, else nil.
 -- Returns quest {id, name, level, xp, stops, workSeconds} or nil plus a reason.
@@ -246,6 +264,7 @@ function S.BuildQuest(questId, logEntry, opts)
 		inLog = logEntry ~= nil,
 		stops = {},
 	}
+	quest.escort = S.IsEscort(qo)
 	quest.questXp, quest.xpEstimated = ns.Estimate.QuestXP(questId, level)
 	-- grey for you: reduced quest XP, and its mobs give none (Estimate.MobXP already returns 0)
 	local QDB = ns.Q.QuestieDB

@@ -285,7 +285,50 @@ end
 -- costs at most Config.hereFirstSlackSeconds. Leaving and coming back later risks the camp being
 -- cleared or forgotten, and a near tie in the estimate shouldn't send you away from mobs you're
 -- already killing. Works on the kept route too (which is re-read in its old order).
+-- An escort you've started goes first, whatever it costs: wander off and it fails. "Started" = an
+-- escort quest accepted in the last Config.escortMinutes that isn't finished (a failed one has
+-- already left the pool). Its objective leads the route; its turn-in is added if it wasn't planned.
+local function escortActive(q)
+	if not q.escort then return false end
+	local t = ns.char and ns.char.acceptedAt and ns.char.acceptedAt[q.id]
+	return t ~= nil and GetTime() - t < (ns.cfg.escortMinutes or 30) * 60
+end
+
+local function escortFirst(state, ctx)
+	if ns.cfg.escortFirst == false or not ctx.pool then return state end
+	for _, q in ipairs(ctx.pool) do
+		if escortActive(q) then
+			local r, lead, planned = copy(state.route), {}, false
+			for i = #r, 1, -1 do
+				local s = r[i].stop
+				if s.quest == q then
+					planned = true
+					if s.kind == "objective" then table.insert(lead, 1, table.remove(r, i)) end
+				end
+			end
+			if not planned then
+				for _, s in ipairs(q.stops) do
+					local e = { stop = s, point = ns.Stops.NearestPoint(s, ctx.start) }
+					if s.kind == "objective" then lead[#lead + 1] = e elseif s.kind == "turnin" then r[#r + 1] = e end
+				end
+				state.xp = (state.xp or 0) + (q.questXp or 0)
+			end
+			for k = #lead, 1, -1 do table.insert(r, 1, lead[k]) end
+			if #lead > 0 and feasible(r, ctx) then
+				state.route, state.total = r, routeSeconds(r, ctx)
+			end
+			return state
+		end
+	end
+	return state
+end
+
+local hereFirstInner -- (below: then the escort, if one is running, goes in front of everything)
 local function hereFirst(state, ctx)
+	return escortFirst(hereFirstInner(state, ctx), ctx)
+end
+
+function hereFirstInner(state, ctx)
 	if not ctx.start or #state.route < 2 or ns.cfg.hereFirst == false then return state end
 	local near = ns.cfg.sameCampYards or 200
 	local bestI, bestP, bestD
@@ -490,6 +533,7 @@ function P.Plan(candidates, previous, opts)
 			if not ns.skipped[q.id] then pool[#pool + 1] = q end
 		end
 	end
+	ctx.pool = pool -- (escortFirst looks here for an escort you have started)
 
 	-- grinding is filler only: it can take time the quests leave empty, never replace them
 	local grind = {}
@@ -529,6 +573,7 @@ function P.Plan(candidates, previous, opts)
 		-- when grouped a run is wanted even if questing is slightly faster
 		if altPlan.score > plan.score or (grouped and altPlan.score > plan.score * 0.9) then plan = altPlan end
 		pool = withDungeons
+		ctx.pool = pool
 	end
 
 	local carried = carryOver(previous, pool, ctx)

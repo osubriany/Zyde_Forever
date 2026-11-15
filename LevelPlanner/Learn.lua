@@ -135,7 +135,14 @@ end
 -- Called from Questie's quest-update callback.
 function L.OnQuestUpdate(questId, index, reason)
 	local R = Questie and Questie.API and Questie.API.Enums and Questie.API.Enums.QuestUpdateTriggerReason
-	if R and reason == R.QUEST_ACCEPTED then snapshot(questId) return end
+	if R and reason == R.QUEST_ACCEPTED then
+		snapshot(questId)
+		-- an escort usually starts walking the moment you accept it (Planner escortFirst)
+		-- (kept per character: GetTime counts from computer start, so it survives a /reload)
+		ns.char.acceptedAt = ns.char.acceptedAt or {}
+		ns.char.acceptedAt[questId] = GetTime()
+		return
+	end
 	if R and reason ~= R.QUEST_UPDATED then return end
 	if not index then return end
 	local entry = ns.Q.QuestLogCache and ns.safe(ns.Q.QuestLogCache.TryGetQuest, questId)
