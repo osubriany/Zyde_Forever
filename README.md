@@ -235,4 +235,6 @@ Level planner:
 
 Zyde Forever is free software, released under the [GNU General Public License v3.0 or later](LICENSE). You may use, change and share it, as long as anything you share that's built from it is under the same licence.
 
+GearAdvisor's boss loot data comes from cMaNGOS classic-db, DungeonMaster and SimGear Forever; see [CREDITS.md](CREDITS.md) for links, licences and notices.
+
 World of Warcraft and its content are © Blizzard Entertainment.
