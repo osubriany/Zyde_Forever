@@ -1122,8 +1122,20 @@ local function petAuraButton(i)
 	b.icon = b:CreateTexture(nil, "ARTWORK")
 	b.icon:SetAllPoints()
 	b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-	b.count = makeText(b, 10)
-	b.count:SetPoint("BOTTOMRIGHT", 3, -2)
+	-- a clock swipe and the seconds left, like the player and target icons
+	b.cd = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
+	b.cd:SetAllPoints()
+	b.cd:SetDrawEdge(false)
+	b.cd:SetReverse(true)
+	if b.cd.SetHideCountdownNumbers then b.cd:SetHideCountdownNumbers(true) end
+	local top = CreateFrame("Frame", nil, b) -- (text above the swipe, so it isn't darkened)
+	top:SetAllPoints()
+	top:SetFrameLevel(b.cd:GetFrameLevel() + 2)
+	b.count = makeText(top, 9)
+	b.count:SetPoint("TOPRIGHT", b, "TOPRIGHT", 2, 1)
+	b.time = makeText(top, 9) -- (inside, at the bottom, like the other small aura icons)
+	b.time:SetPoint("BOTTOM", b, "BOTTOM", 1, 1)
+	b:SetScript("OnUpdate", auraTime)
 	b:EnableMouse(true)
 	b:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
@@ -1155,6 +1167,22 @@ local function updatePetAuras()
 				local stacks = plain(a.applications)
 				b.count:SetText((stacks and stacks > 1) and stacks or "")
 				if b.harmful then b.border:SetColorTexture(0.8, 0.1, 0.1, 1) else b.border:SetColorTexture(0, 0, 0, 1) end
+				local exp, dur = plain(a.expirationTime), plain(a.duration)
+				if exp and dur and exp > 0 and dur > 0 then
+					b.expires = exp
+					b.cd:SetCooldown(exp - dur, dur)
+					b.cd:Show()
+				else
+					b.expires = nil
+					b.time:SetText("")
+					-- times hidden from addons (in combat): the game can still run the swipe itself
+					local d = b.auraID and C_UnitAuras.GetAuraDuration and safe(C_UnitAuras.GetAuraDuration, "pet", b.auraID)
+					if d and b.cd.SetCooldownFromDurationObject and pcall(b.cd.SetCooldownFromDurationObject, b.cd, d) then
+						b.cd:Show()
+					else
+						b.cd:Hide()
+					end
+				end
 				b:Show()
 			end
 		end
