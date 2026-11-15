@@ -128,6 +128,22 @@ local function questDistance(questID, ready, area, px, py, w, h)
 	return best, bestPt
 end
 
+-- An elite (group) quest: the game's quest tag, its "suggested group" size, or Questie's data.
+local QuestieDB
+local function isElite(questID, info, tag)
+	if type(tag) == "string" and tag ~= "" then return true end -- classic log: "Elite", "Group", "Dungeon"...
+	if info and (plain(info.suggestedGroup) or 0) > 1 then return true end
+	if C_QuestLog.GetQuestTagInfo then
+		local t = safe(C_QuestLog.GetQuestTagInfo, questID)
+		if t and (plain(t.isElite) or plain(t.tagID) == 1 or plain(t.tagName) == (ELITE or "Elite")) then return true end
+	end
+	if QuestieDB == nil then
+		QuestieDB = QuestieLoader and QuestieLoader.ImportModule and safe(QuestieLoader.ImportModule, QuestieLoader, "QuestieDB") or false
+	end
+	if QuestieDB and QuestieDB.IsGroupQuest and safe(QuestieDB.IsGroupQuest, questID) then return true end
+	return false
+end
+
 local function readLog()
 	local quests = {}
 	local area, px, py, map, w, h = playerZone()
@@ -135,16 +151,18 @@ local function readLog()
 	local header
 	local n = C_QuestLog.GetNumQuestLogEntries and (safe(C_QuestLog.GetNumQuestLogEntries) or 0) or (safe(GetNumQuestLogEntries) or 0)
 	for i = 1, n do
-		local title, level, isHeader, completeFlag, questID
+		local title, level, isHeader, completeFlag, questID, info, tag
 		if C_QuestLog.GetInfo then
-			local info = safe(C_QuestLog.GetInfo, i)
+			info = safe(C_QuestLog.GetInfo, i)
 			if info then
 				title, level, isHeader, questID = info.title, info.level, info.isHeader, info.questID
 				if info.isHidden then title = nil end
 			end
 		else
-			local t, l, _, h2, _, c, _, id = GetQuestLogTitle(i)
-			title, level, isHeader, completeFlag, questID = t, l, h2, c, id
+			local t, l, tg, h2, _, c, _, id = GetQuestLogTitle(i)
+			title, level, isHeader, completeFlag, questID, tag = t, l, h2, c, id, tg
+			-- (third value: the tag, or the suggested group size on some clients)
+			if type(tag) == "number" then info, tag = { suggestedGroup = tag }, nil end
 		end
 		if isHeader then
 			header = title
@@ -154,6 +172,7 @@ local function readLog()
 			local dist, pt = questDistance(questID, ready, area, px, py, w, h)
 			quests[#quests + 1] = {
 				index = i, questID = questID, title = title, level = level, ready = ready,
+				elite = isElite(questID, info, tag),
 				objectives = objectives, dist = dist, map = pt and map, x = pt and pt[1], y = pt and pt[2],
 				here = dist ~= nil or (header ~= nil and header == zoneName),
 			}
@@ -438,6 +457,7 @@ local function questRow(i)
 		self.title:SetAlpha(0.75)
 		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
 		GameTooltip:AddLine(self.quest and self.quest.title or "Quest")
+		if self.quest and self.quest.elite then GameTooltip:AddLine("Elite quest: a group is suggested", 1, 0.82, 0) end
 		GameTooltip:AddLine("Click: follow this quest (map highlight). Click again to stop.", 1, 1, 1, true)
 		GameTooltip:AddLine("Right-click: open it in the quest log.", 0.7, 0.7, 0.7, true)
 		GameTooltip:Show()
@@ -508,9 +528,10 @@ refresh = function()
 					r.selBar:SetShown(isTracked)
 					local lr, lg, lb = levelColor(q.level)
 					r.badge:SetColorTexture(lr * 0.75, lg * 0.75, lb * 0.75, 0.9)
-					r.badgeText:SetText(q.level and tostring(q.level) or "?")
+					-- elite (group) quests: "30+", as the game writes it
+					r.badgeText:SetText((q.level and tostring(q.level) or "?") .. (q.elite and "+" or ""))
 					r.title:SetText(q.title)
-					r.badge:SetSize(Q(20), Q(13))
+					r.badge:SetSize(Q(q.elite and 25 or 20), Q(13))
 					local ly, shown, lineH = -Q(15), 0, Q(12)
 					-- A fixed width, so a long objective wraps and its real height is known.
 					local lineW = Q(WIDTH) - 4 - (Q(20) + 16) - 4
