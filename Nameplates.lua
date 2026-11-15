@@ -121,7 +121,7 @@ local function setupContainer(ac)
 		ac:SetAuraGroupMaxFrameCount("1", AURA_MAX)
 		ac:SetAuraGroupEnabled("1", true)
 		ac:SetFlowLayoutAnchorPoint("TOPLEFT")
-		ac:SetFlowLayoutGrowthDirection(AnchorUtil.FlowDirection.Right, AnchorUtil.FlowDirection.Up)
+		ac:SetFlowLayoutGrowthDirection(AnchorUtil.FlowDirection.Right, AnchorUtil.FlowDirection.Down)
 	end)
 	ac.ready = ok
 	return ok
@@ -131,7 +131,7 @@ local function makeAuraContainer(f)
 	if not USE_CONTAINER then return nil end
 	local ok, ac = pcall(CreateFrame, "AuraContainer", nil, f, "CustomAuraContainerTemplate")
 	if not ok or not ac then return nil end
-	ac:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 21) -- above the name, clear of it
+	ac:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -7) -- right under the bar (clear of its outline)
 	pcall(ac.SetEnabled, ac, false)
 	setupContainer(ac)
 	return ac
@@ -207,8 +207,8 @@ local function build(plate)
 
 	-- Cast bar
 	f.cast = bar(f, CAST_H)
-	f.cast:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -3)
-	f.cast:SetPoint("TOPRIGHT", f, "BOTTOMRIGHT", 0, -3)
+	f.cast:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -(AURA + 11)) -- (below the debuff row)
+	f.cast:SetPoint("TOPRIGHT", f, "BOTTOMRIGHT", 0, -(AURA + 11))
 	f.cast.icon = f.cast:CreateTexture(nil, "OVERLAY")
 	f.cast.icon:SetSize(CAST_H + 4, CAST_H + 4)
 	f.cast.icon:SetPoint("RIGHT", f.cast, "LEFT", -2, 0)
@@ -226,12 +226,12 @@ local function build(plate)
 	end)
 	f.cast:Hide()
 
-	-- Your debuffs, above the name
+	-- Your debuffs, right under the bar (the cast bar shows below them)
 	f.auras = {}
 	for i = 1, AURA_MAX do
 		local a = CreateFrame("Frame", nil, f)
 		a:SetSize(AURA, AURA)
-		a:SetPoint("BOTTOMLEFT", f, "TOPLEFT", (i - 1) * (AURA + 2), 21) -- (clear of the name)
+		a:SetPoint("TOPLEFT", f, "BOTTOMLEFT", (i - 1) * (AURA + 2), -7) -- (right under the bar, clear of its outline)
 		a.border = a:CreateTexture(nil, "BACKGROUND")
 		a.border:SetPoint("TOPLEFT", -1, 1)
 		a.border:SetPoint("BOTTOMRIGHT", 1, -1)
