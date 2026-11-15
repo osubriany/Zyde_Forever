@@ -10,6 +10,8 @@
 --     added to Classic bosses. These have no known drop chance (0) and are marked seen.
 --   * Noxxion and Razorlash moved to Maraudon: Foulspore Cavern
 --   Unconfirmed community leads were left out. World of Warcraft content is (c) Blizzard Entertainment.
+-- Hand fix (2026-11-15): removed a misspelled duplicate "Geilhast" (npc 2914) in Blackfathom Deeps;
+--   its only item, Algae Fists (6906), is already listed under Gelihast.
 -- Layout: dungeons = { { name, kind, map, minLevel, maxLevel, levelSource,
 --   bosses = { { name, npc, level, items = { [itemID] = chance per kill (0 = unknown) }, seen = { itemID = true } } } } }
 -- levelSource "release 2026-11-11" = release level range (checked against the published Forever dungeon list,
@@ -34,7 +36,6 @@ zyde.GA.BossLoot = { version = 2, dungeons = {
 		{ name = "Old Serra'kis", npc = 4830, level = 26, items = {[6901]=0.4,[6902]=0.3,[6904]=0.3} },
 		{ name = "Twilight Lord Kelris", npc = 4832, level = 27, items = {[1155]=0.6,[6903]=0.4,[273846]=0}, seen = {[273846]=true} },
 		{ name = "Aku'mai", npc = 4829, level = 28, items = {[6909]=0.2,[6910]=0.4,[6911]=0.4} },
-		{ name = "Geilhast", npc = 2914, items = {[6906]=0}, seen = {[6906]=true} },
 	} },
 	{ name = "Blackmaw Hold", kind = "dungeon", map = 2974, minLevel = 55, maxLevel = 60, levelSource = "release 2026-11-11", bosses = {
 		{ name = "Withermaw", npc = 247195, items = {[280062]=0,[280063]=0,[280064]=0}, seen = {[280062]=true,[280063]=true,[280064]=true} },

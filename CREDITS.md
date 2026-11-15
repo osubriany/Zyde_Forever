@@ -14,6 +14,10 @@ open-source projects. The file's header records exactly which versions were used
 | [DungeonMaster](https://www.curseforge.com/wow/addons/dungeonmaster) by MalkDev | GPL-3.0 | Forever's new dungeons, their bosses and boss loot item IDs, and Forever items added to Classic bosses |
 | SimGear Forever by Flavius and contributors | MIT (code); GPL-3.0-or-later (its item data, derived from cMaNGOS) | The first version of the loot table was extracted from its data files (dungeon and boss lists, drop chances and in-game sightings) |
 
+`GearAdvisor/Data/DropRates.lua` holds a short list of drop chances for Forever's new boss items
+that none of those sources has. The addon's author checked them by hand, one item at a time, on
+Wowhead's WoW Forever item pages (2026-11-15); they are not copied in bulk.
+
 **How Zyde differs:** these projects are loot databases or a gear advisor. Zyde takes only their loot
 data and builds its own features on it: its own upgrade scoring, dungeon planner, unit frames,
 nameplates, class reminders, quest tracker and levelling route planner.

@@ -210,6 +210,77 @@ local function get() return merged or build() end
 -- Every dungeon we know, sorted by name: { name, minLevel, maxLevel, bosses = { { name, items, order } } }.
 function Loot.dungeons() return get().list end
 
+---------------------------------------------------------------------------------------------
+-- Your own drop rates: numbers you looked up, pasted with /ga droprates. Kept in your saved
+-- settings (GearAdvisorDB.myRates, by item name), never in the shipped loot table. They fill a
+-- missing chance ("?") and replace a bundled one.
+---------------------------------------------------------------------------------------------
+local function normName(s) return (tostring(s or ""):lower():gsub("[^%w]", "")) end
+
+local function itemName(id)
+	local n = C_Item and C_Item.GetItemNameByID and ns.safe(C_Item.GetItemNameByID, id)
+	if not n and GetItemInfo then n = ns.safe(GetItemInfo, id) end
+	if not n and C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
+	return n
+end
+
+-- The shipped hand-checked rates (Data/DropRates.lua), by normalised name.
+local shipped
+local function shippedRates()
+	if not shipped or not next(shipped) then
+		shipped = {}
+		for name, c in pairs(ns.DropRates or {}) do shipped[normName(name)] = c end
+	end
+	return shipped
+end
+
+-- A drop rate for an item (0-1) beyond the loot table: yours (/ga droprates) first, then the
+-- shipped hand-checked ones. nil when neither has it.
+-- `name`: the item's name when the caller already has it (the game may not have it cached yet).
+function Loot.myRate(id, name)
+	local mine = ns.db and ns.db.myRates
+	local list = shippedRates()
+	if not ((mine and next(mine)) or next(list)) then return nil end
+	local n = name or itemName(id)
+	if not n then return nil end
+	local k = normName(n)
+	return (mine and mine[k]) or list[k]
+end
+
+-- Your rates as text, one "Item Name 13%" per line.
+function Loot.myRatesText()
+	local lines = {}
+	for _, e in pairs(ns.db.myRatesShown or {}) do lines[#lines + 1] = e end
+	table.sort(lines)
+	return table.concat(lines, "\n")
+end
+
+-- Reads "Item Name 13%" lines (replaces your list). Returns how many were read, and the names
+-- that match no item in the loot table (a typo, or the game hasn't sent that item's name yet).
+function Loot.setMyRates(text)
+	local rates, shown, unknown = {}, {}, {}
+	local known = {}
+	for id in pairs(get().byItem) do
+		local n = itemName(id)
+		if n then known[normName(n)] = n end
+	end
+	local count = 0
+	for line in tostring(text or ""):gmatch("[^\r\n]+") do
+		local name, pct = line:match("^%s*(.-)%s*[:=-]?%s*(%d+%.?%d*)%s*%%?%s*$")
+		pct = tonumber(pct)
+		if name and name ~= "" and pct and pct > 0 and pct <= 100 then
+			local k = normName(name)
+			rates[k] = pct / 100
+			local real = known[k]
+			shown[k] = ("%s %s%%"):format(real or name, pct)
+			if not real then unknown[#unknown + 1] = name end
+			count = count + 1
+		end
+	end
+	ns.db.myRates, ns.db.myRatesShown = rates, shown
+	return count, unknown
+end
+
 -- One dungeon by (loosely matched) name, or nil.
 function Loot.dungeon(name) return get().byKey[key(name)] end
 

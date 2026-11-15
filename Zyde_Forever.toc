@@ -37,6 +37,7 @@ GearAdvisor\Player.lua
 GearAdvisor\Score.lua
 GearAdvisor\API.lua
 GearAdvisor\Data\BossLoot.lua
+GearAdvisor\Data\DropRates.lua
 GearAdvisor\Loot.lua
 GearAdvisor\Tooltip.lua
 GearAdvisor\QuestRewards.lua

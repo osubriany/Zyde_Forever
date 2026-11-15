@@ -283,6 +283,7 @@ local function help()
 	print("  /ga summary – your profile, hit, hit cap and every equipped item's value")
 	print("  /ga bags – list upgrades in your bags")
 	print("  /ga loot – what loot data GearAdvisor has")
+	print("  /ga droprates – paste your own drop rates (Item Name 13%) to fill the ? chances")
 	print("  /ga dungeon [name] – upgrades a dungeon drops for you (no name: list dungeons)")
 	print("  /ga spec [arms | bm | auto] – show or set the profile")
 	print("  /ga target [auto | same | dungeon | raid] – which target the hit cap is for")
@@ -292,6 +293,70 @@ local function help()
 	print("  /ga rolls – turn the Need/Greed roll advice on or off")
 	print("  /ga toast – turn the upgrade popup on or off")
 	print("  /ga probe – game checks for setting up the addon (saved for Claude on /reload)")
+end
+
+-- /ga droprates: a box to paste your own drop rates into, one "Item Name 13%" per line.
+local rateBox
+local function dropRatesBox()
+	if not rateBox then
+		local f = CreateFrame("Frame", "GearAdvisorDropRates", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+		f:SetSize(380, 320)
+		f:SetPoint("CENTER")
+		f:SetFrameStrata("DIALOG")
+		f:SetMovable(true)
+		f:EnableMouse(true)
+		f:RegisterForDrag("LeftButton")
+		f:SetScript("OnDragStart", f.StartMoving)
+		f:SetScript("OnDragStop", f.StopMovingOrSizing)
+		if f.SetBackdrop then
+			f:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+				tile = true, tileSize = 16, edgeSize = 16, insets = { left = 4, right = 4, top = 4, bottom = 4 } })
+			f:SetBackdropColor(0, 0, 0, 0.92)
+		end
+		local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		title:SetPoint("TOPLEFT", 12, -10)
+		title:SetText("Your drop rates")
+		local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		hint:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
+		hint:SetPoint("RIGHT", -12, 0)
+		hint:SetJustifyH("LEFT")
+		hint:SetText("One per line: Item Name 13%. Saved only on this computer, on top of the rates that come with the addon.")
+		local sf = CreateFrame("ScrollFrame", nil, f, "UIPanelScrollFrameTemplate")
+		sf:SetPoint("TOPLEFT", 12, -50)
+		sf:SetPoint("BOTTOMRIGHT", -32, 40)
+		local eb = CreateFrame("EditBox", nil, sf)
+		eb:SetMultiLine(true)
+		eb:SetAutoFocus(false)
+		eb:SetFontObject("ChatFontNormal")
+		eb:SetWidth(330)
+		eb:SetScript("OnEscapePressed", function() f:Hide() end)
+		sf:SetScrollChild(eb)
+		f.edit = eb
+		local save = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+		save:SetSize(100, 22)
+		save:SetPoint("BOTTOMRIGHT", -12, 10)
+		save:SetText("Save")
+		save:SetScript("OnClick", function()
+			local n, unknown = ns.Loot.setMyRates(eb:GetText())
+			ns.print(("%d drop rate%s saved."):format(n, n == 1 and "" or "s"))
+			if #unknown > 0 then
+				ns.print("Not matched to a dungeon item (check the spelling, or open the planner once and save again): "
+					.. table.concat(unknown, ", "))
+			end
+			if ns.Window and ns.Window.refresh then pcall(ns.Window.refresh) end
+			f:Hide()
+		end)
+		local close = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+		close:SetSize(80, 22)
+		close:SetPoint("RIGHT", save, "LEFT", -6, 0)
+		close:SetText("Cancel")
+		close:SetScript("OnClick", function() f:Hide() end)
+		tinsert(UISpecialFrames, "GearAdvisorDropRates")
+		rateBox = f
+	end
+	rateBox.edit:SetText(ns.Loot.myRatesText())
+	rateBox:Show()
+	rateBox.edit:SetFocus()
 end
 
 local function toggle(key, label)
@@ -324,6 +389,7 @@ SlashCmdList.GEARADVISOR = function(msg)
 		elseif cmd == "quest" then toggle("questMarks", "Quest reward marks")
 		elseif cmd == "arrows" then toggle("bagMarks", "Upgrade arrows")
 		elseif cmd == "loot" then lootStatus()
+		elseif cmd == "droprates" or cmd == "rates" then dropRatesBox()
 		elseif cmd == "ah" then ns.Auction.report()
 		elseif cmd == "dungeon" then dungeonCmd(rest)
 		elseif cmd == "rolls" then toggle("rollMarks", "Loot roll advice")

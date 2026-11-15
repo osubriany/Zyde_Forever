@@ -243,7 +243,7 @@ local showOthers = false   -- the "Other dungeons" list is folded until clicked
 local function chanceOf(u)
 	local id = u.result.info and u.result.info.itemID
 	local it = id and u.boss and u.boss.items and u.boss.items[id]
-	local c = it and it.chance
+	local c = (id and ns.Loot.myRate(id, u.result.info and u.result.info.name)) or (it and it.chance) -- (your own rates first: /ga droprates)
 	return (type(c) == "number" and c > 0) and math.min(c, 1) or nil
 end
 
