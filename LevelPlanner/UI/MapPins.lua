@@ -109,11 +109,14 @@ local function onMap(p, mapID)
 	return x, y
 end
 
+-- Hidden along with the step list (/lp).
+local function listHidden() return ns.char and ns.char.listHidden end
+
 local function drawWorld()
 	if not worldLayer then return end
 	for _, f in ipairs(worldPins) do f:Hide() end
 	for _, f in ipairs(dots) do f:Hide() end
-	if ns.cfg.mapPins == false or not WorldMapFrame:IsShown() then return end
+	if ns.cfg.mapPins == false or listHidden() or not WorldMapFrame:IsShown() then return end
 	local mapID = WorldMapFrame.GetMapID and WorldMapFrame:GetMapID()
 	if not mapID then return end
 	local w, h = worldLayer:GetWidth(), worldLayer:GetHeight()
@@ -206,7 +209,7 @@ local miniDots = {}
 local function drawMini()
 	for _, f in ipairs(miniPins) do f:Hide() end
 	for _, f in ipairs(miniDots) do f:Hide() end
-	if ns.cfg.minimapPins == false or #places == 0 then return end
+	if ns.cfg.minimapPins == false or listHidden() or #places == 0 then return end
 	local here = ns.Geo.PlayerPoint()
 	if not here then return end
 	local radius = minimapRadius()
@@ -273,6 +276,12 @@ function M.Clear()
 	wipe(places)
 	drawWorld()
 	for _, f in ipairs(miniPins) do f:Hide() end
+end
+
+-- Draw again as things are (after /lp showed or hid the step list).
+function M.Redraw()
+	drawWorld()
+	drawMini()
 end
 
 function M.Update(plan)

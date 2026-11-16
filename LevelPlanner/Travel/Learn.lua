@@ -350,13 +350,13 @@ function L.Init()
 		and "^" .. ERR_DEATHBIND_SUCCESS_S:gsub("[%%%(%)%.%+%-%*%?%[%]%^%$]", "%%%0"):gsub("%%%%s", ".+") .. "$"
 	f:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		if event == "HEARTHSTONE_BOUND"
-			or (event == "CHAT_MSG_SYSTEM" and boundPattern and type(a1) == "string" and a1:find(boundPattern)) then
+			or (event == "CHAT_MSG_SYSTEM" and boundPattern and type(a1) == "string" and not ns.isSecret(a1) and a1:find(boundPattern)) then
 			C_Timer.After(1, function() recordBind("set at innkeeper") end)
 		elseif event == "TAXIMAP_OPENED" then
 			readTaxiMap()
 		elseif event == "UI_INFO_MESSAGE" then
 			-- "New flight path discovered!"
-			if a2 == ERR_NEWTAXIPATH then C_Timer.After(1, L.RefreshKnownFromMap) end
+			if not ns.isSecret(a2) and a2 == ERR_NEWTAXIPATH then C_Timer.After(1, L.RefreshKnownFromMap) end
 		elseif event == "PLAYER_CONTROL_GAINED" then
 			-- also fires after stuns and fears; only a finished flight matters
 			if pendingFlight and pendingFlight.flying and not UnitOnTaxi("player") then
