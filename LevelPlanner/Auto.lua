@@ -92,11 +92,36 @@ local function onProgress()
 	if valid(id) and turn[id] and IsQuestCompletable() then CompleteQuest() end
 end
 
-local function onComplete()
+-- The reward page can open before its items have loaded: the game then says there are no reward
+-- choices, and taking "the only reward" fails ("You don't meet the requirements", blank page).
+-- So wait until every reward shown has its name, then decide. Gives up after ~2 s (you click).
+local function rewardsReady()
+	for i = 1, (GetNumQuestChoices() or 0) do
+		if not GetQuestItemInfo("choice", i) then return false end
+	end
+	for i = 1, (GetNumQuestRewards and GetNumQuestRewards() or 0) do
+		if not GetQuestItemInfo("reward", i) then return false end
+	end
+	return true
+end
+
+local function onComplete(tries)
+	tries = tonumber(tries) or 0
 	if not enabled() then return end
 	local id = GetQuestID and GetQuestID()
 	local _, turn = plannedSets()
 	if not (valid(id) and turn[id]) then return end
+	-- not settled yet (a moment after the page opened, every reward named)
+	if tries < 1 or not rewardsReady() then
+		if tries < 8 then
+			C_Timer.After(0.25, function()
+				if QuestFrame and QuestFrame:IsShown() and GetQuestID and GetQuestID() == id then
+					ns.safe(onComplete, tries + 1)
+				end
+			end)
+		end
+		return
+	end
 	local choices = GetNumQuestChoices() or 0
 	if choices > 1 then
 		ns.print("pick your reward - LevelPlanner leaves reward choices to you.")

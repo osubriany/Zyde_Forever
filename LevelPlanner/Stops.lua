@@ -294,7 +294,14 @@ function S.BuildQuest(questId, logEntry, opts)
 	end
 	quest.bagHold = bagHold
 	if not complete and not (opts and opts.dungeon) then
-		for i, od in ipairs(qo.ObjectiveData or {}) do
+		-- The game says an objective isn't done, but Questie's data doesn't list it (common on Forever's
+		-- own quests): there's no telling where to go, and planning only the turn-in would send you to
+		-- hand in an unfinished quest. Leave it out until Questie knows it, or you've finished it.
+		local data = qo.ObjectiveData or {}
+		for i, lo in ipairs(logObj) do
+			if not lo.finished and not data[i] then return nil, "objective not in Questie's data" end
+		end
+		for i, od in ipairs(data) do
 			local lo = logObj[i]
 			if not (lo and lo.finished) then
 				local remaining
