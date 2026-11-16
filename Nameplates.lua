@@ -1,5 +1,7 @@
 -- Zyde_Forever: flat nameplates for enemies, in the unit frames' style.
---   * a flat bar in the hostile / neutral / tapped color, thin dark outline
+--   * a flat bar in the hostile / neutral / tapped color, thin dark outline; in a fight, by your
+--     threat on it: green (safe / you hold it), yellow (about to pull), orange (losing it), red (on you),
+--     grey (someone else's mob)
 --   * your target's plate: a white edge, a little bigger (others a bit faded), its health % inside the bar
 --   * the full name above it (smaller, so long names fit)
 --   * a level badge on the left: difficulty color, "+" for elites, a silver
@@ -31,8 +33,12 @@ local AURA, AURA_MAX = 16, 5  -- debuff icon size, how many
 local COLOR = {
 	hostile = { 0.78, 0.29, 0.23 }, neutral = { 0.88, 0.72, 0.27 }, friendly = { 0.55, 0.76, 0.35 },
 	tapped = { 0.5, 0.5, 0.5 }, execute = { 1, 0.5, 0.1 }, boss = { 0.6, 0.25, 0.85 },
+	-- in a fight, by your threat on it (UnitThreatSituation 0-3)
+	threat = { [0] = { 0.25, 0.8, 0.3 }, [1] = { 0.95, 0.85, 0.2 }, [2] = { 1, 0.55, 0.1 }, [3] = { 0.85, 0.15, 0.12 } },
 }
 local EDGE = { 0, 0, 0, 0.9 }                 -- normal outline
+local BOSS_EDGE = { 0.75, 0.35, 1, 1 }         -- a boss: purple outline, even in a fight
+local SKULL = "|TInterface\\TargetingFrame\\UI-TargetingFrame-Skull:12:12|t "
 local THREAT_WARN = { 1, 0.6, 0.1, 1 }        -- orange
 local THREAT_BAD = { 1, 0.15, 0.1, 1 }        -- red
 
@@ -408,19 +414,36 @@ local function isBoss(unit)
 	return false
 end
 
-local function updateHealth(f, snap)
+-- A mob in a fight: coloured by your threat on it. Green 0 (safe, or you hold it), yellow 1 (about
+-- to pull it), orange 2 (tanking, about to lose it), red 3 (it's on you). Someone else's mob: grey.
+-- nil when it isn't fighting, or the game won't say (in some dungeons).
+local function threatColor(unit)
+	if not plain(UnitAffectingCombat(unit)) then return nil end
+	if UnitIsTapDenied and plain(UnitIsTapDenied(unit)) then return COLOR.tapped end
+	local status = UnitThreatSituation and plain(UnitThreatSituation("player", unit))
+	return status and COLOR.threat[status] or nil
+end
+
+local function barColor(f, cur, maxv)
 	local unit = f.unit
-	local cur, maxv = UnitHealth(unit), UnitHealthMax(unit)
-	updatePct(f, cur, maxv)
-	setHealthBar(f.hp, cur, maxv, snap)
-	local c = reactionColor(unit)
-	if f.boss and c ~= COLOR.tapped then c = COLOR.boss end
+	local c = threatColor(unit)
+	if not c then
+		c = reactionColor(unit)
+		if f.boss and c ~= COLOR.tapped then c = COLOR.boss end
+	end
 	-- Warriors: Execute range.
 	if IS_WARRIOR and not isSecret(cur) and not isSecret(maxv) and cur and maxv and maxv > 0
 		and cur > 0 and cur / maxv < 0.2 and c ~= COLOR.tapped then
 		c = COLOR.execute
 	end
 	f.hp:SetStatusBarColor(c[1], c[2], c[3])
+end
+
+local function updateHealth(f, snap)
+	local cur, maxv = UnitHealth(f.unit), UnitHealthMax(f.unit)
+	updatePct(f, cur, maxv)
+	setHealthBar(f.hp, cur, maxv, snap)
+	barColor(f, cur, maxv)
 end
 
 -- The game's own plate shows raid markers, but it's invisible: show it here.
@@ -432,6 +455,14 @@ local function updateName(f)
 	local unit = f.unit
 	updateMark(f)
 	if not pcall(f.name.SetText, f.name, UnitName(unit)) then f.name:SetText("") end
+	-- a boss: a skull before its name, and the name in purple (the bar colour shows threat in a fight)
+	if f.boss then
+		local n = plain(UnitName(unit))
+		if type(n) == "string" then f.name:SetText(SKULL .. n) end
+		f.name:SetTextColor(0.85, 0.6, 1)
+	else
+		f.name:SetTextColor(1, 1, 1)
+	end
 	local lvl = plain(UnitLevel(unit))
 	local class = plain(UnitClassification(unit))
 	f.dragon:Hide()
@@ -619,7 +650,7 @@ end
 
 local function updateThreat(f)
 	local unit = f.unit
-	local c, text = EDGE, nil
+	local c, text = f.boss and BOSS_EDGE or EDGE, nil
 	local grouped = IsInGroup()
 	if plain(UnitAffectingCombat(unit)) and (grouped or UnitExists("pet")) then
 		local status = UnitThreatSituation and plain(UnitThreatSituation("player", unit))
@@ -634,6 +665,7 @@ local function updateThreat(f)
 	end
 	setEdge(f.hp, c)
 	setAggro(f, text, c)
+	barColor(f, UnitHealth(unit), UnitHealthMax(unit)) -- (threat changed: the bar colour too)
 end
 
 ---------------------------------------------------------------------------
@@ -773,7 +805,7 @@ end
 local function updateTarget(f)
 	local isTarget = plain(UnitIsUnit(f.unit, "target")) == true
 	for _, t in ipairs(f.sel) do t:SetShown(isTarget) end
-	f:SetScale(isTarget and 1.15 or 1)
+	f:SetScale((isTarget and 1.15 or 1) * (f.boss and 1.15 or 1)) -- (bosses a little bigger too)
 	f:SetAlpha((isTarget or not UnitExists("target")) and 1 or 0.75)
 	if isTarget then f:SetFrameLevel(f.plate:GetFrameLevel() + 20) else f:SetFrameLevel(f.plate:GetFrameLevel() + 5) end
 end
@@ -867,7 +899,7 @@ ev:SetScript("OnEvent", function(_, event, unit)
 	if event == "NAME_PLATE_UNIT_REMOVED" then unskin(unit) return end
 	if event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT" then
 		-- A boss fight started: the boss frames now name the bosses.
-		for _, p in pairs(skinned) do p.boss = isBoss(p.unit) updateHealth(p) end
+		for _, p in pairs(skinned) do p.boss = isBoss(p.unit) updateHealth(p) updateName(p) updateTarget(p) updateThreat(p) end
 		return
 	end
 	if event == "RAID_TARGET_UPDATE" then
