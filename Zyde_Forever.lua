@@ -112,7 +112,7 @@ local FEATURES = {
 	{ key = "questIcons", short = "icons over nodes", label = "Icons over nearby objects", desc = "The game's interact icons over herbs, ore and chests" },
 	{ key = "guildRoster", short = "class colors, levels, zones", label = "Guild member list", desc = "In the Guild & Communities window: online members' names in class colors, each member's level at the right (colored by how near your level), and their zone when you hover them" },
 	{ key = "lfg", short = "groups that fit you", label = "Group finder helper", desc = "Beside Looking For Group: groups with room for your role first, one-click whisper to the leader" },
-	{ key = "scrap", short ="what to delete", label = "Scrap list (bags full)", desc = "The 3 cheapest items to throw away when your bags are full", conflict = "LootTriage" },
+	{ key = "scrap", short ="what to delete", label = "Scrap list (bags full)", desc = "The 3 cheapest items to throw away when your bags are full" },
 	{ key = "vendor", short = "sell or auction tips", label = "Vendor / auction advice", desc = "Vendor it / Auction it / Keep in tooltips, merchant and AH panels", needs = "AHledger" },
 	{ key = "levelPlanner", short = "best XP route, arrow", label = "Level planner", desc = "Plans the next hour of levelling for the most XP per minute from Questie's quests: a step list with the reason for each step, an arrow and map pins to the next step, planned quests picked up and turned in for you (hold Shift to do it yourself), the star marker on the next NPC, a quest item button, and travel by flight paths, boats and your hearthstone. /lp shows the list, /lp help for more", needs = "Questie", reload = true },
 	{ key = "questieDrops", short = "drop % on nameplates", label = "Questie drop chances", desc = "Drop % and your odds under Questie's nameplate bag", needs = "Questie" },
@@ -154,7 +154,6 @@ ns.ADDONS = {
 	{ name = "AHledger", title = "AHledger", used = "Needed for vendor / auction advice. Adds auction prices to the scrap list." },
 	{ name = "ZygorGuidesViewerForever", title = "Zygor Guides", used = "Needed for the Zygor target keybind." },
 	{ name = "NodeSightSparkles", title = "NodeSight Sparkles", used = "Optional: sparkles on quest objects and nodes." },
-	{ name = "LootTriage", title = "LootTriage", used = "Optional: when on, it replaces the Zyde scrap list." },
 }
 
 -- "on" (loaded), "off" (installed but disabled) or "missing".
@@ -2540,8 +2539,9 @@ local function buildOptions()
 		cb.label = cb:CreateFontString(nil, "OVERLAY", small and "GameFontHighlightSmall" or "GameFontHighlight")
 		cb.label:SetPoint("LEFT", cb, "RIGHT", 2, 0)
 		cb.label:SetText(small and (CHILD_LABEL[feat.key] or feat.label) or feat.label)
+		cb.baseLabel = cb.label:GetText()
 		cb.label:SetJustifyH("LEFT")
-		-- Only when there's something to say: "reload to apply", "LootTriage already does this".
+		-- Only when there's something to say: "reload to apply", "needs Questie".
 		cb.note = cb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 		cb.note:SetPoint("LEFT", cb.label, "RIGHT", 6, 0)
 		cb.feat, cb.parentKey, cb.small = feat, parentKey, small
@@ -2597,21 +2597,30 @@ local function buildOptions()
 		o.sliders[#o.sliders + 1] = s
 	end
 
-	-- One indented line of children: checkboxes side by side, or a slider.
+	-- One indented line of children: checkboxes side by side, or a slider. A checkbox that would run
+	-- into the next column goes on a new line underneath. Returns how many lines it took (0 = none).
 	local INDENT = 26
-	local function childLine(children, x, y, parentKey)
-		local cx, used = x + INDENT, false
+	local function childLine(children, x, y, parentKey, right)
+		local start = x + INDENT
+		local cx, lines = start, 0
 		for _, k in ipairs(children) do
 			if SLIDERS[k] then
 				sliderRow(SLIDERS[k], cx, y)
-				used = true
+				lines = math.max(lines, 1)
 			elseif visible(k) then
-				local cb = checkbox(FEATURE_BY_KEY[k], cx, y, true, parentKey)
-				cx = cx + 24 + math.ceil(cb.label:GetStringWidth()) + 14
-				used = true
+				lines = math.max(lines, 1)
+				local cb = checkbox(FEATURE_BY_KEY[k], cx, y - (lines - 1) * ROW, true, parentKey)
+				local w = 24 + math.ceil(cb.label:GetStringWidth())
+				if right and cx > start and cx + w > right then
+					lines = lines + 1
+					cx = start
+					cb:ClearAllPoints()
+					cb:SetPoint("TOPLEFT", cx, y - (lines - 1) * ROW - 2)
+				end
+				cx = cx + w + 14
 			end
 		end
-		return used
+		return lines
 	end
 
 	local function anyVisible(list)
@@ -2646,12 +2655,12 @@ local function buildOptions()
 						local name = o:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 						name:SetPoint("TOPLEFT", x + 4, y - 5)
 						name:SetText(e.group)
-						childLine(e.children, x + math.max(84, math.ceil(name:GetStringWidth()) + 14) - INDENT, y, nil)
-						y = y - ROW
+						local lines = childLine(e.children, x + math.max(84, math.ceil(name:GetStringWidth()) + 14) - INDENT, y, nil, x + COL_W - 16)
+						y = y - ROW * math.max(1, lines)
 					else
 						checkbox(FEATURE_BY_KEY[e[1]], x, y)
 						y = y - ROW
-						if childLine(e.children, x, y, e[1]) then y = y - ROW end
+						y = y - ROW * childLine(e.children, x, y, e[1], x + COL_W - 16)
 					end
 				end
 			end
@@ -2719,7 +2728,13 @@ local function buildOptions()
 				if parentOff then cb:Disable() else cb:Enable() end
 				local v = parentOff and 0.5 or 1
 				cb.label:SetTextColor(v, v, v)
-				cb.note:SetText(changed and "|cffffd200reload to apply|r" or "")
+				if cb.small then
+					-- side by side there's no room for a note: a gold name and "*" (the bottom bar says reload)
+					cb.label:SetText(changed and ("|cffffd200" .. cb.baseLabel .. "*|r") or cb.baseLabel)
+					cb.note:SetText("")
+				else
+					cb.note:SetText(changed and "|cffffd200reload to apply|r" or "")
+				end
 			end
 		end
 		for _, s in ipairs(self.sliders) do
@@ -2921,7 +2936,7 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "test", "preview the Battle Shout, Overpower and quest item icons" },
 			{ "questalert", "turn the quest item nearby alert on or off" },
 			{ "questicons", "turn the icons over nearby objects on or off" },
-			{ "scrap", "turn the full-bags \"scrap first\" list on or off (off while LootTriage is enabled)" },
+			{ "scrap", "turn the full-bags \"scrap first\" list on or off" },
 			{ "scraptest", "preview the scrap first list now, even with bags not full" },
 			{ "scrapreset", "let items you chose to keep be suggested again (scrap and vendor lists)" },
 			{ "vendor", "turn the vendor / auction / keep advice in item tooltips and at merchants on or off" },

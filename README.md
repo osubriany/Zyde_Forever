@@ -20,7 +20,6 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
 | AHledger | Needed for vendor / auction advice; adds auction prices to the scrap list |
 | Zygor Guides | Needed for the Zygor target keybind |
 | NodeSight Sparkles | Sparkles on quest objects and nodes |
-| LootTriage | When enabled, it replaces Zyde's scrap list |
 
 ## Features
 

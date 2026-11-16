@@ -8,7 +8,6 @@
 -- the number on Blizzard's own bag buttons. Click an item in the window to
 -- pick it up, then drop it outside your bags to destroy it.
 --
--- Off when LootTriage is installed and enabled (it already does this).
 -- /zyde scrap      - turn it on or off
 -- /zyde scraptest  - show the window now, even with bags not full
 
@@ -32,7 +31,7 @@ local NEVER = {
 local FISHING_POLE_SUBCLASS = 20 -- weapon class 2, subclass "Fishing Poles"
 local BADGE_COLORS = { { 1, 0.25, 0.2 }, { 1, 0.55, 0.2 }, { 1, 0.8, 0.25 } }
 
-local active = false   -- false while LootTriage handles this
+local active = false   -- true once set up at login
 local testing = false  -- /zyde scraptest
 local ranked = {}      -- { {bag, slot, link, value, icon, count}, ... } cheapest first
 local rankBySlot = {}  -- "bag:slot" -> rank
@@ -415,9 +414,7 @@ local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_LOGIN")
 ev:SetScript("OnEvent", function(_, event)
 	if event == "PLAYER_LOGIN" then
-		local loaded = (C_AddOns and C_AddOns.IsAddOnLoaded) or IsAddOnLoaded
-		active = not (loaded and loaded("LootTriage"))
-		if not active then return end -- LootTriage does this already
+		active = true
 		placeWin()
 		for _, e in ipairs({ "BAG_UPDATE_DELAYED", "GET_ITEM_INFO_RECEIVED", "PLAYER_ENTERING_WORLD", "ACTIONBAR_SLOT_CHANGED" }) do
 			pcall(ev.RegisterEvent, ev, e)
@@ -440,7 +437,7 @@ end)
 
 ns.OnFeatureChanged(function(key) if key == "scrap" then refresh() end end)
 
--- Shared with VendorList.lua (these rules apply even while LootTriage is on).
+-- Shared with VendorList.lua.
 ns.ItemRules = {
 	NEVER = NEVER,
 	FISHING_POLE_SUBCLASS = FISHING_POLE_SUBCLASS,
@@ -455,10 +452,6 @@ ns.ItemRules = {
 
 ns.Scrap = {
 	Toggle = function()
-		if not active then
-			print("|cff66ccffZyde_Forever|r: scrap list is off because LootTriage is installed and enabled (it does the same job)")
-			return
-		end
 		ns.setFeature("scrap", not ns.featureWanted("scrap"))
 		print("|cff66ccffZyde_Forever|r: scrap list " .. (ns.F("scrap") and "on" or "off"))
 	end,
@@ -468,10 +461,6 @@ ns.Scrap = {
 		refresh()
 	end,
 	Test = function()
-		if not active then
-			print("|cff66ccffZyde_Forever|r: scrap list is off because LootTriage is installed and enabled")
-			return
-		end
 		testing = not testing
 		print("|cff66ccffZyde_Forever|r: scrap list preview " .. (testing and "on" or "off"))
 		refresh()
