@@ -66,7 +66,7 @@ local function build()
 
 	f.close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
 	f.close:SetPoint("TOPRIGHT", 2, 2)
-	f.close:SetScript("OnClick", function() Toast.hide() end)
+	f.close:SetScript("OnClick", function() Toast.decline() end) -- (not offered again, even after a log-in)
 
 	-- Hover the icon for the item's tooltip (with GearAdvisor's breakdown).
 	local hit = CreateFrame("Frame", nil, f)
@@ -105,6 +105,32 @@ local waiting = {} -- link -> true
 local showNextSoon -- (below)
 
 local offered = {} -- link -> true: already shown this session (equipped, closed or still up)
+
+-- Upgrades you closed with the X are remembered (per character, in GearAdvisorDB.toastDeclined) and
+-- never offered again, across log-ins. Keyed by item ID and random suffix: a link changes as you level.
+-- /ga toast reset forgets them.
+local function itemKey(link)
+	local id, suffix = tostring(link):match("item:(%d+):[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:([^:|]*)")
+	return id and (id .. ":" .. (suffix ~= "" and suffix or "0")) or tostring(link)
+end
+local function declined()
+	if not ns.db then return {} end
+	ns.db.toastDeclined = ns.db.toastDeclined or {}
+	local who = (UnitName("player") or "?") .. "-" .. (GetRealmName and GetRealmName() or "")
+	ns.db.toastDeclined[who] = ns.db.toastDeclined[who] or {}
+	return ns.db.toastDeclined[who]
+end
+function Toast.decline()
+	if current then declined()[itemKey(current.link)] = true end
+	Toast.hide()
+end
+function Toast.resetDeclined()
+	local d = declined()
+	local n = 0
+	for k in pairs(d) do d[k] = nil n = n + 1 end
+	wipe(offered)
+	return n
+end
 
 function Toast.hide()
 	if current then waiting[current.link] = nil end
@@ -161,7 +187,7 @@ local function scan()
 	local found, retry = false, false
 	for _, info in ipairs(zyde.Bags.items()) do   -- Zyde's shared bag list (Bags.lua)
 		local link = info.hyperlink
-		if link and not offered[link] and not waiting[link] and ns.Stats.isGear(link) then
+		if link and not offered[link] and not waiting[link] and not declined()[itemKey(link)] and ns.Stats.isGear(link) then
 			local ok, r = pcall(ns.Score.compare, link)
 			if ok and r and r.kind == "upgrade" then waiting[link] = true found = true end
 			if ok and r and r.kind == "loading" then retry = true end -- data not in yet: look again

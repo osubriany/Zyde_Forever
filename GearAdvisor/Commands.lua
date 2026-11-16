@@ -292,6 +292,7 @@ local function help()
 	print("  /ga arrows – turn the upgrade arrows (bags, vendor, auction house) on or off")
 	print("  /ga rolls – turn the Need/Greed roll advice on or off")
 	print("  /ga toast – turn the upgrade popup on or off")
+	print("  /ga toast reset – offer upgrades you closed with the X again")
 	print("  /ga probe – game checks for setting up the addon (saved for Claude on /reload)")
 end
 
@@ -393,6 +394,8 @@ SlashCmdList.GEARADVISOR = function(msg)
 		elseif cmd == "ah" then ns.Auction.report()
 		elseif cmd == "dungeon" then dungeonCmd(rest)
 		elseif cmd == "rolls" then toggle("rollMarks", "Loot roll advice")
+		elseif cmd == "toast" and rest:lower() == "reset" then
+			ns.print(("Upgrade popup: %d item(s) you closed can be offered again."):format(ns.Toast.resetDeclined()))
 		elseif cmd == "toast" then toggle("toast", "Upgrade popup")
 		elseif cmd == "popup" then
 			-- Test: show the popup for a Shift-clicked or hovered item, whatever its verdict.
