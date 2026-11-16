@@ -77,6 +77,10 @@ LevelPlannerConfig = {
 	hearthSeconds = 45,         -- casting the hearthstone plus the loading screen
 	hearthCooldownSeconds = 3600, -- the hearthstone's cooldown: it can be planned again after this
 	hearthLaterDiscount = 0.5,  -- a saving at the end of the plan counts this much less than one now
+	trails = true,              -- remember where you walk; the arrow follows those trails round cliffs
+	trailMinYards = 80,         -- ... only for targets at least this far away
+	trailAheadYards = 40,       -- ... aiming this far along the trail
+	trailMaxDetour = 4,         -- ... and not when the trail is more than this many times the straight line
 	useHearth = true,
 	-- boats, zeppelins and the tram: average wait plus the ride, in seconds
 	transportSeconds = { boat = 240, zeppelin = 240, tram = 150, portal = 15 },

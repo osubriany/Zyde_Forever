@@ -216,6 +216,7 @@ function L.Toggle()
 		frame:Show()
 		ns.char.listHidden = false
 	end
+	if ns.Arrow and ns.Arrow.UpdateShown then ns.Arrow.UpdateShown() end -- (the arrow goes with the list)
 end
 
 function L.SetPlanning(on)

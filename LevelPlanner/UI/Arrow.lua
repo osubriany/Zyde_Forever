@@ -100,11 +100,28 @@ function A.Init()
 	frame:Hide()
 end
 
+-- Along your walked trails (Travel/Trails.lua): the arrow aims at a point a little way along the
+-- trail instead of straight at the target; looked up again every 1.5 s as you move.
+local steer, steerLen, steerAt = nil, nil, 0
+local function updateSteer()
+	if GetTime() - steerAt < 1.5 then return end
+	steerAt = GetTime()
+	steer, steerLen = nil, nil
+	if not (target and ns.Trails) then return end
+	local here = ns.Geo.PlayerPoint()
+	if here then
+		local ok, s, len = pcall(ns.Trails.Steer, here, target, ns.cfg.trailAheadYards or 40)
+		if ok then steer, steerLen = s, len end
+	end
+end
+
 function A.SetTarget(point, title)
 	target, targetTitle = point, title
+	steer, steerLen, steerAt = nil, nil, 0
 	arrived = false
 	if not frame then return end
-	if target and not (ns.char and ns.char.arrowHidden) then
+	-- hidden with /lp arrow, and also whenever the step list is hidden (/lp hides both)
+	if target and not (ns.char and (ns.char.arrowHidden or ns.char.listHidden)) then
 		label:SetText(title or "")
 		frame:Show()
 		A.Refresh()
@@ -116,7 +133,7 @@ end
 -- Every frame: ease the drawn angle toward the real direction (the short way round).
 function A.Turn(dt)
 	if not target or arrived then return end
-	local angle = ns.Geo.VectorTo(target)
+	local angle = ns.Geo.VectorTo(steer or target)
 	local facing = GetPlayerFacing and GetPlayerFacing()
 	if not angle or not facing or ns.isSecret(facing) then return end
 	local want = wrap(angle - facing)
@@ -148,12 +165,19 @@ function A.Refresh()
 		return
 	end
 	arrived = false
+	updateSteer()
+	if steer and steerLen then dist = steerLen end -- (the way along the trail, not the straight line)
 	local facing = GetPlayerFacing and GetPlayerFacing()
 	tex:SetAlpha((facing and not ns.isSecret(facing)) and 1 or 0.4)
 	-- time at your current speed, or your usual speed when standing still
 	local speed = GetUnitSpeed and GetUnitSpeed("player") or 0
 	if ns.isSecret(speed) or not speed or speed < 1 then speed = ns.Geo.Speed() end
 	distText:SetText(string.format("%d yd  |cff999999·|r  %s", math.floor(dist + 0.5), clock(dist / speed)))
+end
+
+-- Show or hide again after the step list was shown or hidden.
+function A.UpdateShown()
+	A.SetTarget(target, targetTitle)
 end
 
 function A.Toggle()

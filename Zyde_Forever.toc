@@ -62,6 +62,7 @@ LevelPlanner\Extras.lua
 LevelPlanner\Travel\Seeds.lua
 LevelPlanner\Travel\Learn.lua
 LevelPlanner\Travel\Graph.lua
+LevelPlanner\Travel\Trails.lua
 LevelPlanner\Planner.lua
 LevelPlanner\Waypoint.lua
 LevelPlanner\UI\Arrow.lua
