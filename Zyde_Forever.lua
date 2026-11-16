@@ -2893,6 +2893,8 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 					ok and alpha or -1, where, strata, table.concat(chain, " < ")))
 			end
 		end
+	elseif msg == "bossdebug" then
+		if ns.BossDebug then ns.BossDebug() end
 	elseif msg == "auradebug" then
 		ns.AuraDebug()
 	elseif msg == "petdebug" then
@@ -2932,6 +2934,7 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "rangedebug", "hunters and warriors: show what the game says about your target's range" },
 			{ "mapnotes", "how many map markers you have (alt-click the map to add one); /zyde mapnotes clear empties the open map" },
 			{ "auradebug", "list your target's debuffs as the game reports them (for the Sunder and Thunder Clap tiles)" },
+			{ "bossdebug", "target a mob: what the game tells addons about it (for the boss nameplates)" },
 			{ "mobsdebug", "list nearby nameplates and why each is or isn't counted as a quest mob" },
 			{ "test", "preview the Battle Shout, Overpower and quest item icons" },
 			{ "questalert", "turn the quest item nearby alert on or off" },

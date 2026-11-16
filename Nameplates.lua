@@ -396,8 +396,16 @@ local function isBoss(unit)
 	local lvl = plain(UnitLevel(unit))
 	if class == "worldboss" or (lvl and lvl < 0) then return true end
 	if UnitIsBossMob and plain(safe(UnitIsBossMob, unit)) == true then return true end
+	-- The game's boss units during an encounter. In a dungeon "is it the same mob?" comes back hidden,
+	-- so compare nameplates instead: the plate the game gives for boss1-5 against this mob's plate.
+	local getPlate = C_NamePlate and C_NamePlate.GetNamePlateForUnit
+	local mine = getPlate and safe(getPlate, unit)
 	for i = 1, 5 do
-		if UnitExists("boss" .. i) and plain(UnitIsUnit(unit, "boss" .. i)) then return true end
+		local b = "boss" .. i
+		if plain(UnitExists(b)) then
+			if plain(UnitIsUnit(unit, b)) then return true end
+			if mine and safe(getPlate, b) == mine then return true end
+		end
 	end
 	bossLists()
 	local guid = plain(safe(UnitGUID, unit))
@@ -412,6 +420,35 @@ local function isBoss(unit)
 		if kind == "party" or kind == "raid" then return true end
 	end
 	return false
+end
+
+-- /zyde bossdebug: what the game tells addons about your target, for the boss check.
+function ns.BossDebug()
+	local u = "target"
+	local P = "|cff66ccffZyde_Forever|r bossdebug: "
+	if not UnitExists(u) then print(P .. "target a mob first") return end
+	local function show(label, v)
+		local s = isSecret(v) and "|cffff6650hidden from addons|r" or tostring(v)
+		print(P .. label .. " = " .. s)
+	end
+	show("name", UnitName(u))
+	show("GUID", safe(UnitGUID, u))
+	show("level", UnitLevel(u))
+	show("classification", UnitClassification(u))
+	if UnitIsBossMob then show("UnitIsBossMob", safe(UnitIsBossMob, u)) end
+	local getPlate = C_NamePlate and C_NamePlate.GetNamePlateForUnit
+	for i = 1, 5 do
+		if UnitExists("boss" .. i) then
+			show("is boss" .. i, UnitIsUnit(u, "boss" .. i))
+			local p = getPlate and safe(getPlate, "boss" .. i)
+			show("boss" .. i .. " plate is the target's plate", p ~= nil and p == (getPlate and safe(getPlate, u)))
+		else
+			if i == 1 then print(P .. "no boss units right now (they appear once a boss fight starts)") end
+		end
+	end
+	local _, kind = IsInInstance()
+	show("instance", kind)
+	print(P .. "counted as a boss: " .. tostring(isBoss(u)))
 end
 
 -- A mob in a fight: coloured by your threat on it. Green 0 (safe, or you hold it), yellow 1 (about
