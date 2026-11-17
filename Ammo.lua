@@ -499,6 +499,12 @@ local function nearestVendor(kind)
 	return best
 end
 
+-- The nearest vendor for your ranged weapon's ammo: { name, map, x, y (0-1), dist }, and "Arrows" / "Bullets".
+function Ammo.Nearest()
+	local kind = ammoKind() or ARROW
+	return nearestVendor(kind), LABEL[kind]
+end
+
 function Ammo.WaypointToVendor()
 	local kind = ammoKind() or ARROW
 	local v = nearestVendor(kind)

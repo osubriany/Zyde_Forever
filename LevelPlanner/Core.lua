@@ -280,6 +280,7 @@ function ns.StepDone(key)
 end
 
 function ns.OnPlanReady(plan)
+	if ns.Pin then ns.safe(ns.Pin.Apply, plan) end -- (an NPC you asked for with "..." goes first)
 	rememberOrigin(plan)
 	if ns.MapPins then ns.safe(ns.MapPins.Update, plan) end
 	if ns.NpcStars then ns.safe(ns.NpcStars.Update, plan) end

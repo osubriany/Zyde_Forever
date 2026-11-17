@@ -123,6 +123,14 @@ local function makeRow(i)
 	fadeIn:SetDuration(0.28)
 	fadeIn:SetOrder(2)
 	r.slideParts = { rise, fadeIn }
+	-- clicks: right-click a pinned NPC step to remove it; drag still moves the list
+	r:EnableMouse(true)
+	r:RegisterForDrag("LeftButton")
+	r:SetScript("OnDragStart", function() frame:StartMoving() end)
+	r:SetScript("OnDragStop", function() frame:StopMovingOrSizing() savePos() end)
+	r:SetScript("OnMouseUp", function(self, button)
+		if button == "RightButton" and self.kind == "pin" and ns.Pin then ns.Pin.Clear() end
+	end)
 	rows[i] = r
 	return r
 end
@@ -151,8 +159,25 @@ function L.Init()
 	title = fontString(frame, "GameFontNormal")
 	title:SetPoint("TOPLEFT", PAD, -PAD)
 	title:SetText("LevelPlanner")
+	-- "...": find the nearest innkeeper, ammo vendor, class trainer or repair vendor (UI/Pin.lua)
+	local more = CreateFrame("Button", nil, frame)
+	more:SetSize(22, 16)
+	more:SetPoint("TOPRIGHT", -PAD + 4, -PAD + 1)
+	more.text = more:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	more.text:SetPoint("CENTER", 0, 3)
+	more.text:SetText("...")
+	more:SetHighlightTexture("Interface\\Buttons\\WHITE8X8")
+	more:GetHighlightTexture():SetVertexColor(1, 1, 1, 0.12)
+	more:SetScript("OnClick", function(self) if ns.Pin then ns.Pin.ToggleMenu(self) end end)
+	more:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+		GameTooltip:AddLine("Find an NPC")
+		GameTooltip:AddLine("Innkeeper, ammo vendor, class trainer or repair: the nearest goes at the top of the steps. Right-click that step to remove it.", 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	more:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	status = fontString(frame, "GameFontDisableSmall", C_DIM[1], C_DIM[2], C_DIM[3], "RIGHT")
-	status:SetPoint("TOPRIGHT", -PAD, -PAD - 1)
+	status:SetPoint("TOPRIGHT", more, "TOPLEFT", -4, -2)
 	summary = fontString(frame, "GameFontHighlightSmall")
 	summary:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
 	summary:SetWidth(WIDTH - PAD * 2)
@@ -205,7 +230,44 @@ function L.Init()
 		status:SetText("Planning" .. string.rep(".", dots))
 	end)
 
+	L.MakeHearth()
 	if ns.char and ns.char.listHidden then frame:Hide() else frame:Show() end
+end
+
+-- Hearthstone step: one secure "use item" button laid over that row. Secure frames can't be moved,
+-- shown or hidden in combat, so it's placed out of combat only, and hidden as combat starts
+-- (PLAYER_REGEN_DISABLED still allows it). Rows themselves stay ordinary frames.
+local hearthBtn, hearthRow
+local function placeHearth()
+	if not hearthBtn or InCombatLockdown() then return end
+	if hearthRow and hearthRow:IsVisible() then
+		hearthBtn:ClearAllPoints()
+		hearthBtn:SetAllPoints(hearthRow)
+		hearthBtn:SetFrameLevel(hearthRow:GetFrameLevel() + 5)
+		hearthBtn:Show()
+	else
+		hearthBtn:Hide()
+	end
+end
+function L.MakeHearth()
+	hearthBtn = CreateFrame("Button", "LevelPlannerHearthStep", UIParent, "SecureActionButtonTemplate")
+	hearthBtn:SetFrameStrata(frame:GetFrameStrata())
+	hearthBtn:RegisterForClicks("LeftButtonUp")
+	hearthBtn:SetAttribute("type", "item")
+	hearthBtn:SetAttribute("item", "item:6948") -- Hearthstone
+	hearthBtn:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+		GameTooltip:AddLine("Click to use your hearthstone")
+		GameTooltip:Show()
+	end)
+	hearthBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	hearthBtn:Hide()
+	local ev = CreateFrame("Frame")
+	ev:RegisterEvent("PLAYER_REGEN_DISABLED")
+	ev:RegisterEvent("PLAYER_REGEN_ENABLED")
+	ev:SetScript("OnEvent", function(_, event)
+		if event == "PLAYER_REGEN_DISABLED" then hearthBtn:Hide() else placeHearth() end
+	end)
 end
 
 function L.Toggle()
@@ -217,6 +279,7 @@ function L.Toggle()
 		ns.char.listHidden = false
 	end
 	if ns.Arrow and ns.Arrow.UpdateShown then ns.Arrow.UpdateShown() end -- (the arrow goes with the list)
+	placeHearth()
 	if ns.MapPins and ns.MapPins.Redraw then ns.safe(ns.MapPins.Redraw) end -- (and the map pins and dotted line)
 end
 
@@ -259,6 +322,7 @@ local function groupSteps(plan)
 			steps[#steps + 1] = {
 				kind = s.kind, mode = s.mode, point = s.point, n = 1, xp = s.xp or 0, mobXp = s.mobXp or 0,
 				work = s.work or 0, label = s.label, names = { s.questName }, npcName = s.npcName,
+				icon = s.icon, pinLabel = s.pinLabel,
 				questId = s.questId, objIndex = s.objIndex, objType = s.objType,
 				chain = q and not q.isDungeon and (q.chainValue or 0) > 0,
 				grey = q and q.grey,
@@ -321,6 +385,7 @@ local function describe(step, plan)
 		local what = { fly = "Flight", boat = "Boat", zeppelin = "Zeppelin", tram = "Deeprun Tram",
 			hearth = "Hearthstone", pass = "On the way", portal = "Portal", border = "On the way" }
 		detail = what[step.mode] or "Travel"
+		if step.mode == "hearth" then detail = "Hearthstone  |cff999999· click to use|r" end
 	elseif k == "dungeon" then
 		titleText = "Run " .. (step.names[1] or "dungeon")
 		detail = step.label or ""
@@ -336,6 +401,9 @@ local function describe(step, plan)
 		detail = "Bag space and repairs"
 	elseif k == "bind" then
 		detail = "Your next hub"
+	elseif k == "pin" then
+		icon = step.icon or ICON.default
+		detail = (step.pinLabel or "NPC") .. "  |cff999999· right-click to remove|r"
 	end
 	if step.grey and (k == "pickup" or k == "turnin" or k == "objective") then
 		detail = detail .. "  |cff9d9d9d· grey, but quick|r"
@@ -385,6 +453,8 @@ function L.Update(plan)
 	for i = 1, MAX_ROWS do rows[i]:Hide() dividers[i]:Hide() end
 	footer:Hide()
 	if not plan or #plan.stops == 0 then
+		hearthRow = nil
+		placeHearth()
 		summary:SetText("No plannable quests nearby  |cff999999(/lp debug for details)|r")
 		frame:SetHeight(PAD * 2 + 36)
 		return
@@ -415,7 +485,7 @@ function L.Update(plan)
 	if corpseSecs > 0 then parts[#parts + 1] = "|cff999999+corpse run|r" end
 	if ns.IsGrouped() then parts[#parts + 1] = "|cff66ccffgrouped|r" end
 	if plan.bagFree and plan.bagFree < 1 then parts[#parts + 1] = "|cffff6666bags full|r" end
-	if plan.logCount and plan.logCount >= 20 then parts[#parts + 1] = "|cffff6666log full|r" end
+	if plan.logCount and plan.logCount >= (plan.logCap or 20) then parts[#parts + 1] = "|cffff6666log full|r" end
 	summary:SetText(table.concat(parts, "  |cff555555·|r  "))
 
 	-- rows, with a zone divider wherever the route enters another zone
@@ -426,6 +496,7 @@ function L.Update(plan)
 	local y = -6
 	local nDiv = 0
 	local gained, dinged = 0, false
+	local hearthFound
 
 	-- a finished step: the list slides up (only for a new plan whose first row changed)
 	local firstId = steps[1] and ((steps[1].kind or "") .. "|" .. (steps[1].label or ""))
@@ -456,6 +527,8 @@ function L.Update(plan)
 			dinged = true
 			detail = "|cffffd100LEVEL UP|r  " .. detail
 		end
+		r.kind = s.kind
+		if s.kind == "travel" and s.mode == "hearth" and not hearthFound then hearthFound = r end
 		r.icon:SetTexture(icon)
 		r.title:SetText(titleText)
 		r.detail:SetText(detail)
@@ -508,6 +581,8 @@ function L.Update(plan)
 			r.slide:Play()
 		end
 	end
+	hearthRow = hearthFound
+	placeHearth()
 	local height = PAD + title:GetStringHeight() + 4 + summary:GetStringHeight() - y
 
 	-- quest log nearly full: what to abandon
