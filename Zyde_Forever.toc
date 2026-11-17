@@ -27,6 +27,7 @@ MapNotes.lua
 Tidy.lua
 Guild.lua
 VendorList.lua
+Recipes.lua
 LFGHelper.lua
 
 # GearAdvisor (gear upgrade scoring, /ga), merged in 2026-11-11. Its own private table, zyde.GA.

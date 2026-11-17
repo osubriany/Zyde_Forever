@@ -113,6 +113,7 @@ local FEATURES = {
 	{ key = "lfg", short = "groups that fit you", label = "Group finder helper", desc = "Beside Looking For Group: groups with room for your role first, one-click whisper to the leader" },
 	{ key = "scrap", short ="what to delete", label = "Scrap list (bags full)", desc = "The 3 cheapest items to throw away when your bags are full" },
 	{ key = "vendor", short = "sell or auction tips", label = "Vendor / auction advice", desc = "Vendor it / Auction it / Keep in tooltips, merchant and AH panels", needs = "AHledger" },
+	{ key = "recipes", short = "what to learn, where, price", label = "Unlearned recipes", desc = "Beside a profession window: the recipes you haven't learned yet, where to get each (vendor, quest or drop) and, with AHledger, its auction price. Click one for a waypoint to its vendor. The Unlearned button on the window shows or hides it", needs = "Questie" },
 	{ key = "levelPlanner", short = "best XP route, arrow", label = "Level planner", desc = "Plans the next hour of levelling for the most XP per minute from Questie's quests: a step list with the reason for each step, an arrow and map pins to the next step, planned quests picked up and turned in for you (hold Shift to do it yourself), the star marker on the next NPC, a quest item button, and travel by flight paths, boats and your hearthstone. /lp shows the list, /lp help for more", needs = "Questie", reload = true },
 	{ key = "questieDrops", short = "drop % on nameplates", label = "Questie drop chances", desc = "Drop % and your odds under Questie's nameplate bag", needs = "Questie" },
 	{ key = "questMobs", short = "glow, count, target key", label = "Quest mobs nearby", desc = "Gold edge on quest mobs' nameplates, a count of them near you, and a key to target one", needs = "Questie" },
@@ -2325,7 +2326,7 @@ local CATEGORIES = {
 			{ group = "Questie", children = { "questMobs", "questieDrops" } },
 			"rares",
 		} },
-		{ "Bags & vendors", { "scrap", "vendor" } },
+		{ "Bags & vendors", { "scrap", "vendor", "recipes" } },
 		{ "Travel & gathering", { "mapNotes", "flight", "tracking", "fishing" } },
 	},
 }
