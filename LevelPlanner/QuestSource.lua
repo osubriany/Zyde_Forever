@@ -86,6 +86,13 @@ function QS.LogEntries()
 	return out
 end
 
+-- How many quests your log can hold: the game's own number (40 on Forever; 20 on classic realms).
+function QS.LogCap()
+	local n = C_QuestLog and C_QuestLog.GetMaxNumQuestsCanAccept and ns.safe(C_QuestLog.GetMaxNumQuestsCanAccept)
+	if type(n) == "number" and not ns.isSecret(n) and n > 0 then return n end
+	return tonumber(MAX_QUESTLOG_QUESTS) or 20
+end
+
 function QS.LogCount()
 	local cache = Q.QuestLogCache
 	local n = cache and cache.GetQuestCount and ns.safe(cache.GetQuestCount)

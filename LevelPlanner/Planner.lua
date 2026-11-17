@@ -14,7 +14,7 @@ local ns = zyde.LP
 local P = {}
 ns.Planner = P
 
-local LOG_CAP = 20
+-- (the quest log's size comes from the game: ctx.logCap, see QuestSource.LogCap)
 
 local function travel(a, b)
 	if not a or not b then return 0 end
@@ -97,7 +97,7 @@ local function feasible(route, ctx)
 		end
 		n = n + (s.logDelta or 0)
 		bag = bag + (s.bagDelta or 0)
-		if n > LOG_CAP or bag > ctx.bagFree then return false end
+		if n > ctx.logCap or bag > ctx.bagFree then return false end
 	end
 	return true
 end
@@ -323,6 +323,16 @@ local function escortFirst(state, ctx)
 	return state
 end
 
+-- The NPC ID of your target when it's a live enemy (nil otherwise, or when the game hides it).
+function P.TargetNpc()
+	if not UnitExists("target") or UnitIsDead("target") or not UnitCanAttack("player", "target") then return nil end
+	local guid = UnitGUID("target")
+	if ns.isSecret(guid) or type(guid) ~= "string" then return nil end
+	local kind, _, _, _, _, id = strsplit("-", guid)
+	if kind ~= "Creature" then return nil end
+	return tonumber(id)
+end
+
 local hereFirstInner -- (below: then the escort, if one is running, goes in front of everything)
 local function hereFirst(state, ctx)
 	return escortFirst(hereFirstInner(state, ctx), ctx)
@@ -332,8 +342,15 @@ function hereFirstInner(state, ctx)
 	if not ctx.start or #state.route < 2 or ns.cfg.hereFirst == false then return state end
 	local near = ns.cfg.sameCampYards or 200
 	local bestI, bestP, bestD
+	local fighting = false
 	for i, e in ipairs(state.route) do
 		if e.stop.kind == "objective" then
+			-- the mob you're attacking counts for it: you're in this camp, wherever its map point sits
+			if ctx.targetNpc and e.stop.mobs and e.stop.mobs[ctx.targetNpc] then
+				bestI, bestP, bestD = i, ns.Stops.NearestPoint(e.stop, ctx.start), 0
+				fighting = true
+				break
+			end
 			for _, p in ipairs(e.stop.points) do
 				local d = ns.Geo.Distance(ctx.start, p)
 				if d and d <= near and (not bestD or d < bestD) then bestI, bestP, bestD = i, p, d end
@@ -341,13 +358,15 @@ function hereFirstInner(state, ctx)
 		end
 	end
 	local slack = ns.cfg.hereFirstSlackSeconds or 90
+	local campStop = bestI and state.route[bestI].stop
 	if bestI and bestI > 1 then
 		local r = copy(state.route)
 		local e = table.remove(r, bestI)
 		table.insert(r, 1, { stop = e.stop, point = bestP })
 		if feasible(r, ctx) then
 			local t = routeSeconds(r, ctx)
-			if t <= state.total + slack then state.route, state.total = r, t end
+			-- (mid-fight with its mob, finishing here comes first whatever the sums say)
+			if fighting or t <= state.total + slack then state.route, state.total = r, t end
 		end
 	end
 
@@ -362,7 +381,9 @@ function hereFirstInner(state, ctx)
 		end
 	end
 	table.sort(list, function(a, b) return a.d < b.d end)
-	local pos = 1
+	-- the camp you're standing in stays first: finish the kills here, then walk to the turn-ins
+	local campFirst = campStop ~= nil and state.route[1] ~= nil and state.route[1].stop == campStop
+	local pos = campFirst and 2 or 1
 	for _, c in ipairs(list) do
 		local r = copy(state.route)
 		local from
@@ -536,8 +557,10 @@ function P.Plan(candidates, previous, opts)
 	local cfg = ns.cfg
 	local ctx = {
 		start = ns.Geo.PlayerPoint(),
+		targetNpc = (function() local ok, id = pcall(P.TargetNpc) return ok and id or nil end)(), -- (the mob you're fighting: its objective goes first, see hereFirst)
 		horizon = (cfg.horizonMinutes or 60) * 60,
 		logCount = ns.QuestSource.LogCount(),
+		logCap = ns.QuestSource.LogCap and ns.QuestSource.LogCap() or 20,
 		bagFree = ns.QuestSource.FreeBagSlots() - (cfg.bagReserveSlots or 2),
 	}
 
@@ -610,8 +633,9 @@ function P.Plan(candidates, previous, opts)
 	plan.candidateCount = #pool
 	plan.dungeonInfo = dungeonInfo
 	plan.cleanup = ns.Extras.CleanupAdvice(plan, candidates, ctx, true)
-	plan.cleanupDue = ctx.logCount >= (cfg.cleanupAtLogCount or 18)
+	plan.cleanupDue = ctx.logCount >= ns.Extras.CleanupAt(ctx.logCap)
 	plan.bagFree = ctx.bagFree
 	plan.logCount = ctx.logCount
+	plan.logCap = ctx.logCap
 	return plan
 end

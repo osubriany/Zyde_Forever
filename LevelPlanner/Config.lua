@@ -175,7 +175,7 @@ LevelPlannerConfig = {
 	grindWhenPlanBelow = 0.75,     -- only grind when quests fill less than this share of the planned hour
 
 	-- Quest log clean-up ---------------------------------------------------------------------
-	cleanupAtLogCount = 18,        -- suggest quests to abandon when the log holds this many
+	cleanupAtLogCount = nil,       -- suggest quests to abandon when the log holds this many (nil: 2 under its size, 38 on Forever)
 
 	-- Map ---------------------------------------------------------------------------------
 	zoneLevels = true,             -- world map: hovered zone's level range under its name, coloured for you

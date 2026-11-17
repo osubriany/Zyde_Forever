@@ -235,9 +235,13 @@ end
 
 -- Quests in your log that the plan doesn't use, worst first: {name, reason}. Only when the log is
 -- nearly full.
+-- (the log count at which this starts: Config.cleanupAtLogCount, else 2 under the log's size)
+function X.CleanupAt(cap)
+	return ns.cfg.cleanupAtLogCount or ((cap or 20) - 2)
+end
 function X.CleanupAdvice(plan, candidates, ctx, force)
 	local cfg = ns.cfg
-	if not force and ctx.logCount < (cfg.cleanupAtLogCount or 18) then return nil end
+	if not force and ctx.logCount < X.CleanupAt(ctx.logCap) then return nil end
 	local inPlan = {}
 	for _, e in ipairs(plan.route or {}) do
 		local q = e.stop.quest
