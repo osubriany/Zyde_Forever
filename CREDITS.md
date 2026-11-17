@@ -27,7 +27,7 @@ World of Warcraft content is (c) Blizzard Entertainment.
 ## Works with (not included)
 
 Zyde can use these addons when they're installed, through their public functions only; none of their
-code is included: Questie, AHledger, Zygor Guides, TomTom, Baganator and NodeSight Sparkles.
+code is included: Questie, AHledger, TomTom, Baganator and NodeSight Sparkles.
 
 ## SimGear Forever licence notice
 

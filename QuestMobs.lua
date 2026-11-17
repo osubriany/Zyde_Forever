@@ -4,8 +4,8 @@
 --   1) a pulsing gold edge around its nameplate health bar
 --   2) a small "Quest mobs: 3" box (drag to move; hover for which mobs)
 --   3) a keybind, "Target nearest quest mob" (Keybindings > AddOns > Zyde
---      Forever), that runs /target <name> for quest mobs. Like Zygor's key
---      it works all around you and past nameplate range: the names come
+--      Forever), that runs /target <name> for quest mobs. It
+--      works all around you and past nameplate range: the names come
 --      from Questie's data for your zone (nearest known spawn wins), plus
 --      any quest mob on a nameplate right now (those win over the rest).
 -- The glow and the count only see mobs with a nameplate: enemy nameplates
@@ -317,7 +317,7 @@ local function playerZone()
 end
 
 -- Quest mobs Questie knows spawn in your zone, nearest known spawn first:
--- { {name, d}, ... }. Works without nameplates, like Zygor's key. Rebuilt
+-- { {name, d}, ... }. Works without nameplates. Rebuilt
 -- at most every 2 seconds.
 local zoneList = {}
 local function zoneCandidates()

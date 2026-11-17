@@ -8,7 +8,6 @@
 -- 4) One Button Fishing keybind (Keybindings > AddOns > Zyde Forever).
 -- 5) Flight masters open the flight map directly (hold Shift to talk instead).
 -- 6) Rarity-colored borders on equipped gear in the character screen.
--- 7) "Target Zygor Step NPC" keybind (Keybindings > AddOns > Zyde Forever).
 -- 8) Minimap tracking (e.g. Find Minerals) comes back on after you die.
 -- 9) Icons over nearby objects, and an alert when one is a quest item.
 -- 10) Drop chance under Questie's nameplate loot bag (QuestieDrops.lua).
@@ -86,7 +85,7 @@ end
 ---------------------------------------------------------------------------
 -- Features: each can be turned on or off in the /zyde window, saved in
 -- ZydeForeverDB.features. A feature that needs another addon (Questie,
--- AHledger, Zygor) is off when that addon isn't loaded.
+-- AHledger) is off when that addon isn't loaded.
 ---------------------------------------------------------------------------
 local FEATURES = {
 	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "Icons to the right of your character (Shift-drag one to move them). Warriors: Battle Shout missing or running out, Overpower / Execute / Revenge / Victory Rush ready, Thunder Clap missing on your target, wrong stance, Sunder stacks when tanking, target out of melee reach in a fight. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing (solo), target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Shamans: weapon imbue missing or running out, Lightning Shield missing or low, Earth Shock to interrupt, a totem out of range, no Ankh. Everyone: Well-Rested low, gear needs repair, low on food or water" },
@@ -117,7 +116,6 @@ local FEATURES = {
 	{ key = "levelPlanner", short = "best XP route, arrow", label = "Level planner", desc = "Plans the next hour of levelling for the most XP per minute from Questie's quests: a step list with the reason for each step, an arrow and map pins to the next step, planned quests picked up and turned in for you (hold Shift to do it yourself), the star marker on the next NPC, a quest item button, and travel by flight paths, boats and your hearthstone. /lp shows the list, /lp help for more", needs = "Questie", reload = true },
 	{ key = "questieDrops", short = "drop % on nameplates", label = "Questie drop chances", desc = "Drop % and your odds under Questie's nameplate bag", needs = "Questie" },
 	{ key = "questMobs", short = "glow, count, target key", label = "Quest mobs nearby", desc = "Gold edge on quest mobs' nameplates, a count of them near you, and a key to target one", needs = "Questie" },
-	{ key = "zygor", short = "target step NPC", label = "Zygor target keybind", desc = "One key targets the current Zygor step's enemy or NPC", needs = "ZygorGuidesViewerForever" },
 }
 ns.FEATURES = FEATURES
 local FEATURE_BY_KEY = {}
@@ -152,7 +150,6 @@ ns.addonOn = addonOn
 ns.ADDONS = {
 	{ name = "Questie", title = "Questie", used = "Needed for Questie drop chances and quest mobs nearby. Also helps spot quest objects." },
 	{ name = "AHledger", title = "AHledger", used = "Needed for vendor / auction advice. Adds auction prices to the scrap list." },
-	{ name = "ZygorGuidesViewerForever", title = "Zygor Guides", used = "Needed for the Zygor target keybind." },
 	{ name = "NodeSightSparkles", title = "NodeSight Sparkles", used = "Optional: sparkles on quest objects and nodes." },
 }
 
@@ -1712,95 +1709,6 @@ end)
 end -- fishing
 
 ---------------------------------------------------------------------------
--- Zygor: one keybind that targets the current step's NPC or enemy.
--- Reads the names from Zygor's action-bar buttons (talk to / click / kill)
--- and builds one macro: talk-to NPCs are tried first, then kill targets,
--- so a nearby enemy to kill always wins over the person to talk to.
--- Zygor's own raid-marker lines are dropped; we add one star marker that
--- only fires when a live target was found (avoids "You can't do that").
--- Updates out of combat only (game rule); in combat the last one stays.
----------------------------------------------------------------------------
-_G["BINDING_NAME_CLICK ZydeForeverZygorTarget:LeftButton"] = "Target Zygor Step NPC"
-
-local zygorButton = CreateFrame("Button", "ZydeForeverZygorTarget", UIParent, "SecureActionButtonTemplate")
-zygorButton:SetSize(1, 1)
-zygorButton:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -10, 10)
-zygorButton:SetAlpha(0)
-zygorButton:SetAttribute("type", "macro")
-zygorButton:SetAttribute("macrotext", "")
-
--- Returns kill names, talk names (each in Zygor's button order).
-local function zygorTargets()
-	local candidates, seen = {}, {}
-	local function add(b)
-		if b and not seen[b] then seen[b] = true; candidates[#candidates + 1] = b end
-	end
-	for i = 1, 5 do add(_G["ZygorAB" .. i]) end
-	local zgv = rawget(_G, "ZGV") or rawget(_G, "ZygorGuidesViewer")
-	if zgv and zgv.ActionBar and type(zgv.ActionBar.Buttons) == "table" then
-		for _, b in ipairs(zgv.ActionBar.Buttons) do add(b) end
-	end
-
-	local kills, talks, used = {}, {}, {}
-	for _, b in ipairs(candidates) do
-		if b.IsShown and b:IsShown() and b.GetAttribute then
-			local text = b:GetAttribute("macrotext1")
-			local name = type(text) == "string" and text:match("/target ([^\n]+)")
-			if name then
-				name = name:gsub("%s+$", "")
-				if not used[name] then
-					used[name] = true
-					if text:find("/cleartarget [dead]", 1, true) then
-						kills[#kills + 1] = name
-					else
-						talks[#talks + 1] = name
-					end
-				end
-			end
-		end
-	end
-	return kills, talks
-end
-
-local function zygorMacro()
-	local kills, talks = zygorTargets()
-	if #kills == 0 and #talks == 0 then return "" end
-	local lines = { "/cleartarget" }
-	-- Each /target only takes effect if that NPC is nearby, so the last
-	-- one found wins: talk-to first, kill targets after.
-	for _, name in ipairs(talks) do lines[#lines + 1] = "/target " .. name end
-	for i = #kills, 1, -1 do
-		lines[#lines + 1] = "/target " .. kills[i]
-		lines[#lines + 1] = "/cleartarget [dead]"
-	end
-	-- Star marker, only when something was actually targeted (no error spam).
-	local tail = "/tm [exists,nodead] 1"
-	-- The game runs at most 255 characters and cuts the rest mid-word, so
-	-- drop the first (least important) target lines until it fits.
-	while #lines > 1 and #table.concat(lines, "\n") + 1 + #tail > 255 do
-		table.remove(lines, 2)
-	end
-	lines[#lines + 1] = tail
-	return table.concat(lines, "\n")
-end
-
-local lastZygorMacro
-local function refreshZygorTarget()
-	if InCombatLockdown() then return end
-	local down = GetCVarBool and GetCVarBool("ActionButtonUseKeyDown")
-	zygorButton:RegisterForClicks(down and "AnyDown" or "AnyUp")
-	local text = F("zygor") and zygorMacro() or ""
-	if text ~= lastZygorMacro then
-		zygorButton:SetAttribute("macrotext", text)
-		lastZygorMacro = text
-	end
-end
-
-if C_Timer and C_Timer.NewTicker then
-	C_Timer.NewTicker(0.5, refreshZygorTarget)
-end
-
----------------------------------------------------------------------------
 -- Flight master: skip the "I need a ride" chat and open the flight map.
 -- Skipped when the NPC also has quests for you, or if you hold Shift.
 ---------------------------------------------------------------------------
@@ -2416,7 +2324,6 @@ local CATEGORIES = {
 			{ group = "Quest objects", children = { "questAlert", "questIcons" } },
 			{ group = "Questie", children = { "questMobs", "questieDrops" } },
 			"rares",
-			"zygor",
 		} },
 		{ "Bags & vendors", { "scrap", "vendor" } },
 		{ "Travel & gathering", { "mapNotes", "flight", "tracking", "fishing" } },
@@ -2431,7 +2338,7 @@ local CHILD_LABEL = {
 	questMobs = "Quest mobs", questieDrops = "Drop chances",
 }
 
--- Short names for "needs ..." notes (Zygor's folder name is long).
+-- Short names for "needs ..." notes (an addon's folder name can be long).
 local function addonTitle(name)
 	for _, a in ipairs(ns.ADDONS) do
 		if a.name == name then return a.title end
@@ -2827,17 +2734,6 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		setFeature("questIcons", not featureWanted("questIcons"))
 		print("|cff66ccffZyde_Forever|r: icons over nearby objects " .. (questIconsOn() and "on" or "off")
 			.. (nodeSightManages() and " (ignored: NodeSight Sparkles manages these settings)" or ""))
-	elseif msg == "zygor" then
-		local text = zygorMacro()
-		local keys = { GetBindingKey("CLICK ZydeForeverZygorTarget:LeftButton") }
-		print("|cff66ccffZyde_Forever|r: keybind = " .. (#keys > 0 and table.concat(keys, ", ") or "none set"))
-		print("|cff66ccffZyde_Forever|r: ActionButtonUseKeyDown = " .. tostring(GetCVar("ActionButtonUseKeyDown")))
-		if text ~= "" then
-			print("|cff66ccffZyde_Forever|r: the keybind runs:")
-			for line in text:gmatch("[^\n]+") do print("   " .. line) end
-		else
-			print("|cff66ccffZyde_Forever|r: no Zygor target buttons on this step")
-		end
 	elseif (msg == "unlock" or msg == "lock" or msg == "resetframes") and ns.UnitFrames then
 		ns.UnitFrames.Command(msg)
 	elseif msg == "mobsdebug" and ns.QuestMobs then
@@ -2948,10 +2844,9 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "questrange <yards>", "how far away quest objects are spotted (default 30)" },
 			{ "questheight <pixels>", "the tallest the quest tracker gets before it scrolls (0 = down to the bottom of the screen)" },
 			{ "questdebug", "stand facing a quest object and run this to see why it is or isn't detected" },
-			{ "zygor", "show what the Zygor target keybind will do on this step" },
 		}) do
 			print(("  |cffffd200/zyde %s|r - %s"):format(c[1], c[2]))
 		end
-		print("  Keybinds (Fishing, Zygor target, nearest quest mob, feed pet, call or revive pet, marker wheels): Options > Keybindings > AddOns > Zyde Forever")
+		print("  Keybinds (Fishing, nearest quest mob, feed pet, call or revive pet, marker wheels): Options > Keybindings > AddOns > Zyde Forever")
 	end
 end

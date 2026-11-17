@@ -1,6 +1,6 @@
 -- TaxiArrow: when the next step is a flight, a bouncing green arrow on the flight master's map
 -- points at the flight path to pick.
--- Game facts used (as ZygorGuidesViewerForever does on this client): the classic TaxiFrame has one
+-- Game facts used (this client): the classic TaxiFrame has one
 -- button per node, TaxiButton<slot>, with TaxiNodeName(slot); the newer FlightMapFrame keeps its
 -- nodes as pins in pinPools.FlightMap_FlightPointPinTemplate, each with taxiNodeData.name.
 local ADDON, zyde = ...

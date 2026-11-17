@@ -5,7 +5,7 @@
 ## Version: 1.4.0
 ## SavedVariables: ZydeForeverDB, GearAdvisorDB, LevelPlannerDB
 ## SavedVariablesPerCharacter: LevelPlannerCharDB
-## OptionalDeps: Questie, QuestieDB, TomTom, AHledger, Baganator, ZygorGuidesViewerForever, NodeSightSparkles
+## OptionalDeps: Questie, QuestieDB, TomTom, AHledger, Baganator, NodeSightSparkles
 ## X-License: GPL-3.0-or-later
 ## X-Website: https://github.com/osubriany/Zyde_Forever
 
@@ -72,5 +72,6 @@ LevelPlanner\UI\ZoneLevels.lua
 LevelPlanner\UI\NpcStars.lua
 LevelPlanner\UI\ItemButton.lua
 LevelPlanner\UI\TaxiArrow.lua
+LevelPlanner\UI\Pin.lua
 LevelPlanner\Auto.lua
 LevelPlanner\Why.lua

@@ -18,7 +18,6 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
 |---|---|
 | [Questie](https://www.curseforge.com/wow/addons/questie) | Needed for Questie drop chances and quest mobs nearby; also improves the quest tracker and quest object alert |
 | AHledger | Needed for vendor / auction advice; adds auction prices to the scrap list |
-| Zygor Guides | Needed for the Zygor target keybind |
 | NodeSight Sparkles | Sparkles on quest objects and nodes |
 
 ## Features
@@ -95,7 +94,6 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
 - **Quest mobs nearby** (Questie): a gold edge on quest mobs' nameplates, a count of them near you, and a key to target one.
 - **Rare announcer**: when a rare or rare elite shows up (nameplate, target, mouseover or minimap marker), its name flashes on screen with a sound and a chat line, once per 5 minutes. The quest mob target key goes for rares you've just seen first.
 - **Questie drop chances** (Questie): the drop % and your odds of getting the item on your next kill, under Questie's nameplate icon.
-- **Zygor target keybind** (Zygor): one key targets the current Zygor step's enemy or NPC.
 
 ### Bags & vendors
 - **Scrap list**: when your bags are full, the three cheapest items to throw away. Right-click one to keep it.
@@ -139,7 +137,6 @@ Set these under **Game Menu → Options → Keybindings → AddOns → Zyde Fore
 | Binding | What it does |
 |---|---|
 | One Button Fishing | Casts, and reels in when a fish bites |
-| Target Zygor Step NPC | Targets the current Zygor step's enemy or NPC |
 | Target nearest quest mob or rare | Targets a rare you've just seen, else a nearby mob you need for a quest |
 | Feed pet (best food in bags) | Feeds your pet food it likes |
 | Call or revive pet | Calls your pet, or revives it if it's dead |
@@ -177,7 +174,6 @@ Under **LevelPlanner**:
 | `/zyde ammowarn <number>` | Hunters: warn when leaving town with less ammo than this (default 600, 0 = off) |
 | `/zyde test` | Preview the reminder icons |
 | `/zyde errors` | Show the last Lua errors from any addon, even with error pop-ups turned off |
-| `/zyde zygor` | Show what the Zygor target key will do on this step |
 
 Troubleshooting:
 
