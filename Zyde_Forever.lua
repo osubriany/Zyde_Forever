@@ -15,7 +15,8 @@
 -- 12) Vendor / auction / keep advice per bag item, sell panel at merchants (VendorList.lua).
 -- 13) Group finder helper: groups with room for you first, whisper the leader (LFGHelper.lua).
 -- 14) A small draggable info bar: location, time to level, gold, bags,
---     durability, and thrown durability or ammo (InfoBar.lua).
+--     durability, thrown durability or ammo, steps, yards ridden, and
+--     jumps (InfoBar.lua).
 --
 -- /zyde test     - toggle preview of both icons (to see where they sit)
 -- /zyde resetxp  - put the XP readout back at its default spot
@@ -93,11 +94,11 @@ local FEATURES = {
 	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "Icons to the right of your character (Shift-drag one to move them). Warriors: Battle Shout missing or running out, Overpower / Execute / Revenge / Victory Rush ready, Thunder Clap missing on your target, wrong stance, Sunder stacks when tanking, target out of melee reach in a fight. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing (solo), target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Shamans: weapon imbue missing or running out, Lightning Shield missing or low, Earth Shock to interrupt, a totem out of range, no Ankh. Everyone: Well-Rested low, gear needs repair, low on food or water" },
 	{ key = "ammo", class = "HUNTER", short = "count, refill, warning", label = "Hunter ammo", desc = "Arrows or bullets left and how long they last (in the XP readout), a warning when you leave town low, and a Fill quiver button at ammo vendors (hunters)" },
 	{ key = "petCare", class = "HUNTER", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast reminder: off in a group, on when solo (hunters)" },
-	{ key = "markerWheel", short = "target wheel, world squares", label = "Marker wheels", desc = "Hold a key for a wheel of target markers (skull, cross, moon...) and click one to put it on your target. Press a key to show or hide the world marker squares (drag the title to move them); click a square, then the ground. The last square clears them all" },
+	{ key = "markerWheel", short = "target wheel, world squares", label = "Marker wheels", desc = "Hold a key for a wheel of target markers (skull, cross, moon...) and click one to put it on your target. Letting go closes that wheel. Press a key to show or hide the world marker squares (drag the title to move them). Click a square, then the ground. The squares stay open until you press the key again. The last square clears them all" },
 	{ key = "hideBars", short = "cleaner action bars", label = "Hide Blizzard bar art", desc = "Hides the action bar art and the bag bar", reload = true },
 	{ key = "hideMicroMenu", short = "game menu buttons", label = "Hide micro menu", desc = "Hides the row of small game menu buttons (character, spellbook, talents, quest log, social, game menu...). Their keybinds still work", reload = true },
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
-	{ key = "infoBar", short = "location, gold, bags", label = "Info bar", desc = "A small draggable bar: where you are, time to level, gold, bag space, gear durability, thrown-weapon durability or the arrows or bullets for your bow or gun, steps walked, yards ridden, and times you press jump. Drag it to move it" },
+	{ key = "infoBar", short = "location, gold, bags", label = "Info bar", desc = "A small draggable bar: where you are, time to level, gold, bag space, and gear durability (the average, plus the most worn piece). A throwing weapon shows its durability; a bow, crossbow, or gun shows arrows or bullets. Steps are about 2 yards walked on foot. Mounted is yards ridden, not a flight-path taxi. Jumps count each press of the jump key. Steps, mounted yards, and jumps are kept for this character. Drag the bar to move it. Hover the bar for the same details" },
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames with buffs and debuffs, mana / rage / energy on party frames. Shift-drag a frame to move it", reload = true },
 	{ key = "targetTarget", short = "small frame by target", label = "Target of target", desc = "A small frame beside the target frame showing who your target is targeting (with the Zyde unit frames on). Shift-drag it to move it" },
 	{ key = "unitAuras", short = "icons on your frames", label = "Unit frame buffs / debuffs", desc = "Buff and debuff icons with time left on the Zyde unit frames: the target's debuffs (yours first) and buffs, your debuffs and buffs, and your pet's" },
@@ -2852,6 +2853,6 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		}) do
 			print(("  |cffffd200/zyde %s|r - %s"):format(c[1], c[2]))
 		end
-		print("  Keybinds (Fishing, nearest quest mob, feed pet, call or revive pet, marker wheels): Options > Keybindings > AddOns > Zyde Forever")
+		print("  Keybinds (Fishing, nearest quest mob, feed pet, call or revive pet, target marker wheel, world marker squares): Options > Keybindings > AddOns > Zyde Forever")
 	end
 end

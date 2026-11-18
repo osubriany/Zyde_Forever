@@ -398,6 +398,6 @@ ns.OnFeatureChanged(function(k) if k == "markerWheel" then syncOn() end end)
 ns.MarkerWheel = {
 	ToggleDebug = function()
 		debugOn = not debugOn
-		print(P .. "marker wheel debug " .. (debugOn and "on - use a wheel and read chat" or "off"))
+		print(P .. "marker debug " .. (debugOn and "on - use the target wheel or the world marker squares and read chat" or "off"))
 	end,
 }

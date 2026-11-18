@@ -41,6 +41,7 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
   - With Questie: the quest icon, your count (3/8) and the drop chance sit together on the right.
   - Friendly and object nameplates keep the game's look. In dungeons and boss fights the game may hide some details (health, threat, debuff times).
 - **XP readout**: a small, draggable XP % in place of the XP bar, showing rested XP and time to level. Hunters also see their arrow or bullet count here.
+- **Info bar**: a small draggable bar (on by default, drag it to move it). It shows where you are, time to level, gold, bag space (used/total), and gear durability (average, plus the most worn piece). A throwing weapon shows its durability; a bow, crossbow, or gun shows how many arrows or bullets you have. It also counts steps walked on foot (about 2 yards each), yards ridden on a mount, and times you press jump. Those three are kept for this character, including across a reload. Flight-path taxis are not counted as riding.
 - **Reminder icons**: icons to the right of your character. Shift-drag any icon to move the column.
   - **Warrior:** Battle Shout missing or running out, Overpower / Execute / Revenge / Victory Rush ready, Thunder Clap missing on your target, wrong stance, Sunder stacks while tanking, target **too far** for melee in a fight.
   - **Hunter:**
@@ -80,7 +81,7 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
 ### Groups
 - **Group finder helper**: puts groups with room for your role first, with one-click whisper to the leader.
 - **Guild member list**: class-colored names, each member's level colored by how close it is to yours, and their zone on hover.
-- **Marker wheels**: hold a key for a wheel of target markers (or world markers), then click the one you want. The centre clears.
+- **Markers**: hold a key for a wheel of target markers (skull, cross, moon...), then click the one you want. Letting go closes that wheel. World markers are a small grid of squares: press the key to show it, press again to hide it, and drag the title to move it. Click a square, then the ground. The last square clears every world marker. The grid stays open so that ground click is not swallowed by the box.
 
 ### Questing & leveling
 - **Quest tracker**: replaces the game's tracker.
@@ -140,8 +141,8 @@ Set these under **Game Menu → Options → Keybindings → AddOns → Zyde Fore
 | Target nearest quest mob or rare | Targets a rare you've just seen, else a nearby mob you need for a quest |
 | Feed pet (best food in bags) | Feeds your pet food it likes |
 | Call or revive pet | Calls your pet, or revives it if it's dead |
-| Marker wheel (hold) | Target marker wheel |
-| World marker wheel (hold) | World marker wheel |
+| Marker wheel (hold) | Hold for the target marker wheel. Letting go closes it |
+| World markers | Show or hide the world marker squares. Drag the title to move them |
 
 Under **LevelPlanner**:
 
