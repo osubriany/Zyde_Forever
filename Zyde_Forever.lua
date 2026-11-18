@@ -14,6 +14,8 @@
 -- 11) Bags full: the 3 cheapest stacks marked 1-2-3 (ScrapList.lua).
 -- 12) Vendor / auction / keep advice per bag item, sell panel at merchants (VendorList.lua).
 -- 13) Group finder helper: groups with room for you first, whisper the leader (LFGHelper.lua).
+-- 14) A small draggable info bar: location, time to level, gold, bags,
+--     durability, and thrown durability or ammo (InfoBar.lua).
 --
 -- /zyde test     - toggle preview of both icons (to see where they sit)
 -- /zyde resetxp  - put the XP readout back at its default spot
@@ -91,10 +93,11 @@ local FEATURES = {
 	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "Icons to the right of your character (Shift-drag one to move them). Warriors: Battle Shout missing or running out, Overpower / Execute / Revenge / Victory Rush ready, Thunder Clap missing on your target, wrong stance, Sunder stacks when tanking, target out of melee reach in a fight. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing (solo), target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Shamans: weapon imbue missing or running out, Lightning Shield missing or low, Earth Shock to interrupt, a totem out of range, no Ankh. Everyone: Well-Rested low, gear needs repair, low on food or water" },
 	{ key = "ammo", class = "HUNTER", short = "count, refill, warning", label = "Hunter ammo", desc = "Arrows or bullets left and how long they last (in the XP readout), a warning when you leave town low, and a Fill quiver button at ammo vendors (hunters)" },
 	{ key = "petCare", class = "HUNTER", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast reminder: off in a group, on when solo (hunters)" },
-	{ key = "markerWheel", short = "hold key, click marker", label = "Marker wheels", desc = "Hold a key for a wheel of target markers (skull, cross, moon...) or world markers, and click one to place it" },
+	{ key = "markerWheel", short = "target wheel, world squares", label = "Marker wheels", desc = "Hold a key for a wheel of target markers (skull, cross, moon...) and click one to put it on your target. Press a key to show or hide the world marker squares (drag the title to move them); click a square, then the ground. The last square clears them all" },
 	{ key = "hideBars", short = "cleaner action bars", label = "Hide Blizzard bar art", desc = "Hides the action bar art and the bag bar", reload = true },
 	{ key = "hideMicroMenu", short = "game menu buttons", label = "Hide micro menu", desc = "Hides the row of small game menu buttons (character, spellbook, talents, quest log, social, game menu...). Their keybinds still work", reload = true },
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
+	{ key = "infoBar", short = "location, gold, bags", label = "Info bar", desc = "A small draggable bar: where you are, time to level, gold, bag space, gear durability, thrown-weapon durability or the arrows or bullets for your bow or gun, steps walked, yards ridden, and times you press jump. Drag it to move it" },
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames with buffs and debuffs, mana / rage / energy on party frames. Shift-drag a frame to move it", reload = true },
 	{ key = "targetTarget", short = "small frame by target", label = "Target of target", desc = "A small frame beside the target frame showing who your target is targeting (with the Zyde unit frames on). Shift-drag it to move it" },
 	{ key = "unitAuras", short = "icons on your frames", label = "Unit frame buffs / debuffs", desc = "Buff and debuff icons with time left on the Zyde unit frames: the target's debuffs (yours first) and buffs, your debuffs and buffs, and your pet's" },
@@ -1484,6 +1487,7 @@ local function updateXP()
 end
 ns.UpdateXP = updateXP
 ns.formatTime = formatTime
+ns.xpRate = xpRate
 C_Timer.NewTicker(30, updateXP) -- TTL drifts as the 2-hour window moves
 ns.OnFeatureChanged(function(key) if key == "xp" then updateXP() end end)
 

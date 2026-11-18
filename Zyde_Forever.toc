@@ -20,6 +20,7 @@ Rares.lua
 QuestTracker.lua
 ScrapList.lua
 Ammo.lua
+InfoBar.lua
 PetCare.lua
 Reminders.lua
 MarkerWheel.lua

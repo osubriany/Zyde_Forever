@@ -2,9 +2,10 @@
 --   Target markers: hold the key, click skull / cross / moon... to put it on
 --     your target. With no target, pressing the key targets what's under
 --     your mouse first.
---   World markers: hold the key, click a colored marker, then click the
---     ground where it goes. The middle button clears all world markers.
--- Letting go of the key (or clicking nothing) just closes the wheel.
+--   World markers: press the key to show a small grid of squares, click one,
+--     then click the ground. Press the key again to put the grid away. Drag
+--     its title bar to move it. The last square clears every world marker.
+-- Letting go of the target-marker key (or clicking nothing) just closes that wheel.
 -- Set the keys in Options > Keybindings > AddOns > Zyde Forever.
 --
 -- Marking is protected on Forever, so each wheel is a secure frame and each
@@ -210,6 +211,114 @@ local function makeWheel(cfg)
 end
 
 ---------------------------------------------------------------------------
+-- A small grid that stays where you put it. Press the key to show it, press
+-- again to hide it. Each square is its own click (world markers still need a
+-- second click on the ground; that part is the game).
+---------------------------------------------------------------------------
+local CELL, GAP, PAD, HEADER = 52, 5, 6, 22
+
+local function makePalette(cfg)
+	local n = #cfg.items + (cfg.center and 1 or 0)
+	local cols = 3
+	local rows = math.ceil(n / cols)
+	local panel = CreateFrame("Frame", cfg.name .. "Palette", UIParent)
+	panel:SetSize(PAD * 2 + cols * CELL + (cols - 1) * GAP, PAD + HEADER + 4 + rows * CELL + (rows - 1) * GAP + PAD)
+	panel:SetFrameStrata("HIGH")
+	panel:SetClampedToScreen(true)
+	panel:SetMovable(true)
+	panel:EnableMouse(true)
+	panel:Hide()
+
+	panel.bg = panel:CreateTexture(nil, "BACKGROUND")
+	panel.bg:SetAllPoints()
+	panel.bg:SetColorTexture(0.07, 0.07, 0.07, 0.94)
+	panel.edges = ns.newEdges(panel, "OVERLAY", 1)
+	ns.placeEdges(panel.edges, panel, -1, 1)
+	for _, t in ipairs(panel.edges) do t:SetColorTexture(0, 0, 0, 0.95) end
+
+	local header = CreateFrame("Frame", nil, panel)
+	header:SetPoint("TOPLEFT", 1, -1)
+	header:SetPoint("TOPRIGHT", -1, -1)
+	header:SetHeight(HEADER)
+	header:EnableMouse(true)
+	header:RegisterForDrag("LeftButton")
+	header.bg = header:CreateTexture(nil, "BACKGROUND")
+	header.bg:SetAllPoints()
+	header.bg:SetColorTexture(0.14, 0.14, 0.16, 1)
+	header.title = header:CreateFontString(nil, "OVERLAY")
+	if not header.title:SetFont("Fonts\\ARIALN.TTF", 13, "OUTLINE") then header.title:SetFontObject("GameFontNormal") end
+	header.title:SetPoint("CENTER")
+	header.title:SetText(cfg.title or "Markers")
+	header.title:SetTextColor(1, 0.84, 0.35)
+	header:SetScript("OnDragStart", function()
+		if InCombatLockdown() then return end
+		panel:StartMoving()
+	end)
+	header:SetScript("OnDragStop", function()
+		panel:StopMovingOrSizing()
+		local point, _, _, x, y = panel:GetPoint()
+		ZydeForeverDB = ZydeForeverDB or {}
+		ZydeForeverDB.worldMarkerPos = { point = point, x = x, y = y }
+	end)
+
+	local function square(it, index)
+		local col = (index - 1) % cols
+		local row = math.floor((index - 1) / cols)
+		local b = CreateFrame("Button", nil, panel, "SecureActionButtonTemplate")
+		b:SetSize(CELL, CELL)
+		b:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD + col * (CELL + GAP), -(PAD + HEADER + 4 + row * (CELL + GAP)))
+		b:RegisterForClicks("AnyUp")
+		b:SetAttribute("type", "macro")
+		b:SetAttribute("macrotext", it.macro .. "\n/run ZydeForever_WheelRan(\"" .. it.name .. "\")")
+		b.bg = b:CreateTexture(nil, "BACKGROUND")
+		b.bg:SetAllPoints()
+		b.bg:SetColorTexture(0.12, 0.12, 0.13, 1)
+		b.edges = ns.newEdges(b, "OVERLAY", 2)
+		ns.placeEdges(b.edges, b, 0, 2)
+		for _, t in ipairs(b.edges) do t:SetColorTexture(it.color[1], it.color[2], it.color[3], 1) end
+		b.icon = b:CreateTexture(nil, "ARTWORK")
+		b.icon:SetPoint("CENTER")
+		b.icon:SetSize(CELL - 16, CELL - 16)
+		b.icon:SetTexture(it.icon)
+		b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		b:SetScript("OnEnter", function(self)
+			self.bg:SetColorTexture(0.24, 0.24, 0.26, 1)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:SetText(it.name, it.color[1], it.color[2], it.color[3])
+			if it.hint then GameTooltip:AddLine(it.hint, 0.85, 0.85, 0.85, true) end
+			GameTooltip:Show()
+		end)
+		b:SetScript("OnLeave", function(self)
+			self.bg:SetColorTexture(0.12, 0.12, 0.13, 1)
+			GameTooltip:Hide()
+		end)
+		return b
+	end
+
+	for i, it in ipairs(cfg.items) do square(it, i) end
+	if cfg.center then square(cfg.center, #cfg.items + 1) end
+
+	_G["BINDING_NAME_CLICK " .. cfg.name .. "Key:LeftButton"] = cfg.bind
+	local key = CreateFrame("Button", cfg.name .. "Key", UIParent, "SecureActionButtonTemplate, SecureHandlerBaseTemplate")
+	key:SetSize(1, 1)
+	key:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -10, 10)
+	key:SetAlpha(0)
+	key:RegisterForClicks("AnyDown", "AnyUp")
+	key:SetFrameRef("panel", panel)
+	key:SetAttribute("on", true)
+	SecureHandlerWrapScript(key, "OnClick", key, [[
+		if not down then return end
+		if not self:GetAttribute("on") then return end
+		local panel = self:GetFrameRef("panel")
+		if panel:IsShown() then panel:Hide() else panel:Show() end
+	]])
+	key:HookScript("OnClick", function(_, _, down)
+		if debugOn and down then print(P .. cfg.bind .. ": toggled") end
+	end)
+	return key, panel
+end
+
+---------------------------------------------------------------------------
 -- Target markers
 ---------------------------------------------------------------------------
 local TARGET_ITEMS = {}
@@ -243,22 +352,47 @@ for _, m in ipairs({
 	WORLD_ITEMS[#WORLD_ITEMS + 1] = { index = m[1], name = m[3], color = m[4], icon = RAID_ICON .. m[2], macro = "/wm " .. m[1] }
 end
 
-local keys = {
+local worldKey, worldPanel
+local keys
+keys = {
 	makeWheel({ name = "ZydeForeverMarker", bind = "Marker wheel (hold)", items = TARGET_ITEMS,
 		target = true, hint = "Click a marker", checked = targetMarker }),
-	makeWheel({ name = "ZydeForeverWorldMarker", bind = "World marker wheel (hold)", items = WORLD_ITEMS,
-		hint = "Click a marker, then the ground",
-		center = { macro = "/cwm all", name = "Clear all world markers", icon = "Interface\\Buttons\\UI-GroupLoot-Pass-Up" } }),
 }
+worldKey, worldPanel = makePalette({
+	name = "ZydeForeverWorldMarker", bind = "World markers", title = "Markers",
+	items = WORLD_ITEMS,
+	center = {
+		macro = "/cwm all", name = "Clear all", color = { 1, 0.35, 0.3 },
+		icon = "Interface\\Buttons\\UI-GroupLoot-Pass-Up",
+		hint = "Removes every world marker",
+	},
+})
+for _, it in ipairs(WORLD_ITEMS) do it.hint = "Then click the ground" end
+keys[#keys + 1] = worldKey
+
+local function placeWorld()
+	if not worldPanel or InCombatLockdown() then return end
+	worldPanel:ClearAllPoints()
+	local p = ZydeForeverDB and ZydeForeverDB.worldMarkerPos
+	if type(p) == "table" and p.point then
+		worldPanel:SetPoint(p.point, UIParent, p.point, p.x or 0, p.y or 0)
+	else
+		worldPanel:SetPoint("RIGHT", UIParent, "RIGHT", -24, 0)
+	end
+end
 
 local function syncOn()
 	if InCombatLockdown() then return end
 	for _, k in ipairs(keys) do k:SetAttribute("on", on() and true or false) end
+	if worldPanel and not on() then worldPanel:Hide() end
 end
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_LOGIN")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
-ev:SetScript("OnEvent", syncOn)
+ev:SetScript("OnEvent", function(_, event)
+	if event == "PLAYER_LOGIN" then placeWorld() end
+	syncOn()
+end)
 ns.OnFeatureChanged(function(k) if k == "markerWheel" then syncOn() end end)
 
 ns.MarkerWheel = {
