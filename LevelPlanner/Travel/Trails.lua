@@ -174,7 +174,7 @@ function T.Path(a, b)
 	end
 	if not best then return nil end
 	-- a long way round is fine (that's the point), but not an absurd one
-	if bestTotal > straight * (ns.cfg.trailMaxDetour or 4) then return nil end
+	if bestTotal > straight * (ns.cfg.trailMaxDetour or 1.8) then return nil end
 
 	local keys = {}
 	local k = best

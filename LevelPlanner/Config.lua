@@ -80,7 +80,7 @@ LevelPlannerConfig = {
 	trails = true,              -- remember where you walk; the arrow follows those trails round cliffs
 	trailMinYards = 80,         -- ... only for targets at least this far away
 	trailAheadYards = 40,       -- ... aiming this far along the trail
-	trailMaxDetour = 4,         -- ... and not when the trail is more than this many times the straight line
+	trailMaxDetour = 1.8,       -- ... and not when the trail is more than this many times the straight line
 	useHearth = true,
 	-- boats, zeppelins and the tram: average wait plus the ride, in seconds
 	transportSeconds = { boat = 240, zeppelin = 240, tram = 150, portal = 15 },

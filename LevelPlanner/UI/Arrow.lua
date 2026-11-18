@@ -172,7 +172,9 @@ function A.Refresh()
 	-- time at your current speed, or your usual speed when standing still
 	local speed = GetUnitSpeed and GetUnitSpeed("player") or 0
 	if ns.isSecret(speed) or not speed or speed < 1 then speed = ns.Geo.Speed() end
-	distText:SetText(string.format("%d yd  |cff999999·|r  %s", math.floor(dist + 0.5), clock(dist / speed)))
+	-- (along one of your walked trails: say so, it may point away from the target to go round something)
+	distText:SetText(string.format("%d yd  |cff999999·|r  %s%s", math.floor(dist + 0.5), clock(dist / speed),
+		(steer and steerLen) and "  |cff66ccff· your trail|r" or ""))
 end
 
 -- Show or hide again after the step list was shown or hidden.

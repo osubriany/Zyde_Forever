@@ -54,6 +54,7 @@ local ICON = {
 local function savePos()
 	local point, _, rel, x, y = frame:GetPoint()
 	ns.char.listPos = { point, rel, x, y }
+	if L.PlaceHearth then L.PlaceHearth() end -- (the hearthstone button follows the list)
 end
 
 local function fontString(parent, template, r, g, b, justify)
@@ -126,7 +127,7 @@ local function makeRow(i)
 	-- clicks: right-click a pinned NPC step to remove it; drag still moves the list
 	r:EnableMouse(true)
 	r:RegisterForDrag("LeftButton")
-	r:SetScript("OnDragStart", function() frame:StartMoving() end)
+	r:SetScript("OnDragStart", function() if L.HideHearth then L.HideHearth() end frame:StartMoving() end)
 	r:SetScript("OnDragStop", function() frame:StopMovingOrSizing() savePos() end)
 	r:SetScript("OnMouseUp", function(self, button)
 		if button == "RightButton" and self.kind == "pin" and ns.Pin then ns.Pin.Clear() end
@@ -152,7 +153,7 @@ function L.Init()
 	frame:SetMovable(true)
 	frame:EnableMouse(true)
 	frame:RegisterForDrag("LeftButton")
-	frame:SetScript("OnDragStart", frame.StartMoving)
+	frame:SetScript("OnDragStart", function(self) if L.HideHearth then L.HideHearth() end self:StartMoving() end)
 	frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() savePos() end)
 	frame:SetClampedToScreen(true)
 
@@ -240,15 +241,21 @@ end
 local hearthBtn, hearthRow
 local function placeHearth()
 	if not hearthBtn or InCombatLockdown() then return end
-	if hearthRow and hearthRow:IsVisible() then
+	if hearthRow and hearthRow:IsVisible() and hearthRow:GetLeft() then
+		-- by screen position: the game won't anchor a protected button to an ordinary frame
+		local s = hearthRow:GetEffectiveScale() / UIParent:GetEffectiveScale()
 		hearthBtn:ClearAllPoints()
-		hearthBtn:SetAllPoints(hearthRow)
+		hearthBtn:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", hearthRow:GetLeft() * s, hearthRow:GetBottom() * s)
+		hearthBtn:SetSize(hearthRow:GetWidth() * s, hearthRow:GetHeight() * s)
 		hearthBtn:SetFrameLevel(hearthRow:GetFrameLevel() + 5)
 		hearthBtn:Show()
 	else
 		hearthBtn:Hide()
 	end
 end
+L.PlaceHearth = function() placeHearth() end
+L.HideHearth = function() if hearthBtn and not InCombatLockdown() then hearthBtn:Hide() end end
+
 function L.MakeHearth()
 	hearthBtn = CreateFrame("Button", "LevelPlannerHearthStep", UIParent, "SecureActionButtonTemplate")
 	hearthBtn:SetFrameStrata(frame:GetFrameStrata())
