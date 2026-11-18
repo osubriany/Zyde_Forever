@@ -108,6 +108,8 @@ local function updateSteer()
 	steerAt = GetTime()
 	steer, steerLen = nil, nil
 	if not (target and ns.Trails) then return end
+	-- a ghost runs straight to the corpse: a walked trail would only lead it the long way round
+	if UnitIsGhost and UnitIsGhost("player") then return end
 	local here = ns.Geo.PlayerPoint()
 	if here then
 		local ok, s, len = pcall(ns.Trails.Steer, here, target, ns.cfg.trailAheadYards or 40)
