@@ -32,7 +32,7 @@ local ICON_SIZE   = 44   -- pixels
 local OFFSET_X    = 130  -- right of screen centre (your character)
 local OFFSET_Y    = 0    -- first icon's height relative to screen centre
 local SPACING     = 6    -- gap between stacked icons
-local POLL        = 0.1  -- seconds between checks
+local POLL        = 0.2  -- seconds between checks
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -158,9 +158,7 @@ ns.addonOn = addonOn
 -- Other addons some features use (listed in the /zyde window).
 ns.ADDONS = {
 	{ name = "Questie", title = "Questie", used = "Needed for Questie drop chances and quest mobs nearby. Also helps spot quest objects." },
-	{ name = "AHledger", title = "AHledger", used = "Needed for vendor / auction advice. Adds auction prices to the scrap list." },
-	{ name = "NodeSightSparkles", title = "NodeSight Sparkles", used = "Optional: sparkles on quest objects and nodes." },
-}
+	{ name = "AHledger", title = "AHledger", used = "Needed for vendor / auction advice. Adds auction prices to the scrap list." },}
 
 -- "on" (loaded), "off" (installed but disabled) or "missing".
 function ns.addonState(name)
@@ -573,6 +571,7 @@ local function wellRestedReminder()
 end
 
 local function update()
+	icons[1].frame.blink = false -- (set again below while Battle Shout is running out)
 	if preview then
 		states.shout, states.overpower = true, true
 	elseif not isWarrior or UnitIsDeadOrGhost("player") or UnitOnTaxi("player") then
@@ -584,7 +583,9 @@ local function update()
 		local left = shoutExpires - GetTime()
 		local low = not missing and shoutExpires ~= math.huge and left > 0 and left < 10
 		states.shout = F("shout") and (missing or low) and UnitAffectingCombat("player") or false
-		icons[1].frame:SetAlpha(low and (0.35 + 0.65 * math.abs(math.sin(GetTime() * 4))) or 1)
+		-- (the blink itself runs every frame on the icon, see below, so it stays smooth)
+		icons[1].frame.blink = low
+		if not low then icons[1].frame:SetAlpha(1) end
 		states.overpower = F("overpower") and overpowerReady() or false
 	end
 	-- Well-Rested reminder: any class, any time.
@@ -606,6 +607,11 @@ local function update()
 end
 
 anchor:SetScript("OnUpdate", function(_, elapsed)
+	-- Battle Shout running out: blink smoothly, every frame
+	local shoutIcon = icons[1].frame
+	if shoutIcon.blink and shoutIcon:IsShown() then
+		shoutIcon:SetAlpha(0.35 + 0.65 * math.abs(math.sin(GetTime() * 4)))
+	end
 	elapsedSince = elapsedSince + elapsed
 	if elapsedSince < POLL then return end
 	elapsedSince = 0
@@ -680,29 +686,18 @@ hawkTile.tex:SetTexture(spellTexture(13165, hawkTile.fallback))
 
 ---------------------------------------------------------------------------
 -- Quest objects on the ground
--- On this client, an object you can interact with gets its own nameplate
--- (the same thing NodeSight Sparkles hangs its sparkles on). We scan those
--- object plates and check each against your quests:
+-- On this client, an object you can interact with gets its own nameplate.
+-- We scan those object plates and check each against your quests:
 --   1) Questie's quest data (object ID -> unfinished objective)
 --   2) objects that gave you a quest item before (learned from loot)
 --   3) name matching your unfinished objectives, plurals included
 -- A match puts a pulsing quest icon with the object's name in the reminder
 -- column, plus a ping.                                   /zyde questalert
--- Settings: if NodeSight Sparkles is loaded it manages the interact
--- settings and we leave them alone; otherwise we set them ourselves.
---                                                         /zyde questicons
+-- Settings: we set the interact settings ourselves.
+--                                                       /zyde questicons
 ---------------------------------------------------------------------------
 local function questIconsOn() return F("questIcons") end
 local function questAlertOn() return F("questAlert") end
-
-local function addonLoaded(name)
-	local f = (C_AddOns and C_AddOns.IsAddOnLoaded) or IsAddOnLoaded
-	return f and safe(f, name) and true or false
-end
-
-local function nodeSightManages()
-	return addonLoaded("NodeSightSparkles") or addonLoaded("NodeSight")
-end
 
 -- The gamepad UI sets softTargetInteract itself on every target change.
 local function gamepadUI()
@@ -711,7 +706,7 @@ local function gamepadUI()
 end
 
 -- /zyde questrange <yards>: how far away objects are picked up (game default
--- 10, NodeSight and Zyde use 30). Applied after NodeSight sets its own 30.
+-- 10, Zyde uses 30).
 local function applyQuestRange()
 	local db = ZydeForeverDB
 	if not db or InCombatLockdown() then return end
@@ -725,8 +720,8 @@ local function applyQuestRange()
 end
 
 local function applyQuestIcons()
-	C_Timer.After(1, applyQuestRange) -- after NodeSight's own setup
-	if nodeSightManages() or InCombatLockdown() then return end
+	C_Timer.After(1, applyQuestRange)
+	if InCombatLockdown() then return end
 	local on = questIconsOn()
 	if on then
 		if not gamepadUI() and (tonumber(GetCVar("SoftTargetInteract")) or 0) < 3 then
@@ -1001,7 +996,7 @@ end
 
 -- Marker drawn on a quest object's nameplate (the plate sits just above the
 -- object): a pulsing gold glow on the object and a bobbing quest "!" over it.
--- Parented to the plate itself, so NodeSight hiding the plate's own art
+-- Parented to the plate itself, so another addon hiding the plate's own art
 -- doesn't hide it.
 local markers = {} -- plate -> marker frame
 
@@ -1106,7 +1101,7 @@ local function questDebug(p)
 		print(p .. cvar .. " = " .. tostring(GetCVar(cvar)))
 	end
 	print(p .. "alert " .. (questAlertOn() and "on" or "off") .. ", Questie " .. (QuestieLoader and "loaded" or "not loaded")
-		.. ", NodeSight " .. (nodeSightManages() and "manages settings" or "not loaded") .. ", gamepad UI " .. tostring(gamepadUI()))
+		.. ", gamepad UI " .. tostring(gamepadUI()))
 	wipe(verdicts)
 	objectivesDirty = true
 	local objects = scanObjects()
@@ -1148,7 +1143,7 @@ questEvents:SetScript("OnEvent", function(_, event)
 	checkSoon()
 end)
 end -- quest object events
-C_Timer.NewTicker(0.5, checkQuestObject) -- backup for plates that change without an event
+C_Timer.NewTicker(1, checkQuestObject) -- backup for plates that change without an event
 ns.OnFeatureChanged(function(key)
 	if key == "questIcons" then applyQuestIcons() end
 	if key == "questAlert" then checkQuestObject() end
@@ -2743,8 +2738,7 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		ns.Vendor.Toggle()
 	elseif msg == "questicons" then
 		setFeature("questIcons", not featureWanted("questIcons"))
-		print("|cff66ccffZyde_Forever|r: icons over nearby objects " .. (questIconsOn() and "on" or "off")
-			.. (nodeSightManages() and " (ignored: NodeSight Sparkles manages these settings)" or ""))
+		print("|cff66ccffZyde_Forever|r: icons over nearby objects " .. (questIconsOn() and "on" or "off"))
 	elseif (msg == "unlock" or msg == "lock" or msg == "resetframes") and ns.UnitFrames then
 		ns.UnitFrames.Command(msg)
 	elseif msg == "mobsdebug" and ns.QuestMobs then

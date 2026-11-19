@@ -1591,12 +1591,30 @@ local function auraChanged(unit)
 	end
 end
 
+-- Frames whose health / power bars need a redraw on the next frame (see dispatch).
+local pendingBars = { health = {}, power = {}, queued = false }
+pendingBars.flush = function()
+	local p = pendingBars
+	p.queued = false
+	for f in pairs(p.health) do updateHealth(f) end
+	for f in pairs(p.power) do updatePower(f, false) end
+	wipe(p.health)
+	wipe(p.power)
+end
+
 local function dispatch(f, event)
 	if unlocked and not UnitExists(f.unit) then return end
-	if HEALTH[event] then
-		updateHealth(f)
+	if HEALTH[event] or (POWER[event] and event ~= "UNIT_DISPLAYPOWER") then
+		-- Health and power come as two events each (normal and "frequent"), many times a frame in a
+		-- fight: redraw each frame's bars at most once, on the next frame.
+		local p = pendingBars
+		if HEALTH[event] then p.health[f] = true else p.power[f] = true end
+		if not p.queued then
+			p.queued = true
+			C_Timer.After(0, p.flush)
+		end
 	elseif POWER[event] then
-		updatePower(f, event == "UNIT_DISPLAYPOWER")
+		updatePower(f, true)
 	else
 		updateAll(f, false)
 	end

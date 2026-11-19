@@ -423,6 +423,8 @@ ev:SetScript("OnEvent", function(_, event)
 end)
 local wait = 0
 ev:SetScript("OnUpdate", function(_, dt)
+	-- only while the marker key is held (the row is hidden otherwise; nothing to follow)
+	if not targetRow.held then return end
 	wait = wait + dt
 	if wait < 0.2 then return end
 	wait = 0

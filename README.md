@@ -18,8 +18,6 @@ Every feature can be turned on or off on its own. Type `/zyde` in game to open t
 |---|---|
 | [Questie](https://www.curseforge.com/wow/addons/questie) | Needed for Questie drop chances and quest mobs nearby; also improves the quest tracker and quest object alert |
 | AHledger | Needed for vendor / auction advice; adds auction prices to the scrap list |
-| NodeSight Sparkles | Sparkles on quest objects and nodes |
-
 ## Features
 
 ### Interface

@@ -66,7 +66,6 @@ end
 local loc = piece("Interface\\Icons\\INV_Misc_Map_01")
 local gold = piece("Interface\\MoneyFrame\\UI-GoldIcon", false)
 local bags = piece("Interface\\Icons\\INV_Misc_Bag_08")
-local dura = piece("Interface\\Icons\\INV_Chest_Chain")
 local ranged = piece("Interface\\Icons\\INV_ThrowingKnife_02")
 local steps = piece("Interface\\Icons\\INV_Boots_08")
 local swum = piece("Interface\\Icons\\Ability_Druid_AquaticForm")
@@ -157,10 +156,13 @@ local function layout()
 	if on() then bar:Show() else bar:Hide() end
 end
 
+-- Returns true when the text changed (the bar then needs laying out again).
 local function show(f, text, r, g, b)
+	local changed = not f.on or f.text:GetText() ~= text
 	f.on = true
-	f.text:SetText(text)
+	if changed then f.text:SetText(text) end
 	f.text:SetTextColor(r or 1, g or 0.84, b or 0.35)
+	return changed
 end
 
 ---------------------------------------------------------------------------
@@ -229,37 +231,10 @@ local function bagText()
 	return ("Bags: %d/%d"):format(used, slots), r, g, b
 end
 
-local SLOT = {
-	[1] = "Head", [3] = "Shoulder", [5] = "Chest", [6] = "Waist", [7] = "Legs",
-	[8] = "Feet", [9] = "Wrist", [10] = "Hands", [15] = "Back",
-	[16] = "Main hand", [17] = "Off hand", [18] = "Ranged",
-}
-
 local function duraColor(pct)
 	if pct < 0.25 then return 1, 0.25, 0.2 end
 	if pct < 0.5 then return 1, 0.82, 0 end
 	return 1, 0.84, 0.35
-end
-
--- Average of everything you wear that can wear out, and the most worn piece.
-local function durability()
-	local sum, n, worst, worstName = 0, 0, 1, nil
-	for slot, name in pairs(SLOT) do
-		local cur, max = safe(GetInventoryItemDurability, slot)
-		cur, max = plain(cur), plain(max)
-		if cur and max and max > 0 then
-			local pct = cur / max
-			sum, n = sum + pct, n + 1
-			if pct < worst then worst, worstName = pct, name end
-		end
-	end
-	if n == 0 then return nil end
-	local avg = sum / n
-	local text = ("Durability: %d%%"):format(math.floor(avg * 100 + 0.5))
-	if worstName and worst < 0.999 then
-		text = ("%s (%s %d%%)"):format(text, worstName, math.floor(worst * 100 + 0.5))
-	end
-	return text, duraColor(avg)
 end
 
 ---------------------------------------------------------------------------
@@ -462,28 +437,32 @@ end
 ---------------------------------------------------------------------------
 -- Refresh
 ---------------------------------------------------------------------------
-local function update()
+-- full: also gold, bags and ammo. Those only change with an event (money, bags, gear), so the
+-- twice-a-second timer skips them and only redoes where you are and the travel counts.
+local function update(full)
 	if not on() then bar:Hide() return end
 	if not bar:GetPoint() then place() end
+	local changed = full or not bar:IsShown()
 	local text = location()
-	if text then show(loc, text) end
-	text = moneyText()
-	if text then
-		gold.on = true
-		gold.text:SetText(text)
-		gold.text:SetTextColor(1, 1, 1)
+	if text and show(loc, text) then changed = true end
+	if full then
+		text = moneyText()
+		if text then show(gold, text, 1, 1, 1) end
+		local r, g, b
+		text, r, g, b = bagText()
+		if text then show(bags, text, r, g, b) end
+		text, r, g, b = rangedText()
+		if text then show(ranged, text, r, g, b) end
 	end
-	local r, g, b
-	text, r, g, b = bagText()
-	if text then show(bags, text, r, g, b) end
-	text, r, g, b = rangedText()
-	if text then show(ranged, text, r, g, b) end
-	local t = tally()
-	show(steps, "Steps: " .. commas(t.steps))
-	show(swum, "Swum: " .. commas(math.floor(t.swum)) .. " yd")
-	show(ridden, "Mounted: " .. commas(math.floor(t.mounted)) .. " yd")
-	show(jumps, "Jumps: " .. commas(t.jumps))
-	layout()
+	-- the travel counts only while their line is open
+	if expanded() then
+		local t = tally()
+		if show(steps, "Steps: " .. commas(t.steps)) then changed = true end
+		if show(swum, "Swum: " .. commas(math.floor(t.swum)) .. " yd") then changed = true end
+		if show(ridden, "Mounted: " .. commas(math.floor(t.mounted)) .. " yd") then changed = true end
+		if show(jumps, "Jumps: " .. commas(t.jumps)) then changed = true end
+	end
+	if changed then layout() end
 end
 
 local ev = CreateFrame("Frame")
@@ -499,7 +478,7 @@ end
 ev:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 ev:SetScript("OnEvent", function(self, event)
 	if event == "PLAYER_LOGIN" then place() end
-	update()
+	update(true)
 end)
 
 local elapsed, stepElapsed = 0, 0
@@ -513,15 +492,15 @@ bar:SetScript("OnUpdate", function(_, dt)
 	elapsed = elapsed + dt
 	if elapsed < 0.5 then return end
 	elapsed = 0
-	update()
+	update(false)
 end)
 
-ns.OnFeatureChanged(function(key) if key == "infoBar" then update() end end)
+ns.OnFeatureChanged(function(key) if key == "infoBar" then update(true) end end)
 
 toggle:SetScript("OnClick", function()
 	ZydeForeverDB = ZydeForeverDB or {}
 	ZydeForeverDB.infoExpanded = not expanded()
-	update()
+	update(true)
 end)
 toggle:SetScript("OnEnter", function(self)
 	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")

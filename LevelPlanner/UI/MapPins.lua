@@ -205,6 +205,7 @@ local function minimapRadius()
 end
 
 local miniElapsed = 0
+local miniLast = {} -- where you were, facing and zoom at the last minimap redraw
 local miniDots = {}
 local function drawMini()
 	for _, f in ipairs(miniPins) do f:Hide() end
@@ -267,6 +268,21 @@ local function setupMini()
 		miniElapsed = miniElapsed + dt
 		if miniElapsed < 0.1 then return end
 		miniElapsed = 0
+		-- standing still, not turning, same zoom, same plan: the pins are already right
+		local here = ns.Geo.PlayerPoint()
+		local facing = GetPlayerFacing and GetPlayerFacing() or 0
+		if ns.isSecret(facing) then facing = 0 end
+		local radius = minimapRadius()
+		local last = miniLast
+		if here and last.places == places and last.n == #places and last.radius == radius
+			and last.inst == here.inst and math.abs(last.wx - here.wx) < 0.5 and math.abs(last.wy - here.wy) < 0.5
+			and math.abs(last.facing - facing) < 0.01 then
+			return
+		end
+		if here then
+			last.places, last.n, last.radius, last.inst = places, #places, radius, here.inst
+			last.wx, last.wy, last.facing = here.wx, here.wy, facing
+		end
 		drawMini()
 	end)
 end
@@ -274,12 +290,14 @@ end
 ----------------------------------------------------------------------------------------
 function M.Clear()
 	wipe(places)
+	wipe(miniLast)
 	drawWorld()
 	for _, f in ipairs(miniPins) do f:Hide() end
 end
 
 -- Draw again as things are (after /lp showed or hid the step list).
 function M.Redraw()
+	wipe(miniLast)
 	drawWorld()
 	drawMini()
 end
