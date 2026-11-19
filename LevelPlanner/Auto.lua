@@ -21,7 +21,13 @@ local function plannedSets()
 end
 
 local function enabled()
-	if ns.cfg.autoQuests == false or not ns.plan then return false end
+	if not ns.plan then return false end
+	-- The /zyde checkbox is the saved switch. Config.autoQuests still counts when that checkbox has never been set.
+	if zyde.F and ZydeForeverDB and ZydeForeverDB.features and ZydeForeverDB.features.autoQuests ~= nil then
+		if not zyde.F("autoQuests") then return false end
+	elseif ns.cfg.autoQuests == false then
+		return false
+	end
 	local key = ns.cfg.autoQuestSkipKey or "SHIFT"
 	if key == "SHIFT" and IsShiftKeyDown() then return false end
 	if key == "CTRL" and IsControlKeyDown() then return false end
@@ -128,6 +134,12 @@ local function onComplete(tries)
 		return
 	end
 	GetQuestReward(1) -- the only reward (or none); same call Questie's own auto turn-in uses
+end
+
+if zyde.OnFeatureChanged then
+	zyde.OnFeatureChanged(function(key, on)
+		if key == "autoQuests" then ns.cfg.autoQuests = on and true or false end
+	end)
 end
 
 function AQ.Init()
