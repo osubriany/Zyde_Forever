@@ -3,6 +3,8 @@
 -- have threat on:
 --   mob, your %, next person, their %, second person, their %
 -- Only mobs the game will tell us about: nameplates, bosses, and your target.
+-- In a dungeon the percents can be hidden from addon code. They are drawn
+-- one cell at a time, which is the only way those hidden numbers will show.
 -- Drag the title to move it. Turn it off in /zyde.
 
 local ADDON, ns = ...
@@ -90,10 +92,20 @@ local function isTank()
 	if not IsInGroup or not IsInGroup() then return false end
 	if UnitGroupRolesAssigned then
 		local role = safe(UnitGroupRolesAssigned, "player")
-		if not isSecret(role) and role == "TANK" then return true end
+		-- A dungeon can hide the role. A healer or damage role still hides the box.
+		if isSecret(role) then return true end
+		if role == "TANK" then return true end
+		if role == "HEALER" or role == "DAMAGER" then return false end
 	end
-	if GetPartyAssignment and safe(GetPartyAssignment, "MAINTANK", "player") then return true end
-	return false
+	if GetPartyAssignment then
+		local mt = safe(GetPartyAssignment, "MAINTANK", "player")
+		if isSecret(mt) then return true end
+		if mt then return true end
+	end
+	-- A walk-in dungeon often has no role set. Show the list there anyway.
+	local _, inst = IsInInstance()
+	if isSecret(inst) then return true end
+	return inst == "party" or inst == "raid"
 end
 
 local function groupUnits()
@@ -116,28 +128,33 @@ end
 local function myStatus(unit)
 	if not UnitThreatSituation then return nil end
 	local status = safe(UnitThreatSituation, "player", unit)
-	if status == nil then return nil end
+	-- Check the secret before any comparison. A dungeon hides this number.
 	if isSecret(status) then return "secret" end
+	if status == nil then return nil end
 	return status
 end
 
 -- Scaled percent: 100 means this person has the most threat on that mob.
--- Others are their threat as a percent of that leader.
+-- A secret number is returned as-is so the line can draw it. Comparing it throws.
 local function scaledPct(unit, mob)
 	if not UnitDetailedThreatSituation then return nil end
 	local _, _, scaled = safe(UnitDetailedThreatSituation, unit, mob)
-	if scaled == nil or isSecret(scaled) then return nil end
+	if isSecret(scaled) then return scaled end
+	if scaled == nil then return nil end
 	return tonumber(scaled)
 end
 
+local function yes(v)
+	if isSecret(v) then return false end
+	return v == true
+end
+
 local function mobOk(unit)
-	if not UnitExists(unit) then return false end
-	local dead = UnitIsDead and safe(UnitIsDead, unit)
-	if dead == true then return false end
-	local player = UnitIsPlayer and safe(UnitIsPlayer, unit)
-	if player == true then return false end
-	local friend = safe(UnitIsFriend, "player", unit)
-	if friend == true then return false end
+	local exists = safe(UnitExists, unit)
+	if isSecret(exists) or not exists then return false end
+	if UnitIsDead and yes(safe(UnitIsDead, unit)) then return false end
+	if UnitIsPlayer and yes(safe(UnitIsPlayer, unit)) then return false end
+	if yes(safe(UnitIsFriend, "player", unit)) then return false end
 	return true
 end
 
@@ -148,36 +165,52 @@ local function csv(s)
 end
 
 local function pctText(n)
-	if not n then return "" end
+	if n == nil or n == "" then return "" end
+	if isSecret(n) then return n end
 	return tostring(math.floor(n + 0.5))
 end
 
+local function unitLabel(unit)
+	local name = safe(UnitName, unit)
+	if isSecret(name) then return name end
+	if type(name) == "string" and name ~= "" then return name end
+	return "Mob"
+end
+
 local function lineFor(unit, others)
-	local name = plain(UnitName(unit)) or "Mob"
+	local name = unitLabel(unit)
 	local mine = scaledPct("player", unit)
 	local ranked = {}
 	for _, u in ipairs(others) do
-		if UnitExists(u) then
+		local exists = safe(UnitExists, u)
+		if not isSecret(exists) and exists then
 			local p = scaledPct(u, unit)
-			if p and p > 0 then
-				ranked[#ranked + 1] = { name = plain(UnitName(u)) or "?", pct = p }
-			end
+			local keep = isSecret(p) or (type(p) == "number" and p > 0)
+			if keep then ranked[#ranked + 1] = { name = unitLabel(u), pct = p } end
 		end
 	end
-	table.sort(ranked, function(a, b) return a.pct > b.pct end)
+	table.sort(ranked, function(a, b)
+		if isSecret(a.pct) or isSecret(b.pct) then return false end
+		return a.pct > b.pct
+	end)
 	local first, second = ranked[1], ranked[2]
 	-- Closest pull at the top: smallest gap between you and the next person.
-	local gap = (mine and first) and (mine - first.pct) or 999
-	local text = table.concat({
-		csv(name), pctText(mine),
-		first and csv(first.name) or "", first and pctText(first.pct) or "",
-		second and csv(second.name) or "", second and pctText(second.pct) or "",
-	}, ",")
+	local gap = 999
+	if type(mine) == "number" and first and type(first.pct) == "number" then gap = mine - first.pct end
+	local cells = {
+		isSecret(name) and name or csv(name), pctText(mine),
+		first and (isSecret(first.name) and first.name or csv(first.name)) or "",
+		first and pctText(first.pct) or "",
+		second and (isSecret(second.name) and second.name or csv(second.name)) or "",
+		second and pctText(second.pct) or "",
+	}
 	local r, g, b = 1, 0.92, 0.75
-	if mine and first and first.pct > mine then r, g, b = 1, 0.35, 0.3
-	elseif mine and first and (mine - first.pct) < 15 then r, g, b = 1, 0.82, 0.2
+	if type(mine) == "number" and first and type(first.pct) == "number" then
+		if first.pct > mine then r, g, b = 1, 0.35, 0.3
+		elseif (mine - first.pct) < 15 then r, g, b = 1, 0.82, 0.2
+		end
 	end
-	return text, gap, r, g, b
+	return cells, gap, r, g, b
 end
 
 local function collect()
@@ -202,27 +235,64 @@ local function collect()
 	return mobs
 end
 
+-- One font string per cell. A dungeon hands back secret numbers, and those
+-- can be drawn but cannot be joined into one line of text.
+local COL = { 0, 132, 170, 214, 292, 330 }
+local rowFrames = {}
+local function ensureRows()
+	if rowFrames[1] then return end
+	for i = 1, 16 do
+		local r = CreateFrame("Frame", nil, box)
+		r:SetHeight(14)
+		r:SetPoint("TOPLEFT", 8, -36 - (i - 1) * 14)
+		r:SetPoint("TOPRIGHT", -8, -36 - (i - 1) * 14)
+		r.cells = {}
+		for c = 1, 6 do
+			local fs = r:CreateFontString(nil, "OVERLAY")
+			font(fs, 12)
+			fs:SetPoint("LEFT", r, "LEFT", COL[c], 0)
+			if c == 1 then fs:SetWidth(126) elseif c == 3 or c == 5 then fs:SetWidth(74) end
+			fs:SetJustifyH("LEFT")
+			fs:SetWordWrap(false)
+			r.cells[c] = fs
+		end
+		r:Hide()
+		rowFrames[i] = r
+	end
+end
+
+local function setCell(fs, v)
+	if isSecret(v) then fs:SetText(v) return end
+	if v == nil or v == "" then fs:SetText("") return end
+	fs:SetText(v)
+end
+
 local function refresh()
 	if not on() or not isTank() then box:Hide() return end
 	if not box:GetPoint() then place() end
+	ensureRows()
 	local others = groupUnits()
 	local rows = {}
 	for _, unit in ipairs(collect()) do
-		local text, gap, r, g, b = lineFor(unit, others)
-		rows[#rows + 1] = { text, gap, r, g, b }
+		local cells, gap, r, g, b = lineFor(unit, others)
+		rows[#rows + 1] = { cells, gap, r, g, b }
 	end
 	table.sort(rows, function(a, b) return a[2] < b[2] end)
-	local lines = { "mob,me%,next,%,next,%" }
-	local color
-	for i = 1, math.min(#rows, 16) do
-		lines[#lines + 1] = rows[i][1]
-		if i == 1 then color = { rows[i][3], rows[i][4], rows[i][5] } end
+	local shown = math.min(#rows, 16)
+	body:SetText(#rows == 0 and "mob,me%,next,%,next,%\n(none)" or "mob,me%,next,%,next,%")
+	for i, r in ipairs(rowFrames) do
+		local row = rows[i]
+		if i <= shown and row then
+			for c = 1, 6 do
+				setCell(r.cells[c], row[1][c])
+				r.cells[c]:SetTextColor(row[3], row[4], row[5])
+			end
+			r:Show()
+		else
+			r:Hide()
+		end
 	end
-	if #rows == 0 then lines[2] = "(none)" end
-	if #rows > 16 then lines[#lines + 1] = ("... %d more"):format(#rows - 16) end
-	body:SetText(table.concat(lines, "\n"))
-	if color and #rows > 0 then body:SetTextColor(color[1], color[2], color[3]) else body:SetTextColor(1, 0.92, 0.75) end
-	box:SetHeight(math.max(44, 28 + #lines * 14))
+	box:SetHeight(math.max(44, 40 + (shown + (#rows == 0 and 1 or 0)) * 14))
 	box:Show()
 end
 

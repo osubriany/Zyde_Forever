@@ -861,7 +861,8 @@ end
 -- The name line on your target's plate, so the marker row can sit just above it.
 function ns.TargetPlateName()
 	for unit, f in pairs(skinned) do
-		if f:IsShown() and f.name and plain(UnitIsUnit(unit, "target")) == true then return f.name end
+		local ok, vis = pcall(f.IsShown, f)
+		if ok and vis and f.name and plain(UnitIsUnit(unit, "target")) == true then return f.name end
 	end
 end
 
