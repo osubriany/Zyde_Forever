@@ -68,6 +68,59 @@ local function char()
 end
 
 function L.FlightKey(from, to) return tostring(from) .. ">" .. tostring(to) end
+
+-- Which of your flight paths link up. Knowing two flight paths isn't enough: you can only fly between
+-- them through paths you know (Tarren Mill and Grom'gol with nothing in between don't connect). Each
+-- flight master you open says which of your paths you can fly to from there (they have a price):
+--   ns.char.taxiReach[from] = { [name] = true (can fly there) / false (known, but no way there) }
+-- Paths that can reach each other form one network; a pair is ruled out only when a flight master
+-- said so and no later one has linked them. Paths no flight master has spoken about are assumed linked.
+local linkCache
+function L.SetReach(from, reach)
+	local c = char()
+	c.taxiReach = c.taxiReach or {}
+	c.taxiReach[from] = reach
+	linkCache = nil
+end
+
+local function links()
+	if linkCache then return linkCache end
+	local reachAll = char().taxiReach or {}
+	local parent = {}
+	local function find(x)
+		parent[x] = parent[x] or x
+		while parent[x] ~= x do
+			parent[x] = parent[parent[x]] or parent[x]
+			x = parent[x]
+		end
+		return x
+	end
+	for from, list in pairs(reachAll) do
+		for to, ok in pairs(list) do
+			if ok then parent[find(to)] = find(from) end
+		end
+	end
+	-- "no way there" pairs, by network
+	local apart = {}
+	for from, list in pairs(reachAll) do
+		for to, ok in pairs(list) do
+			if not ok then
+				local a, b = find(from), find(to)
+				if a ~= b then apart[a .. "\1" .. b] = true apart[b .. "\1" .. a] = true end
+			end
+		end
+	end
+	linkCache = { find = find, apart = apart }
+	return linkCache
+end
+
+-- Can you fly from flight path a to b (directly or with stops) with the paths you know?
+function L.TaxiLinked(a, b)
+	local l = links()
+	local ra, rb = l.find(a), l.find(b)
+	if ra == rb then return true end
+	return not l.apart[ra .. "\1" .. rb]
+end
 function L.FlightTime(from, to) return db().flightTimes[faction][L.FlightKey(from, to)] end
 function L.FlightCost(from, to) return db().flightCosts[faction][L.FlightKey(from, to)] end
 function L.KnownTaxi() return char().taxi end      -- [continentMap] = {[name] = {x, y}}
@@ -192,12 +245,15 @@ local function readTaxiMap()
 			end
 		end
 		if currentTaxi then
+			local reach = {}
 			for _, n in ipairs(seen) do
 				if n.name ~= currentTaxi and n.slotIndex and TaxiNodeCost then
 					local c = ns.safe(TaxiNodeCost, n.slotIndex)
 					if c and c > 0 then costs[L.FlightKey(currentTaxi, n.name)] = c end
+					reach[n.name] = (c and c > 0) and true or false
 				end
 			end
+			L.SetReach(currentTaxi, reach)
 		end
 	elseif NumTaxiNodes then
 		-- older interface
@@ -213,12 +269,18 @@ local function readTaxiMap()
 			end
 		end
 		if currentTaxi then
+			local reach = {}
 			for i = 1, (NumTaxiNodes() or 0) do
-				if TaxiNodeGetType(i) == "REACHABLE" then
+				local kind = TaxiNodeGetType(i)
+				if kind == "REACHABLE" then
 					local c = TaxiNodeCost(i)
 					if c and c > 0 then costs[L.FlightKey(currentTaxi, TaxiNodeName(i))] = c end
+					reach[TaxiNodeName(i)] = (c and c > 0) and true or false
+				elseif kind == "DISTANT" then
+					reach[TaxiNodeName(i)] = false -- known, but no way there from here
 				end
 			end
+			L.SetReach(currentTaxi, reach)
 		end
 	end
 	ns.Travel.Invalidate()

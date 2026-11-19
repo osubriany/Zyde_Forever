@@ -185,7 +185,8 @@ local function build(speed)
 	do
 		for _, a in ipairs(taxiNodes) do
 			for _, b in ipairs(taxiNodes) do
-				if a ~= b and a.inst == b.inst then
+				-- (only between flight paths that link up through ones you know)
+				if a ~= b and a.inst == b.inst and Learn.TaxiLinked(a.name, b.name) then
 					local d = ns.Geo.Distance(a, b) or 0
 					local secs = Learn.FlightTime(a.name, b.name)
 						or d * (cfg.flightRouteFactor or 1.25) / (cfg.flightSpeed or 30)
