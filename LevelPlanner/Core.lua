@@ -349,7 +349,7 @@ events:SetScript("OnEvent", function(self, event, arg1)
 		ns.ItemButton.Init()
 		ns.NpcStars.Init()
 		ns.ZoneLevels.Init()
-		if ns.Trails then ns.Trails.Init() end
+		if ns.db then ns.db.trails = nil end -- walked trails were removed 2026-11-18: drop the old saved data
 		if ns.StepList then ns.StepList.Init() end
 		if ns.Arrow then ns.Arrow.Init() end
 		Questie.API.RegisterOnReady(onQuestieReady)
@@ -453,9 +453,6 @@ SlashCmdList.LEVELPLANNER = function(msg)
 			ns.QuestSource.PrintScanStats()
 			ns.Travel.PrintInfo()
 		end
-	elseif msg == "trails" then
-		ns.print(string.format("trails: %d walked squares of 20 yd remembered (%s)", ns.Trails.Count(),
-			ns.cfg.trails == false and "off in Config" or "the arrow follows them"))
 	elseif msg == "arrow" then
 		ns.Arrow.Toggle()
 	elseif msg == "auto on" or msg == "auto off" then
@@ -486,7 +483,6 @@ SlashCmdList.LEVELPLANNER = function(msg)
 		ns.print("/lp replan - plan again from scratch now")
 		ns.print("/lp group on|off - plan elite and red quests for a group")
 		ns.print("/lp arrow - show or hide the built-in arrow")
-		ns.print("/lp trails - how much walked ground the arrow can follow")
 		ns.print("/lp cleanup - quests in your log the plan doesn't use")
 		ns.print("/lp auto on|off - automatic accept / turn-in of planned quests")
 		ns.print("/lp why <quest name or ID> - why a quest is or isn't in the plan")

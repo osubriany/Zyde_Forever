@@ -298,6 +298,12 @@ function S.BuildQuest(questId, logEntry, opts)
 		-- own quests): there's no telling where to go, and planning only the turn-in would send you to
 		-- hand in an unfinished quest. Leave it out until Questie knows it, or you've finished it.
 		local data = qo.ObjectiveData or {}
+		-- Not picked up yet, one of Forever's own quests, and Questie lists no objectives: its data for
+		-- these is often missing them, so "pick up, then hand straight in" can't be trusted. Once it's in
+		-- your log the game says what's left (the check below), and it's planned from there.
+		if not logEntry and #data == 0 and questId >= (cfg.customQuestIdFrom or 90000) then
+			return nil, "objectives unknown"
+		end
 		for i, lo in ipairs(logObj) do
 			if not lo.finished and not data[i] then return nil, "objective not in Questie's data" end
 		end
