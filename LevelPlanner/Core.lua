@@ -459,9 +459,11 @@ SlashCmdList.LEVELPLANNER = function(msg)
 	elseif msg == "arrow" then
 		ns.Arrow.Toggle()
 	elseif msg == "auto on" or msg == "auto off" then
-		ns.cfg.autoQuests = (msg == "auto on")
-		ns.print("automatic accept / turn-in of planned quests " .. (ns.cfg.autoQuests and "on" or "off")
-			.. " for this session (set autoQuests in Config.lua to keep it).")
+		local on = (msg == "auto on")
+		ns.cfg.autoQuests = on
+		if zyde.setFeature then zyde.setFeature("autoQuests", on) end
+		ns.print("automatic accept / turn-in of planned quests " .. (on and "on" or "off")
+			.. ". The Auto complete quests checkbox in /zyde keeps this.")
 	elseif msg == "cleanup" then
 		local list = ns.plan and ns.plan.cleanup
 		if not list or #list == 0 then

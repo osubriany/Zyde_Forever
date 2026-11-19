@@ -191,7 +191,7 @@ LevelPlannerConfig = {
 	stepSound = true,           -- a quiet sound when a step is finished
 
 	-- Quest NPCs ---------------------------------------------------------------------------
-	autoQuests = true,          -- accept / turn in planned quests automatically (only planned ones)
+	autoQuests = true,          -- first-run default only. The Auto complete quests checkbox in /zyde is the saved switch.
 	autoQuestSkipKey = "SHIFT", -- hold this ("SHIFT", "CTRL" or "ALT") while talking to an NPC to do it yourself
 	npcStars = true,            -- the "Target next step's NPC" key also puts the star marker on it
 	                            -- (bind it in Key Bindings > AddOns > LevelPlanner)

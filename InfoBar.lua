@@ -1,7 +1,7 @@
--- Zyde_Forever: a small draggable bar.
--- Where you are (zone, subzone, coordinates), time to level, gold, how full
--- your bags are, gear durability (and the most worn piece), thrown durability
--- or ammo for your bow or gun, steps walked, yards ridden, and times you press jump.
+-- Zyde_Forever: a small draggable bar, three lines.
+-- Collapsed: where you are, gold, bag space, and thrown durability or ammo.
+-- Max opens the third line: steps, yards swum, yards ridden, and times you
+-- press jump. Min puts that line away.
 -- Drag it with the left mouse button. Turn it off in /zyde.
 
 local ADDON, ns = ...
@@ -17,7 +17,8 @@ local ARROW, BULLET = 2, 3
 local AMMO_FOR = { [BOW] = ARROW, [CROSSBOW] = ARROW, [GUN] = BULLET }
 
 local function plain(v)
-	if v == nil or isSecret(v) then return nil end
+	-- A secret must be recognised before any comparison. Comparing it throws.
+	if isSecret(v) or v == nil then return nil end
 	return v
 end
 
@@ -63,15 +64,43 @@ local function piece(icon, crop)
 end
 
 local loc = piece("Interface\\Icons\\INV_Misc_Map_01")
-local ttl = piece("Interface\\Icons\\INV_Misc_PocketWatch_01")
 local gold = piece("Interface\\MoneyFrame\\UI-GoldIcon", false)
 local bags = piece("Interface\\Icons\\INV_Misc_Bag_08")
 local dura = piece("Interface\\Icons\\INV_Chest_Chain")
 local ranged = piece("Interface\\Icons\\INV_ThrowingKnife_02")
 local steps = piece("Interface\\Icons\\INV_Boots_08")
+local swum = piece("Interface\\Icons\\Ability_Druid_AquaticForm")
 local ridden = piece("Interface\\Icons\\Ability_Mount_RidingHorse")
 local jumps = piece("Interface\\Icons\\Spell_Magic_FeatherFall")
-local pieces = { loc, ttl, gold, bags, dura, ranged, steps, ridden, jumps }
+
+local ROW_H = 22
+-- Line 1 where you are. Line 2 gold, bags, ammo. Line 3 is the travel counts,
+-- hidden until Max is clicked.
+local rows = {
+	{ loc },
+	{ gold, bags, ranged },
+	{ steps, swum, ridden, jumps },
+}
+
+local toggle = CreateFrame("Button", nil, bar)
+toggle:SetSize(40, 18)
+toggle:SetPoint("TOPRIGHT", bar, "TOPRIGHT", -3, -2)
+toggle:RegisterForClicks("LeftButtonUp")
+toggle.bg = toggle:CreateTexture(nil, "BACKGROUND")
+toggle.bg:SetAllPoints()
+toggle.bg:SetColorTexture(0.16, 0.16, 0.18, 1)
+toggle.edges = ns.newEdges(toggle, "OVERLAY", 1)
+ns.placeEdges(toggle.edges, toggle, 0, 1)
+for _, t in ipairs(toggle.edges) do t:SetColorTexture(0, 0, 0, 0.95) end
+toggle.label = toggle:CreateFontString(nil, "OVERLAY")
+font(toggle.label, 11)
+toggle.label:SetPoint("CENTER")
+toggle.label:SetTextColor(1, 0.84, 0.35)
+toggle.label:SetText("Max")
+
+local function expanded()
+	return ZydeForeverDB and ZydeForeverDB.infoExpanded and true or false
+end
 
 local function place()
 	bar:ClearAllPoints()
@@ -86,9 +115,8 @@ end
 bar:SetScript("OnEnter", function(self)
 	GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
 	GameTooltip:AddLine("Info bar", 1, 0.84, 0.35)
-	GameTooltip:AddLine("Where you are, time to level, gold, bag space, and gear durability (average, plus the most worn piece).", 1, 1, 1, true)
-	GameTooltip:AddLine("A throwing weapon shows its durability. A bow, crossbow, or gun shows arrows or bullets.", 1, 1, 1, true)
-	GameTooltip:AddLine("Steps are about 2 yards walked on foot. Mounted is yards ridden, not a flight-path taxi. Jumps count each press of the jump key. Those three are kept for this character.", 1, 1, 1, true)
+	GameTooltip:AddLine("Where you are, gold, bag space, and ammo for a bow, gun, or throwing weapon.", 1, 1, 1, true)
+	GameTooltip:AddLine("Max opens steps, yards swum, yards mounted, and jumps. Min hides that line.", 1, 1, 1, true)
 	GameTooltip:AddLine("Drag to move.", 0.7, 0.7, 0.7)
 	GameTooltip:Show()
 end)
@@ -105,22 +133,28 @@ bar:SetScript("OnDragStop", function(self)
 end)
 
 local function layout()
-	local x, any = 6, false
-	for _, f in ipairs(pieces) do
-		if f.on then
-			any = true
-			local w = 14 + 4 + (f.text.GetUnboundedStringWidth and f.text:GetUnboundedStringWidth() or f.text:GetStringWidth())
-			f:SetWidth(math.max(20, w))
-			f:ClearAllPoints()
-			f:SetPoint("LEFT", bar, "LEFT", x, 0)
-			f:Show()
-			x = x + f:GetWidth() + 12
-		else
-			f:Hide()
+	local n = expanded() and #rows or 2
+	local maxW = 120
+	for i = 1, #rows do
+		local x, y = 6, -((i - 1) * ROW_H)
+		local showRow = i <= n
+		for _, f in ipairs(rows[i]) do
+			if showRow and f.on then
+				local w = 14 + 4 + (f.text.GetUnboundedStringWidth and f.text:GetUnboundedStringWidth() or f.text:GetStringWidth())
+				f:SetWidth(math.max(20, w))
+				f:ClearAllPoints()
+				f:SetPoint("TOPLEFT", bar, "TOPLEFT", x, y)
+				f:Show()
+				x = x + f:GetWidth() + 12
+			else
+				f:Hide()
+			end
 		end
+		if showRow then maxW = math.max(maxW, x) end
 	end
-	bar:SetWidth(math.max(40, x + 2))
-	if any and on() then bar:Show() else bar:Hide() end
+	bar:SetSize(maxW + 46, n * ROW_H)
+	toggle.label:SetText(expanded() and "Min" or "Max")
+	if on() then bar:Show() else bar:Hide() end
 end
 
 local function show(f, text, r, g, b)
@@ -162,20 +196,6 @@ local function location()
 	local x, y = coords()
 	if x then where = ("%s (%d, %d)"):format(where, x, y) end
 	return "Loc: " .. where
-end
-
----------------------------------------------------------------------------
--- Time to level (the same 2 hours of play the XP readout uses). No rate.
----------------------------------------------------------------------------
-local function timeToLevel()
-	local cur, max = plain(UnitXP("player")), plain(UnitXPMax("player"))
-	local level = plain(UnitLevel("player"))
-	local cap = (GetMaxLevelForPlayerExpansion and GetMaxLevelForPlayerExpansion()) or MAX_PLAYER_LEVEL or 60
-	if not cur or not max or max <= 0 or cur >= max then return "Time To Level: N/A" end
-	if (level and level >= cap) or (IsXPUserDisabled and IsXPUserDisabled()) then return "Time To Level: N/A" end
-	local rate = ns.xpRate and ns.xpRate()
-	if not rate or rate <= 0 or not ns.formatTime then return "Time To Level: N/A" end
-	return "Time To Level: " .. ns.formatTime((max - cur) / rate)
 end
 
 ---------------------------------------------------------------------------
@@ -319,10 +339,11 @@ local function rangedText()
 end
 
 ---------------------------------------------------------------------------
--- Steps, mounted yards, and jumps, kept per character so a reload does not
--- zero them. A step is about 2 yards walked on foot. Mounted yards are the
--- distance you ride (ground or flying mount). Taxi flights are not riding.
--- Jump counts each press of the jump key.
+-- Steps, yards swum, mounted yards, and jumps, kept per character so a
+-- reload does not zero them. A step is about 2 yards walked. Swum yards are
+-- horizontal distance while swimming. Mounted yards are the distance you ride
+-- (ground or flying mount). Taxi flights are not riding. Jump counts each
+-- press of the jump key.
 ---------------------------------------------------------------------------
 local STEP_YARDS = 2
 
@@ -336,11 +357,11 @@ local function tally()
 	local key = charKey()
 	local t = ZydeForeverDB.pedometer[key]
 	if type(t) ~= "table" then
-		t = { steps = 0, jumps = 0, partial = 0, mounted = 0 }
+		t = { steps = 0, jumps = 0, partial = 0, mounted = 0, swum = 0 }
 		ZydeForeverDB.pedometer[key] = t
 	end
 	t.steps, t.jumps, t.partial = t.steps or 0, t.jumps or 0, t.partial or 0
-	t.mounted = t.mounted or 0
+	t.mounted, t.swum = t.mounted or 0, t.swum or 0
 	return t
 end
 
@@ -349,16 +370,36 @@ local function commas(n)
 	return tostring(n)
 end
 
-local function flag(fn, unit)
-	if not fn then return false end
-	local v = unit and fn(unit) or fn()
-	return not isSecret(v) and v == true
+local function flag(fn, ...)
+	if type(fn) ~= "function" then return false end
+	local v = safe(fn, ...)
+	-- Some of these return true, some return 1. A secret is "don't know", not on.
+	if isSecret(v) or v == nil or v == false or v == 0 then return false end
+	return true
 end
 
 local function onFoot()
 	if flag(UnitOnTaxi, "player") or flag(UnitIsDeadOrGhost, "player") then return false end
-	if flag(IsFlying) or flag(IsMounted) or flag(IsSwimming) or flag(IsFalling) then return false end
+	if flag(IsFlying) or flag(IsMounted) or flag(IsSwimming) then return false end
 	return true
+end
+
+local function swimming()
+	if flag(UnitOnTaxi, "player") or flag(UnitIsDeadOrGhost, "player") then return false end
+	if flag(IsFlying) then return false end
+	return flag(IsSwimming) or flag(IsSubmerged, "player")
+end
+
+-- Jumping at the surface turns IsSwimming off until you land. Remember the
+-- stroke so that hop stays on the swim counter instead of becoming steps.
+local swamAt = 0
+local function inWater()
+	if swimming() then
+		swamAt = GetTime()
+		return true
+	end
+	if flag(IsMounted) or flag(IsFlying) then return false end
+	return flag(IsFalling) and (GetTime() - swamAt) < 1.5
 end
 
 local function onMount()
@@ -367,31 +408,47 @@ local function onMount()
 end
 
 local lastX, lastY, lastInst
+
+-- UnitPosition is often empty or secret on this client. Horizontal distance
+-- then comes from movement speed (yards per second).
+local function speedYards(dt)
+	local speed = plain(safe(GetUnitSpeed, "player"))
+	if not speed or speed <= 0 then return 0 end
+	return speed * (dt or 0.1)
+end
+
 local function sampleMove(dt)
-	if not on() or not UnitPosition then lastX, lastY = nil, nil return end
-	local y, x, _, inst = UnitPosition("player")
+	if not on() then lastX, lastY = nil, nil return end
+	dt = dt or 0.1
+	local y, x, _, inst = safe(UnitPosition, "player")
 	x, y, inst = plain(x), plain(y), plain(inst)
-	if not x or not y then return end
-	if lastX and lastInst == inst then
+	local cap = math.max(20, 50 * dt)
+	local dist
+	if x and y and lastX and inst == lastInst then
 		local dx, dy = x - lastX, y - lastY
-		local dist = math.sqrt(dx * dx + dy * dy)
-		-- Faster than a mount, but small enough that a hearth or summon is ignored.
-		local cap = math.max(20, 50 * (dt or 0.1))
-		if dist > 0 and dist < cap then
-			local t = tally()
-			if onMount() then
-				t.mounted = t.mounted + dist
-			elseif onFoot() then
-				t.partial = t.partial + dist
-				local add = math.floor(t.partial / STEP_YARDS)
-				if add > 0 then
-					t.steps = t.steps + add
-					t.partial = t.partial - add * STEP_YARDS
-				end
+		dist = math.sqrt(dx * dx + dy * dy)
+		if dist >= cap then dist = nil end
+	end
+	if not dist or dist == 0 then
+		local fromSpeed = speedYards(dt)
+		if fromSpeed > 0 and fromSpeed < cap then dist = fromSpeed end
+	end
+	if dist and dist > 0 then
+		local t = tally()
+		if inWater() then
+			t.swum = t.swum + dist
+		elseif onMount() then
+			t.mounted = t.mounted + dist
+		elseif onFoot() and not flag(IsFlying) then
+			t.partial = t.partial + dist
+			local add = math.floor(t.partial / STEP_YARDS)
+			if add > 0 then
+				t.steps = t.steps + add
+				t.partial = t.partial - add * STEP_YARDS
 			end
 		end
 	end
-	lastX, lastY, lastInst = x, y, inst
+	if x and y then lastX, lastY, lastInst = x, y, inst end
 end
 
 if hooksecurefunc and JumpOrAscendStart then
@@ -410,7 +467,6 @@ local function update()
 	if not bar:GetPoint() then place() end
 	local text = location()
 	if text then show(loc, text) end
-	show(ttl, timeToLevel())
 	text = moneyText()
 	if text then
 		gold.on = true
@@ -420,12 +476,11 @@ local function update()
 	local r, g, b
 	text, r, g, b = bagText()
 	if text then show(bags, text, r, g, b) end
-	text, r, g, b = durability()
-	if text then show(dura, text, r, g, b) end
 	text, r, g, b = rangedText()
 	if text then show(ranged, text, r, g, b) end
 	local t = tally()
 	show(steps, "Steps: " .. commas(t.steps))
+	show(swum, "Swum: " .. commas(math.floor(t.swum)) .. " yd")
 	show(ridden, "Mounted: " .. commas(math.floor(t.mounted)) .. " yd")
 	show(jumps, "Jumps: " .. commas(t.jumps))
 	layout()
@@ -462,3 +517,16 @@ bar:SetScript("OnUpdate", function(_, dt)
 end)
 
 ns.OnFeatureChanged(function(key) if key == "infoBar" then update() end end)
+
+toggle:SetScript("OnClick", function()
+	ZydeForeverDB = ZydeForeverDB or {}
+	ZydeForeverDB.infoExpanded = not expanded()
+	update()
+end)
+toggle:SetScript("OnEnter", function(self)
+	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+	GameTooltip:AddLine(expanded() and "Min" or "Max", 1, 0.84, 0.35)
+	GameTooltip:AddLine(expanded() and "Hide steps, swim, mounted, and jumps." or "Show steps, swim, mounted, and jumps.", 1, 1, 1, true)
+	GameTooltip:Show()
+end)
+toggle:SetScript("OnLeave", function() GameTooltip:Hide() end)

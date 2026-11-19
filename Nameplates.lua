@@ -858,6 +858,13 @@ local function updateAll(f)
 	updateQuest(f)
 end
 
+-- The name line on your target's plate, so the marker row can sit just above it.
+function ns.TargetPlateName()
+	for unit, f in pairs(skinned) do
+		if f:IsShown() and f.name and plain(UnitIsUnit(unit, "target")) == true then return f.name end
+	end
+end
+
 local function skin(unit)
 	unskin(unit)
 	if not on() then return end

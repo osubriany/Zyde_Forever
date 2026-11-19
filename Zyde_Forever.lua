@@ -14,9 +14,11 @@
 -- 11) Bags full: the 3 cheapest stacks marked 1-2-3 (ScrapList.lua).
 -- 12) Vendor / auction / keep advice per bag item, sell panel at merchants (VendorList.lua).
 -- 13) Group finder helper: groups with room for you first, whisper the leader (LFGHelper.lua).
--- 14) A small draggable info bar: location, time to level, gold, bags,
---     durability, thrown durability or ammo, steps, yards ridden, and
---     jumps (InfoBar.lua).
+-- 14) A small draggable info bar, three lines. Collapsed: location, gold,
+--     bags, and ammo. Max opens steps, swim, mounted, and jumps
+--     (InfoBar.lua).
+-- 15) Tank threat list: mobs you have threat on, your percent, and the next
+--     two people, one CSV line each (ThreatBox.lua).
 --
 -- /zyde test     - toggle preview of both icons (to see where they sit)
 -- /zyde resetxp  - put the XP readout back at its default spot
@@ -94,11 +96,12 @@ local FEATURES = {
 	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "Icons to the right of your character (Shift-drag one to move them). Warriors: Battle Shout missing or running out, Overpower / Execute / Revenge / Victory Rush ready, Thunder Clap missing on your target, wrong stance, Sunder stacks when tanking, target out of melee reach in a fight. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing (solo), target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Shamans: weapon imbue missing or running out, Lightning Shield missing or low, Earth Shock to interrupt, a totem out of range, no Ankh. Everyone: Well-Rested low, gear needs repair, low on food or water" },
 	{ key = "ammo", class = "HUNTER", short = "count, refill, warning", label = "Hunter ammo", desc = "Arrows or bullets left and how long they last (in the XP readout), a warning when you leave town low, and a Fill quiver button at ammo vendors (hunters)" },
 	{ key = "petCare", class = "HUNTER", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast reminder: off in a group, on when solo (hunters)" },
-	{ key = "markerWheel", short = "target wheel, world squares", label = "Marker wheels", desc = "Hold a key for a wheel of target markers (skull, cross, moon...) and click one to put it on your target. Letting go closes that wheel. Press a key to show or hide the world marker squares (drag the title to move them). Click a square, then the ground. The squares stay open until you press the key again. The last square clears them all" },
+	{ key = "markerWheel", short = "marks on the target", label = "Target markers", desc = "Hold the marker key and two rows of four icons show above your target's name. Top: skull, X, square, moon. Bottom: triangle, diamond, circle, star. The red button removes the mark on your target. The gold ALL button removes every mark. Clicking the icon already on your target removes that mark too. Click a different icon to change it. Letting go hides the icons. World markers stay a separate key: press it to show or hide the squares, drag the title to move them, click a square, then the ground. The last square clears those." },
 	{ key = "hideBars", short = "cleaner action bars", label = "Hide Blizzard bar art", desc = "Hides the action bar art and the bag bar", reload = true },
 	{ key = "hideMicroMenu", short = "game menu buttons", label = "Hide micro menu", desc = "Hides the row of small game menu buttons (character, spellbook, talents, quest log, social, game menu...). Their keybinds still work", reload = true },
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
-	{ key = "infoBar", short = "location, gold, bags", label = "Info bar", desc = "A small draggable bar: where you are, time to level, gold, bag space, and gear durability (the average, plus the most worn piece). A throwing weapon shows its durability; a bow, crossbow, or gun shows arrows or bullets. Steps are about 2 yards walked on foot. Mounted is yards ridden, not a flight-path taxi. Jumps count each press of the jump key. Steps, mounted yards, and jumps are kept for this character. Drag the bar to move it. Hover the bar for the same details" },
+	{ key = "infoBar", short = "location, gold, bags", label = "Info bar", desc = "Three short lines you can drag. Collapsed: where you are, gold, bag space, and ammo for a bow, gun, or throwing weapon. Max opens steps, yards swum, yards mounted, and jumps. Min hides that line. The travel counts are kept for this character" },
+	{ key = "threatBox", short = "tank threat, CSV", label = "Tank threat list", desc = "While you are set to the tank role in a party or raid: a draggable list of mobs you have threat on. Each line is mob, your threat percent, then the two people closest behind you and their percent. Only mobs with a nameplate, bosses, and your target can be listed. Drag the title to move it" },
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames with buffs and debuffs, mana / rage / energy on party frames. Shift-drag a frame to move it", reload = true },
 	{ key = "targetTarget", short = "small frame by target", label = "Target of target", desc = "A small frame beside the target frame showing who your target is targeting (with the Zyde unit frames on). Shift-drag it to move it" },
 	{ key = "unitAuras", short = "icons on your frames", label = "Unit frame buffs / debuffs", desc = "Buff and debuff icons with time left on the Zyde unit frames: the target's debuffs (yours first) and buffs, your debuffs and buffs, and your pet's" },
@@ -118,7 +121,8 @@ local FEATURES = {
 	{ key = "scrap", short ="what to delete", label = "Scrap list (bags full)", desc = "The 3 cheapest items to throw away when your bags are full" },
 	{ key = "vendor", short = "sell or auction tips", label = "Vendor / auction advice", desc = "Vendor it / Auction it / Keep in tooltips, merchant and AH panels", needs = "AHledger" },
 	{ key = "recipes", short = "what to learn, where, price", label = "Unlearned recipes", desc = "Beside a profession window: the recipes you haven't learned yet, where to get each (vendor, quest or drop) and, with AHledger, its auction price. Click one for a waypoint to its vendor. The Unlearned button on the window shows or hides it", needs = "Questie" },
-	{ key = "levelPlanner", short = "best XP route, arrow", label = "Level planner", desc = "Plans the next hour of levelling for the most XP per minute from Questie's quests: a step list with the reason for each step, an arrow and map pins to the next step, planned quests picked up and turned in for you (hold Shift to do it yourself), the star marker on the next NPC, a quest item button, and travel by flight paths, boats and your hearthstone. /lp shows the list, /lp help for more", needs = "Questie", reload = true },
+	{ key = "autoQuests", short = "planned quests only", label = "Auto complete quests", desc = "While the level planner is on, it accepts and turns in the quests on its plan when you talk to the NPC. A turn-in with more than one reward waits for you to choose. Hold Shift while opening the NPC to skip it once. Uncheck this to accept and turn in quests yourself." },
+	{ key = "levelPlanner", short = "best XP route, arrow", label = "Level planner", desc = "Plans the next hour of levelling for the most XP per minute from Questie's quests: a step list with the reason for each step, an arrow and map pins to the next step, the star marker on the next NPC, a quest item button, and travel by flight paths, boats and your hearthstone. Auto complete quests is its own checkbox. /lp shows the list, /lp help for more", needs = "Questie", reload = true },
 	{ key = "questieDrops", short = "drop % on nameplates", label = "Questie drop chances", desc = "Drop % and your odds under Questie's nameplate bag", needs = "Questie" },
 	{ key = "questMobs", short = "glow, count, target key", label = "Quest mobs nearby", desc = "Gold edge on quest mobs' nameplates, a count of them near you, and a key to target one", needs = "Questie" },
 }
@@ -2327,6 +2331,7 @@ local CATEGORIES = {
 	{
 		{ "Questing & leveling", {
 			{ "questTracker", children = { "questFont" } },
+			"autoQuests",
 			{ group = "Quest objects", children = { "questAlert", "questIcons" } },
 			{ group = "Questie", children = { "questMobs", "questieDrops" } },
 			"rares",
@@ -2853,6 +2858,6 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		}) do
 			print(("  |cffffd200/zyde %s|r - %s"):format(c[1], c[2]))
 		end
-		print("  Keybinds (Fishing, nearest quest mob, feed pet, call or revive pet, target marker wheel, world marker squares): Options > Keybindings > AddOns > Zyde Forever")
+		print("  Keybinds (Fishing, nearest quest mob, feed pet, call or revive pet, target markers (hold), world marker squares): Options > Keybindings > AddOns > Zyde Forever")
 	end
 end
