@@ -239,17 +239,24 @@ end
 -- shown or hidden in combat, so it's placed out of combat only, and hidden as combat starts
 -- (PLAYER_REGEN_DISABLED still allows it). Rows themselves stay ordinary frames.
 local hearthBtn, hearthRow
+local placedAt -- "left,bottom,width,height" the button was last put at
 local function placeHearth()
 	if not hearthBtn or InCombatLockdown() then return end
 	if hearthRow and hearthRow:IsVisible() and hearthRow:GetLeft() then
 		-- by screen position: the game won't anchor a protected button to an ordinary frame
 		local s = hearthRow:GetEffectiveScale() / UIParent:GetEffectiveScale()
+		local l, b = hearthRow:GetLeft() * s, hearthRow:GetBottom() * s
+		local w, h = hearthRow:GetWidth() * s, hearthRow:GetHeight() * s
+		local at = string.format("%.0f,%.0f,%.0f,%.0f", l, b, w, h)
+		if at == placedAt and hearthBtn:IsShown() then return end
+		placedAt = at
 		hearthBtn:ClearAllPoints()
-		hearthBtn:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", hearthRow:GetLeft() * s, hearthRow:GetBottom() * s)
-		hearthBtn:SetSize(hearthRow:GetWidth() * s, hearthRow:GetHeight() * s)
+		hearthBtn:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", l, b)
+		hearthBtn:SetSize(w, h)
 		hearthBtn:SetFrameLevel(hearthRow:GetFrameLevel() + 5)
 		hearthBtn:Show()
 	else
+		placedAt = nil
 		hearthBtn:Hide()
 	end
 end
@@ -259,7 +266,8 @@ L.HideHearth = function() if hearthBtn and not InCombatLockdown() then hearthBtn
 function L.MakeHearth()
 	hearthBtn = CreateFrame("Button", "LevelPlannerHearthStep", UIParent, "SecureActionButtonTemplate")
 	hearthBtn:SetFrameStrata(frame:GetFrameStrata())
-	hearthBtn:RegisterForClicks("LeftButtonUp")
+	-- both: with "cast on key down" on, the game acts on the press, otherwise on the release (only one)
+	hearthBtn:RegisterForClicks("AnyDown", "AnyUp")
 	hearthBtn:SetAttribute("type", "item")
 	hearthBtn:SetAttribute("item", "item:6948") -- Hearthstone
 	hearthBtn:SetScript("OnEnter", function(self)
@@ -273,8 +281,11 @@ function L.MakeHearth()
 	ev:RegisterEvent("PLAYER_REGEN_DISABLED")
 	ev:RegisterEvent("PLAYER_REGEN_ENABLED")
 	ev:SetScript("OnEvent", function(_, event)
-		if event == "PLAYER_REGEN_DISABLED" then hearthBtn:Hide() else placeHearth() end
+		if event == "PLAYER_REGEN_DISABLED" then hearthBtn:Hide() placedAt = nil else placeHearth() end
 	end)
+	-- the row moves after it's drawn (the list resizes, rows slide in, the window is dragged):
+	-- follow it a few times a second (does nothing while it stays put)
+	C_Timer.NewTicker(0.25, placeHearth)
 end
 
 function L.Toggle()
