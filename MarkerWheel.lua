@@ -1,10 +1,10 @@
 -- Zyde_Forever: target marks and world markers.
 --   Target markers: hold the marker key and two rows of four icons appear
---     above your target's name. Top: skull, X, square, moon. Bottom:
---     triangle, diamond, circle, star. The red button removes the mark on
---     your target. The gold ALL button removes every mark, even on something
---     whose nameplate is gone. Clicking the icon already on your target
---     removes that mark too.
+--     just under the cursor, centered on it. Top: skull, X, square, moon.
+--     Bottom: triangle, diamond, circle, star. The red button removes the
+--     mark on your target. The gold ALL button removes every mark, even on
+--     something whose nameplate is gone. Clicking the icon already on your
+--     target removes that mark too.
 --   World markers: press the key to show a small grid of squares, click one,
 --     then click the ground. Press the key again to put the grid away. Drag
 --     its title bar to move it. The last square clears every world marker.
@@ -238,6 +238,7 @@ local function makeTargetRow()
 	local row = CreateFrame("Frame", "ZydeForeverTargetMarks", UIParent)
 	row:SetSize(ROW_PAD * 2 + gridW + ROW_SPLIT + CLEAR_W + ROW_GAP + ALL_W, ROW_PAD * 2 + gridH)
 	row:SetFrameStrata("HIGH")
+	row:SetClampedToScreen(true)
 	row:EnableMouse(false)
 	row:Hide()
 	row.held = false
@@ -327,15 +328,30 @@ local function makeTargetRow()
 	key:SetAlpha(0)
 	key:RegisterForClicks("AnyDown", "AnyUp")
 	key:SetFrameRef("row", row)
+	key:SetFrameRef("ui", UIParent)
 	key:SetAttribute("on", true)
+	-- "held" is 1 or 0. The click hook does not run during a fight, so this
+	-- handler places the row itself, from the cursor spot stored beforehand.
 	SecureHandlerWrapScript(key, "OnClick", handler, [[
 		if not self:GetAttribute("on") then return end
 		local row = self:GetFrameRef("row")
-		if down then row:Show() else row:Hide() end
+		if down then
+			row:SetAttribute("held", 1)
+			local x = row:GetAttribute("cx")
+			local y = row:GetAttribute("cy")
+			if x and y then
+				row:ClearAllPoints()
+				row:SetPoint("TOP", self:GetFrameRef("ui"), "BOTTOMLEFT", x, y)
+			end
+			row:Show()
+		else
+			row:SetAttribute("held", 0)
+			row:Hide()
+		end
 	]])
 	key:HookScript("OnClick", function(_, _, down)
 		row.held = down and true or false
-		if row.held then placeTargetRow() paintTargetRow() else row:Hide() end
+		if row.held then placeTargetRow() paintTargetRow() else row.cx, row.cy = nil, nil row:Hide() end
 		if debugOn then print(P .. "target markers: " .. (down and "pressed" or "released")) end
 	end)
 	return row, key
@@ -343,21 +359,44 @@ end
 
 local targetRow, markKey = makeTargetRow()
 
+-- Opens under the cursor, centered on it, and stays put so the mouse can
+-- reach an icon. The spot is taken once, on the press. A frame with no
+-- point sits in the middle of the screen, which is what showed before.
+local CURSOR_GAP = 4
+
+local function heldNow(row)
+	local h = row:GetAttribute("held")
+	if not ns.isSecret(h) and h ~= nil then return h == 1 end
+	return row.held and true or false
+end
+
+local function cursorPoint()
+	local x, y = GetCursorPosition()
+	if ns.isSecret(x) or ns.isSecret(y) or type(x) ~= "number" or type(y) ~= "number" then return end
+	local scale = UIParent:GetEffectiveScale()
+	if ns.isSecret(scale) or type(scale) ~= "number" or scale == 0 then return end
+	return x / scale, y / scale - CURSOR_GAP
+end
+
 function placeTargetRow()
 	local row = targetRow
 	if not row then return end
-	if not on() or not row.held then row:Hide() return end
+	if not on() or not heldNow(row) then row.cx, row.cy = nil, nil return end
 	local exists = ns.safe(UnitExists, "target")
-	if not ns.isSecret(exists) and not exists then row:Hide() return end
-	local plate = C_NamePlate and C_NamePlate.GetNamePlateForUnit and ns.safe(C_NamePlate.GetNamePlateForUnit, "target")
-	if not plate or (plate.IsForbidden and plate:IsForbidden()) then row:Hide() row.anchor = nil return end
-	local name = ns.TargetPlateName and ns.TargetPlateName()
-	if row.anchor == (name or plate) and row:IsShown() then return end
-	row.anchor = name or plate
+	if not ns.isSecret(exists) and not exists then row.cx, row.cy = nil, nil row:Hide() return end
+	if not row.cx then
+		local px, py = cursorPoint()
+		if not px then return end
+		row.cx, row.cy = px, py
+	end
+	local point, _, relPoint, x, y = row:GetPoint(1)
+	local same = row:GetNumPoints() == 1 and point == "TOP" and relPoint == "BOTTOMLEFT"
+		and not ns.isSecret(x) and not ns.isSecret(y) and type(x) == "number" and type(y) == "number"
+		and math.abs(x - row.cx) < 0.5 and math.abs(y - row.cy) < 0.5
+	if same then return end
 	row:ClearAllPoints()
-	local ok = name and pcall(row.SetPoint, row, "BOTTOM", name, "TOP", 0, 3)
-	if not ok then ok = pcall(row.SetPoint, row, "BOTTOM", plate, "TOP", 0, 4) end
-	if ok then row:Show() else row:Hide() end
+	if not pcall(row.SetPoint, row, "TOP", UIParent, "BOTTOMLEFT", row.cx, row.cy) then return end
+	row:Show()
 end
 
 function paintTargetRow()
@@ -407,14 +446,12 @@ local function syncOn()
 			for _, b in ipairs(worldPanel.squares) do b:Hide() end
 		end
 	end
-	if not on() then targetRow.held = false targetRow:Hide() end
+	if not on() then targetRow.held = false targetRow.cx, targetRow.cy = nil, nil targetRow:Hide() end
 end
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_LOGIN")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
 ev:RegisterEvent("PLAYER_TARGET_CHANGED")
-ev:RegisterEvent("NAME_PLATE_UNIT_ADDED")
-ev:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
 ev:SetScript("OnEvent", function(_, event)
 	if event == "PLAYER_LOGIN" then placeWorld() end
 	syncOn()
@@ -423,12 +460,16 @@ ev:SetScript("OnEvent", function(_, event)
 end)
 local wait = 0
 ev:SetScript("OnUpdate", function(_, dt)
-	-- only while the marker key is held (the row is hidden otherwise; nothing to follow)
-	if not targetRow.held then return end
+	local px, py = cursorPoint()
+	if px and (targetRow.cxAttr ~= px or targetRow.cyAttr ~= py) then
+		targetRow.cxAttr, targetRow.cyAttr = px, py
+		pcall(targetRow.SetAttribute, targetRow, "cx", px)
+		pcall(targetRow.SetAttribute, targetRow, "cy", py)
+	end
+	placeTargetRow()
 	wait = wait + dt
 	if wait < 0.2 then return end
 	wait = 0
-	placeTargetRow()
 	if targetRow:IsShown() then paintTargetRow() end
 end)
 ns.OnFeatureChanged(function(k) if k == "markerWheel" then syncOn() end end)
