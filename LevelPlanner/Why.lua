@@ -59,6 +59,7 @@ local UNPLANNABLE = {
 	["item source unknown"] = "Questie doesn't know where its quest item comes from",
 	["no location for objective"] = "Questie has no location for one of its objectives",
 	["objective not in Questie's data"] = "the game lists an unfinished objective Questie has no data for - finish it yourself, then it plans the turn-in",
+	["objectives unknown"] = "one of Forever's own quests, and Questie lists no objectives for it - pick it up yourself if you want it, then the game's quest log tells the planner what's left",
 	["no pickup location"] = "Questie has no location for the quest giver",
 	["no turn-in location"] = "Questie has no location for the turn-in NPC",
 	["started by an item"] = "it starts from an item, which can't be planned",
