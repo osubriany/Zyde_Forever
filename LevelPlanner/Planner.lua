@@ -373,11 +373,23 @@ function hereFirstInner(state, ctx)
 	-- Turn-ins close by (the town you're standing in) go first too, nearest first: putting them off
 	-- "until you're back" looks free on paper, but the XP and follow-ups are wanted now.
 	local turnNear = ns.cfg.hereTurninYards or 400
+	-- ...but not when a camp of the route is nearer than they are: you're at the mobs, so farm first
+	-- and hand in on the way (camp spawns spread wide; its map point can be out past sameCampYards
+	-- while you're already among them)
+	local campD
+	for _, e in ipairs(state.route) do
+		if e.stop.kind == "objective" then
+			for _, p in ipairs(e.stop.points) do
+				local d = ns.Geo.Distance(ctx.start, p)
+				if d and (not campD or d < campD) then campD = d end
+			end
+		end
+	end
 	local list = {}
 	for i, e in ipairs(state.route) do
 		if e.stop.kind == "turnin" then
 			local d = ns.Geo.Distance(ctx.start, e.point)
-			if d and d <= turnNear then list[#list + 1] = { stop = e.stop, d = d } end
+			if d and d <= turnNear and not (campD and campD < d) then list[#list + 1] = { stop = e.stop, d = d } end
 		end
 	end
 	table.sort(list, function(a, b) return a.d < b.d end)

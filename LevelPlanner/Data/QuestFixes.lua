@@ -820,6 +820,23 @@ ns.QuestFixes = {
 		},
 	},
 
+	-- Krol'dok Moulding: starts from the mould Tunk <Blacksmith> drops inside Krol'dok Stronghold
+	-- (the forge under the bridge past War Handler Ashka). Planned with the dungeon run (Config
+	-- dungeonData); the "pick up" is the dungeon entrance, the mould comes during the run.
+	[94973] = {
+		name = "Krol'dok Moulding",
+		start = { name = "Tunk, inside Krol'dok Stronghold (loot the mould in the run)", spawns = { [16591] = { { 37.5, 37.5 } } } },
+	},
+
+	-- Memory Mist (Mount Hyjal): release 5 wisps over the Well of Eternity, the lake just west /
+	-- northwest of Thisalee Crow under Nordrassil (no exact wisp spots published).
+	[96303] = {
+		name = "Memory Mist",
+		objectives = {
+			{ kind = "spot", seconds = 120, name = "Release 5 wisps over the Well of Eternity (just west of Thisalee Crow)", spawns = { [616] = { { 68.9, 49.9 } } } },
+		},
+	},
+
 	-- Quest items you get from the quest before in the chain: nothing to fetch.
 	[3374] = { name = "The Essence of Eranikus", items = { [10455] = { kind = "have" } } },
 	[4121] = { name = "Precarious Predicament", items = { [11286] = { kind = "have" } } },
@@ -840,6 +857,7 @@ ns.LiveQuests = {
 	[78699] = true,                 -- The Eye of Bhossca (rogues)
 	[78307] = true,                 -- The Horn of Xelthos (rogues)
 	[97288] = true,                 -- Unending Torment (Horde)
+	[94975] = true, [94972] = true, -- A Token of Vengeance, Tome of Twilight (Krol'dok Stronghold)
 }
 
 ----------------------------------------------------------------------------------------

@@ -148,6 +148,11 @@ LevelPlannerConfig = {
 		[2557] = { "Dire Maul", 55, 60, 58, 100, 60 },
 		[2057] = { "Scholomance", 58, 60, 59, 150, 90 },
 		[2017] = { "Stratholme", 58, 60, 59, 150, 90 },
+		-- Forever's own dungeons Questie's dungeon list doesn't have yet: entrance = { area, x, y },
+		-- quests = the dungeon quests (Questie doesn't tie them to the dungeon).
+		[17780] = { "Krol'dok Stronghold", 40, 45, 42, 110, 60, entrance = { 16591, 37.5, 37.5 },
+			-- A Token of Vengeance, Tome of Twilight, Krol'dok Moulding (Tunk drops it in the run)
+			quests = { 94975, 94972, 94973 } },
 	},
 
 	-- Learning from your play (phase 5) ---------------------------------------------------

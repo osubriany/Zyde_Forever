@@ -491,9 +491,9 @@ local shiftWatch = CreateFrame("Frame")
 shiftWatch:RegisterEvent("MODIFIER_STATE_CHANGED")
 shiftWatch:SetScript("OnEvent", function(_, _, key)
 	if not (key == "LSHIFT" or key == "RSHIFT") or not on() then return end
-	if GameTooltip:IsShown() and GameTooltip.GetItem and GameTooltip.RefreshData then
-		local _, link = GameTooltip:GetItem()
-		if link and byLink[link] then pcall(GameTooltip.RefreshData, GameTooltip) end
+	if not InCombatLockdown() and GameTooltip:IsShown() and GameTooltip.GetItem and GameTooltip.RefreshData then
+		local ok, _, link = pcall(GameTooltip.GetItem, GameTooltip)
+		if ok and type(link) == "string" and byLink[link] then pcall(GameTooltip.RefreshData, GameTooltip) end
 	end
 end)
 
