@@ -97,6 +97,9 @@ LevelPlannerConfig = {
 	buyQuestItems = true,       -- plan buy steps at all
 	buyInsteadOfFarming = true, -- also buy items you could farm, when buying is quicker (kill XP counted)
 	buySeconds = 30,            -- buying from a vendor
+	autoBuy = true,             -- open that vendor and the plan's items are bought for you (hold the
+	                            -- autoQuestSkipKey to skip; never more than ahBuyMaxGold in one visit)
+	shoppingList = true,        -- the list beside the auction house (UI/Shopping.lua)
 	ahBuy = true,               -- also buy at the auction house (needs AHledger prices)
 	ahBuyMaxGold = 5,           -- ... at most this many gold for the whole stack
 	ahBuySeconds = 60,          -- ... finding it and buying it

@@ -321,6 +321,8 @@ function QS.ScanCandidates()
 					if requires and not excluded(id) then
 						local quest = ns.Stops.BuildQuest(id, nil)
 						if quest then
+							-- (keep any the quest already has: a reward item from another quest, Stops.lua)
+							for _, r in ipairs(quest.requires or {}) do requires[#requires + 1] = r end
 							quest.requires = requires
 							local names = {}
 							for _, r in ipairs(requires) do names[#names + 1] = inRoute[r].name end

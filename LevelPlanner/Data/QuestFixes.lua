@@ -837,6 +837,13 @@ ns.QuestFixes = {
 		},
 	},
 
+	-- Quests that start from another quest's reward: planned right after that quest's turn-in.
+	-- Forlorn Necklace: the necklace is the reward of Not on Squealing Terms (93606); a delivery to
+	-- Mithera at Shen'dralas. Last Wishes: Fishing Trip is the reward of Soldier's Solace (96558); it
+	-- ends at the Broken Fishing Basket by the Cradle of Tranquility's pond (Hyjal 35.7, 45).
+	[93609] = { name = "Forlorn Necklace", start = { afterQuest = 93606 } },
+	[96561] = { name = "Last Wishes", start = { afterQuest = 96558 } },
+
 	-- Quest items you get from the quest before in the chain: nothing to fetch.
 	[3374] = { name = "The Essence of Eranikus", items = { [10455] = { kind = "have" } } },
 	[4121] = { name = "Precarious Predicament", items = { [11286] = { kind = "have" } } },
