@@ -227,9 +227,9 @@ for _, m in ipairs({
 	WORLD_ITEMS[#WORLD_ITEMS + 1] = { marker = m[1], name = m[3], color = m[4], icon = RAID_ICON .. m[2] }
 end
 
--- 25% smaller than the 30px row. Four icons on each row. Two tall buttons
+-- Four icons on each row, 24px. Two tall buttons
 -- on the end: red removes your target's mark, gold removes every mark.
-local ROW_ICON, ROW_GAP, ROW_PAD, ROW_SPLIT, ROW_COLS = 22, 2, 2, 4, 4
+local ROW_ICON, ROW_GAP, ROW_PAD, ROW_SPLIT, ROW_COLS = 24, 2, 2, 4, 4
 local CLEAR_W, ALL_W = 22, 32
 local placeTargetRow, paintTargetRow
 
