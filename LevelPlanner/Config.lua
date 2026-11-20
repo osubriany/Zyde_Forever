@@ -95,6 +95,7 @@ LevelPlannerConfig = {
 	-- first; else the auction house, when AHledger has seen it listed. The gold counts as time
 	-- (flightSecondsPerGold), so a buy is planned only when it's worth the trip and the price.
 	buyQuestItems = true,       -- plan buy steps at all
+	buyInsteadOfFarming = true, -- also buy items you could farm, when buying is quicker (kill XP counted)
 	buySeconds = 30,            -- buying from a vendor
 	ahBuy = true,               -- also buy at the auction house (needs AHledger prices)
 	ahBuyMaxGold = 5,           -- ... at most this many gold for the whole stack

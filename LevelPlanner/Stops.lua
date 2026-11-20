@@ -185,6 +185,25 @@ local function buyStop(quest, itemId, itemName, need)
 		(cfg.ahBuySeconds or 60) + gold * S.SecondsPerGold())
 end
 
+-- An item you could farm, but that a vendor sells or the auction house lists: buy it instead when
+-- that's quicker. Buying gives no kill XP, so the farm's time is counted net of the XP its kills earn
+-- (at your plan's XP per second): kills that pay as well as questing cost nothing extra.
+-- farmWork: the farm stop's seconds (with its overhead); mobXp: its kill XP. Returns a buy stop, or nil.
+local function buyInstead(quest, itemId, itemName, need, farmWork, mobXp)
+	local cfg = ns.cfg
+	if cfg.buyInsteadOfFarming == false then return nil end
+	local buy = buyStop(quest, itemId, itemName, need)
+	if not buy then return nil end
+	local rate = ns.plan and ns.plan.rate and ns.plan.rate > 0 and ns.plan.rate / 60 -- XP per second
+	local farmCost = farmWork - ((rate and mobXp and mobXp > 0) and (mobXp / rate) or 0)
+	farmCost = math.max(farmCost, farmWork * 0.25)
+	if buy.work < farmCost then
+		buy.label = buy.label .. "  |cff999999(quicker than farming)|r"
+		return buy
+	end
+	return nil
+end
+
 -- Builds one objective stop. `remaining` is how many are still needed (nil = unknown, use text/defaults).
 -- Returns stop, or nil plus a reason when the objective can't be planned.
 local function objectiveStop(quest, od, remaining)
@@ -258,11 +277,18 @@ local function objectiveStop(quest, od, remaining)
 			stop.work = need * E.UnitSeconds("item:" .. tostring(od.Id), perItem)
 			stop.mobXp = kills * E.MobXP(lvl, rank)
 			stop.label = string.format("Collect %d %s (~%d kills)", need, itemName, kills)
+			-- sold or listed for less than the farm costs you? buy it
+			local bought = buyInstead(quest, od.Id, itemName, need,
+				stop.work + (cfg.objectiveOverheadSeconds or 45), stop.mobXp)
+			if bought then return bought end
 		elseif type(objs) == "table" and #objs > 0 then
 			points = objectPoints(objs)
 			-- picked up from the ground: learned apart from mob drops (see Learn.lua)
 			stop.work = need * E.UnitSeconds("itempick:" .. tostring(od.Id), cfg.objectSeconds or 12)
 			stop.label = string.format("Collect %d %s", need, itemName)
+			local bought = buyInstead(quest, od.Id, itemName, need,
+				stop.work + (cfg.objectiveOverheadSeconds or 45), 0)
+			if bought then return bought end
 		else
 			-- Questie doesn't know where it comes from: Data/QuestFixes.lua may ([quest].items[itemId])
 			local fix = ns.QuestFixes and ns.QuestFixes[quest.id]
