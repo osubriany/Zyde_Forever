@@ -108,6 +108,11 @@ function QS.GetQuest(id)
 end
 
 function QS.DropRate(itemId, npcId)
+	-- Forever's own rate where we know it (Data/QuestFixes.lua: ns.QuestDropRates[itemId] = % or
+	-- { [npcId] = % }). Questie's rates are Classic's, often a flat private-server guess (50-100%).
+	local over = ns.QuestDropRates and ns.QuestDropRates[itemId]
+	if type(over) == "table" then over = over[npcId] or over.all end
+	if type(over) == "number" and over > 0 then return math.min(over / 100, 1) end
 	local fn = Q.QuestieDB.GetItemDroprate
 	local r = fn and ns.safe(fn, itemId, npcId)
 	if type(r) == "table" and type(r[1]) == "number" and r[1] > 0 then

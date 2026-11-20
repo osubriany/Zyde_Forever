@@ -824,3 +824,15 @@ ns.QuestFixes = {
 	[3374] = { name = "The Essence of Eranikus", items = { [10455] = { kind = "have" } } },
 	[4121] = { name = "Precarious Predicament", items = { [11286] = { kind = "have" } } },
 }
+
+----------------------------------------------------------------------------------------
+-- Forever drop rates for quest items, in % (used instead of Questie's Classic-era rates).
+--   [itemId] = 19.3                       -- every mob that drops it
+--   [itemId] = { [npcId] = 19.3, all = 5 } -- per mob ("all": the rest)
+-- Wowhead counts every kill, also by players not on the quest, so for quest-only drops its
+-- number is the low end of the real rate.
+----------------------------------------------------------------------------------------
+ns.QuestDropRates = {
+	[5481] = 19.3, -- Satyr Horns (Xavian satyrs, Ashenvale): Wowhead Forever 581/3013. Questie: 50%
+	[7128] = 0.6,  -- Uncloven Satyr Hoof (Xavian satyrs): Wowhead Forever 17/3013, not quest-only. Questie: 80%
+}
