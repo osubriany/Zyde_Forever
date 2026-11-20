@@ -88,7 +88,7 @@ local function makeRow(i)
 	r.xp:SetWidth(56)
 	r.time = fontString(r, "GameFontDisableSmall", C_DIM[1], C_DIM[2], C_DIM[3], "RIGHT")
 	r.time:SetPoint("BOTTOMRIGHT", -4, 5)
-	r.time:SetWidth(56)
+	-- (no fixed width: it fits its text, e.g. "~13m  → 64%", and the detail line makes room)
 
 	r.title = fontString(r, "GameFontHighlight")
 	r.title:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 8, 2)
@@ -586,6 +586,19 @@ function L.Update(plan)
 		else
 			r.bar:Hide()
 			r.bar.target = nil
+		end
+
+		-- where you'll be after this step, as % of the level: "64%", or "L35 12%" past a ding
+		-- (no arrow: the game's font has no "→" and draws an empty box)
+		-- (next level's size taken as this one's: close enough for a glance)
+		if xp and xp ~= "" and need and max and max > 0 then
+			local total, lvl = (max - need) + gained, ns.playerLevel()
+			while total >= max do total, lvl = total - max, lvl + 1 end
+			local pct = math.floor(total / max * 100)
+			local where = lvl > ns.playerLevel() and string.format("|cffffd100L%d %d%%|r", lvl, pct)
+				or string.format("%d%%", pct)
+			local t = r.time:GetText()
+			r.time:SetText((t and t ~= "") and (t .. "  " .. where) or where)
 		end
 
 		r:ClearAllPoints()

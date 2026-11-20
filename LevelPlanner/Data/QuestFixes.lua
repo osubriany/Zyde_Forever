@@ -323,6 +323,15 @@ ns.QuestFixes = {
 		},
 	},
 
+	-- Pay to Play (Riverglades): the 1g safety deposit to Jezap Jinglesprocket, once, to qualify for
+	-- the Bloodmaster's Ring fights (after Bloodmaster's Ring 94668 from Clugfist).
+	[94669] = {
+		name = "Pay to Play",
+		objectives = {
+			{ kind = "spot", seconds = 10, cost = 1, name = "Pay Jezap Jinglesprocket the safety deposit", spawns = { [16591] = { { 65.6, 21.4 } } } },
+		},
+	},
+
 	-- Bloodmaster's Ring (Riverglades): one fight each in the ring, run by Jezap Jinglesprocket.
 	[94670] = { name = "Bloodmaster's Ring", objectives = { { kind = "spot", seconds = 90, name = "Defeat Buzzbeak in the Bloodmaster's Ring", spawns = { [16591] = { { 65.6, 21.4 } } } } } },
 	[94739] = { name = "Bloodmaster's Ring", objectives = { { kind = "spot", seconds = 90, name = "Defeat Kronk in the Bloodmaster's Ring", spawns = { [16591] = { { 65.6, 21.4 } } } } } },
