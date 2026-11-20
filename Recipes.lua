@@ -73,27 +73,50 @@ local building = {}    -- [subclass] = true while being built
 
 local function IDB() return _G.LibQuestieDB and _G.LibQuestieDB.Item end
 
+local buildError -- why the last build failed (shown in the panel), or nil
+
+local failed = {} -- [subclass] = true after a build error (no retry until /reload)
+
 local function buildCatalog(sub, done)
 	if catalog[sub] then done() return end
-	if building[sub] then return end
+	if building[sub] or failed[sub] then return end
 	local Item = IDB()
-	if not (Item and Item.GetAllIds) then return end
+	if not (Item and Item.GetAllIds) then
+		-- Questie's item data isn't there (yet): say so, and try again in a moment
+		buildError = "Questie's item data isn't loaded yet"
+		C_Timer.After(2, done)
+		return
+	end
 	local ids = safe(Item.GetAllIds) or {}
 	building[sub] = true
+	buildError = nil
 	local list, i = {}, 1
-	local function step()
+	local step
+	local function runStep()
 		local stop = math.min(#ids, i + 1500)
 		for k = i, stop do
 			local id = ids[k]
 			if safe(Item.class, id) == RECIPE_CLASS and safe(Item.subClass, id) == sub then
-				list[#list + 1] = { id = id, name = safe(Item.name, id) or ("Item " .. id), spell = safe(Item.teachesSpell, id) }
+				local name = safe(Item.name, id)
+				list[#list + 1] = { id = id, name = type(name) == "string" and name or ("Item " .. id),
+					spell = safe(Item.teachesSpell, id) }
 			end
 		end
 		i = stop + 1
-		if i <= #ids then C_Timer.After(0, step) return end
+		if i <= #ids then C_Timer.After(0, function() step() end) return end -- (step: the guarded one below)
 		table.sort(list, function(a, b) return a.name < b.name end)
 		catalog[sub], building[sub] = list, nil
 		done()
+	end
+	-- Any error stops the build: never leave it marked as running (that left the panel on
+	-- "Reading Questie's item data..." for good), and show what went wrong.
+	step = function()
+		local ok, err = pcall(runStep)
+		if not ok then
+			building[sub], failed[sub] = nil, true
+			buildError = tostring(err)
+			done()
+		end
 	end
 	step()
 end
@@ -269,7 +292,8 @@ local function refresh()
 	panel.title:SetText("Unlearned " .. prof .. " recipes")
 	panel:Show()
 	if not catalog[sub] then
-		panel.note:SetText("Reading Questie's item data...")
+		panel.note:SetText(buildError and ("|cffff6666Couldn't read Questie's item data:|r " .. buildError)
+			or "Reading Questie's item data...")
 		for _, r in ipairs(rows) do r:Hide() end
 		buildCatalog(sub, refresh)
 		return
