@@ -53,6 +53,7 @@ GearAdvisor\Commands.lua
 
 # LevelPlanner (levelling route planner, /lp), merged in 2026-11-14. Its own private table, zyde.LP.
 LevelPlanner\Config.lua
+LevelPlanner\Data\QuestFixes.lua
 LevelPlanner\Core.lua
 LevelPlanner\Geo.lua
 LevelPlanner\QuestSource.lua
