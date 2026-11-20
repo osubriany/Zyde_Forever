@@ -279,8 +279,21 @@ function ns.StepDone(key)
 	return false
 end
 
+-- The mobs your current step needs (the first planned step with mobs, within the next few):
+-- [npcId] = true, or nil. Zyde's quest-mob glow paints these green (QuestMobs.lua).
+function ns.CurrentStepMobs()
+	local stops = ns.plan and ns.plan.stops
+	if not stops then return nil end
+	for i = 1, math.min(#stops, 3) do
+		if stops[i].mobs and next(stops[i].mobs) then return stops[i].mobs end
+	end
+	return nil
+end
+
 function ns.OnPlanReady(plan)
 	if ns.Pin then ns.safe(ns.Pin.Apply, plan) end -- (an NPC you asked for with "..." goes first)
+	if ns.Shopping then ns.safe(ns.Shopping.Refresh) end -- (the auction house list, if it's open)
+	if zyde.QuestMobsRefresh then ns.safe(zyde.QuestMobsRefresh) end -- (green edge on this step's mobs)
 	rememberOrigin(plan)
 	if ns.MapPins then ns.safe(ns.MapPins.Update, plan) end
 	if ns.NpcStars then ns.safe(ns.NpcStars.Update, plan) end
@@ -352,6 +365,7 @@ events:SetScript("OnEvent", function(self, event, arg1)
 		if ns.db then ns.db.trails = nil end -- walked trails were removed 2026-11-18: drop the old saved data
 		if ns.StepList then ns.StepList.Init() end
 		if ns.Arrow then ns.Arrow.Init() end
+		if ns.Shopping then ns.Shopping.Init() end
 		Questie.API.RegisterOnReady(onQuestieReady)
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		-- after a loading screen you are usually somewhere new (hearth, portal, boat, dungeon exit)

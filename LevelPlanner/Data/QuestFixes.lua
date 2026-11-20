@@ -323,6 +323,15 @@ ns.QuestFixes = {
 		},
 	},
 
+	-- Pay to Play (Riverglades): the 1g safety deposit to Jezap Jinglesprocket, once, to qualify for
+	-- the Bloodmaster's Ring fights (after Bloodmaster's Ring 94668 from Clugfist).
+	[94669] = {
+		name = "Pay to Play",
+		objectives = {
+			{ kind = "spot", seconds = 10, cost = 1, name = "Pay Jezap Jinglesprocket the safety deposit", spawns = { [16591] = { { 65.6, 21.4 } } } },
+		},
+	},
+
 	-- Bloodmaster's Ring (Riverglades): one fight each in the ring, run by Jezap Jinglesprocket.
 	[94670] = { name = "Bloodmaster's Ring", objectives = { { kind = "spot", seconds = 90, name = "Defeat Buzzbeak in the Bloodmaster's Ring", spawns = { [16591] = { { 65.6, 21.4 } } } } } },
 	[94739] = { name = "Bloodmaster's Ring", objectives = { { kind = "spot", seconds = 90, name = "Defeat Kronk in the Bloodmaster's Ring", spawns = { [16591] = { { 65.6, 21.4 } } } } } },
@@ -820,6 +829,30 @@ ns.QuestFixes = {
 		},
 	},
 
+	-- Krol'dok Moulding: starts from the mould Tunk <Blacksmith> drops inside Krol'dok Stronghold
+	-- (the forge under the bridge past War Handler Ashka). Planned with the dungeon run (Config
+	-- dungeonData); the "pick up" is the dungeon entrance, the mould comes during the run.
+	[94973] = {
+		name = "Krol'dok Moulding",
+		start = { name = "Tunk, inside Krol'dok Stronghold (loot the mould in the run)", spawns = { [16591] = { { 37.5, 37.5 } } } },
+	},
+
+	-- Memory Mist (Mount Hyjal): release 5 wisps over the Well of Eternity, the lake just west /
+	-- northwest of Thisalee Crow under Nordrassil (no exact wisp spots published).
+	[96303] = {
+		name = "Memory Mist",
+		objectives = {
+			{ kind = "spot", seconds = 120, name = "Release 5 wisps over the Well of Eternity (just west of Thisalee Crow)", spawns = { [616] = { { 68.9, 49.9 } } } },
+		},
+	},
+
+	-- Quests that start from another quest's reward: planned right after that quest's turn-in.
+	-- Forlorn Necklace: the necklace is the reward of Not on Squealing Terms (93606); a delivery to
+	-- Mithera at Shen'dralas. Last Wishes: Fishing Trip is the reward of Soldier's Solace (96558); it
+	-- ends at the Broken Fishing Basket by the Cradle of Tranquility's pond (Hyjal 35.7, 45).
+	[93609] = { name = "Forlorn Necklace", start = { afterQuest = 93606 } },
+	[96561] = { name = "Last Wishes", start = { afterQuest = 96558 } },
+
 	-- Quest items you get from the quest before in the chain: nothing to fetch.
 	[3374] = { name = "The Essence of Eranikus", items = { [10455] = { kind = "have" } } },
 	[4121] = { name = "Precarious Predicament", items = { [11286] = { kind = "have" } } },
@@ -840,6 +873,7 @@ ns.LiveQuests = {
 	[78699] = true,                 -- The Eye of Bhossca (rogues)
 	[78307] = true,                 -- The Horn of Xelthos (rogues)
 	[97288] = true,                 -- Unending Torment (Horde)
+	[94975] = true, [94972] = true, -- A Token of Vengeance, Tome of Twilight (Krol'dok Stronghold)
 }
 
 ----------------------------------------------------------------------------------------

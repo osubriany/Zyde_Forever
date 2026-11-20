@@ -13,9 +13,11 @@ ns.Dungeons = D
 
 local areaToDungeon   -- [any dungeon areaId, including Questie's alternative IDs] = main areaId
 
+local questToDungeon  -- [questId] = areaId, from dungeonData `quests` (dungeons Questie doesn't link)
+
 local function index()
 	if areaToDungeon then return areaToDungeon end
-	areaToDungeon = {}
+	areaToDungeon, questToDungeon = {}, {}
 	local ZoneDB = ns.Q.ZoneDB
 	local all = ZoneDB and ZoneDB.GetDungeons and ns.safe(ZoneDB.GetDungeons, ZoneDB) or {}
 	for area, entry in pairs(all) do
@@ -24,15 +26,22 @@ local function index()
 			for _, alt in ipairs(type(entry[2]) == "table" and entry[2] or {}) do areaToDungeon[alt] = area end
 		end
 	end
+	-- Forever dungeons Questie's dungeon list doesn't have: their own entrance and quest list
+	for area, data in pairs(ns.cfg.dungeonData or {}) do
+		if data.entrance then areaToDungeon[area] = area end
+		for _, q in ipairs(data.quests or {}) do questToDungeon[q] = area end
+	end
 	return areaToDungeon
 end
 
--- The planned dungeon a quest belongs to (by its zone), or nil.
+-- The planned dungeon a quest belongs to (by its zone, or a dungeonData quest list), or nil.
 function D.Of(questId)
 	if ns.cfg.dungeons == false then return nil end
+	local idx = index()
+	if questToDungeon[questId] then return questToDungeon[questId] end
 	local zone = ns.QuestSource.Quest(questId, "zoneOrSort")
 	if not zone or zone <= 0 then return nil end
-	return index()[zone]
+	return idx[zone]
 end
 
 -- Is the player's level right for this dungeon?
@@ -48,6 +57,12 @@ local function entrancePoints(area)
 	local locs = ZoneDB and ZoneDB.GetDungeonLocation and ns.safe(ZoneDB.GetDungeonLocation, ZoneDB, area)
 	for _, loc in ipairs(type(locs) == "table" and locs or {}) do
 		local p = ns.Geo.Point(loc[1], loc[2], loc[3])
+		if p then pts[#pts + 1] = p end
+	end
+	-- (a dungeon Questie doesn't list: dungeonData's own entrance)
+	local own = #pts == 0 and ns.cfg.dungeonData and ns.cfg.dungeonData[area]
+	if own and own.entrance then
+		local p = ns.Geo.Point(own.entrance[1], own.entrance[2], own.entrance[3])
 		if p then pts[#pts + 1] = p end
 	end
 	return pts

@@ -80,6 +80,14 @@ Seeds.transports = {
 		b = { name = "Rut'theran Village", map = TELDRASSIL, x = 54.9, y = 96.8 } },
 	{ kind = "boat", faction = nil, a = { name = "Booty Bay", map = STV, x = 25.8, y = 73.1 },
 		b = { name = "Ratchet", map = BARRENS, x = 63.7, y = 38.6 } },
+	-- Forever: the goblin ferry between Powderfuse Port (Riverglades) and Steamwheedle Port (Tanaris).
+	-- Both ends approximate (Riverglades guides; one Tanaris source).
+	{ kind = "boat", faction = nil, a = { name = "Powderfuse Port", map = 2548, x = 80.6, y = 54.6 },
+		b = { name = "Steamwheedle Port", map = 1446, x = 68.6, y = 23.0 } },
+	-- Forever: the Old Dinghy by Menethil Harbor's fishing trainer to Newman's Landing (Dun Morogh's
+	-- west coast). Menethil end approximate: next to Harold Riggs.
+	{ kind = "boat", faction = nil, a = { name = "Menethil Old Dinghy", map = WETLANDS, x = 8.0, y = 58.4 },
+		b = { name = "Newman's Landing", map = DUNMOROGH, x = 18.0, y = 74.5 } },
 	{ kind = "zeppelin", faction = "Horde",
 		a = { name = "Orgrimmar zeppelins", map = DUROTAR, x = 50.9, y = 13.8, npc = 9564, npcName = "Zapetta" },
 		b = { name = "Undercity zeppelins", map = TIRISFAL, x = 60.7, y = 58.8, npc = 9566, npcName = "Frezza" } },

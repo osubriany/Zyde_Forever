@@ -186,15 +186,33 @@ local function glowFor(plate)
 	return g
 end
 
+-- The level planner's current step: its mobs glow green instead of gold (the ones that count now).
+local NOW = { 0.35, 1, 0.45 }
+local function stepMobs()
+	local LP = ns.LP
+	return LP and LP.CurrentStepMobs and LP.CurrentStepMobs() or nil
+end
+
+local function setGlowColour(g, c)
+	if g.colour == c then return end
+	g.colour = c
+	for _, t in ipairs(g.edges) do t:SetColorTexture(c[1], c[2], c[3], 1) end
+end
+
 local function updateGlows(mobs)
 	local want = {}
+	local now = stepMobs()
 	for _, m in ipairs(mobs) do
 		local plate = C_NamePlate and C_NamePlate.GetNamePlateForUnit(m.unit)
-		if plate then want[plate] = true end
+		if plate then
+			local id = now and npcFromGUID(UnitGUID(m.unit))
+			want[plate] = (id and now[id]) and NOW or GOLD
+		end
 	end
-	for plate in pairs(want) do
+	for plate, colour in pairs(want) do
 		local g = glowFor(plate)
 		fit(g, plate)
+		setGlowColour(g, colour)
 		if not g:IsShown() then g:Show() g.pulse:Play() end
 	end
 	for plate, g in pairs(glows) do

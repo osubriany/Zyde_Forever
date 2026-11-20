@@ -98,11 +98,15 @@ else
 end
 
 -- Pressing or releasing Shift redraws the tooltip so the breakdown appears or disappears.
+-- Only an ITEM tooltip, and never in combat: redrawing from here runs the game's tooltip code as
+-- ours, and on a unit tooltip (a mob or player whose details the game hides in a fight or dungeon)
+-- that hit a hidden value and raised an error blamed on Zyde_Forever.
 local f = CreateFrame("Frame")
 f:RegisterEvent("MODIFIER_STATE_CHANGED")
 f:SetScript("OnEvent", function(_, _, key)
 	if key ~= "LSHIFT" and key ~= "RSHIFT" then return end
-	if GameTooltip:IsShown() and GameTooltip.RefreshData then
-		pcall(GameTooltip.RefreshData, GameTooltip)
-	end
+	if InCombatLockdown() or not (GameTooltip:IsShown() and GameTooltip.RefreshData) then return end
+	local ok, _, link = pcall(GameTooltip.GetItem, GameTooltip)
+	if not ok or type(link) ~= "string" then return end -- (a hidden value isn't a string either)
+	pcall(GameTooltip.RefreshData, GameTooltip)
 end)

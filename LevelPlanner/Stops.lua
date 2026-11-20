@@ -166,7 +166,8 @@ local function buyStop(quest, itemId, itemName, need)
 	if type(vendors) == "table" and #vendors > 0 then
 		local s = make(npcPoints(vendors, true), string.format("Buy %d %s from %s", need, itemName,
 			QS.Npc(vendors[1], "name") or "a vendor"), cfg.buySeconds or 30)
-		if s then return s end
+		-- (bought for you when you open the vendor, UI/Shopping.lua)
+		if s then s.buyItem, s.buyName, s.buyCount, s.buyVendor = itemId, itemName, need, true return s end
 	end
 	-- 2) the auction house
 	if cfg.ahBuy == false then return nil end
@@ -180,9 +181,12 @@ local function buyStop(quest, itemId, itemName, need)
 	local pts = {}
 	for _, pl in ipairs(places) do pts[#pts + 1] = pl.point end
 	local gold = total / 10000
-	return make(pts, string.format("Buy %d %s at the auction house (~%s)", need, itemName,
+	local s = make(pts, string.format("Buy %d %s at the auction house (~%s)", need, itemName,
 		gold >= 1 and string.format("%.1fg", gold) or string.format("%ds", math.max(1, math.floor(total / 100)))),
 		(cfg.ahBuySeconds or 60) + gold * S.SecondsPerGold())
+	-- (for the shopping list at the auction house, UI/Shopping.lua)
+	if s then s.buyItem, s.buyName, s.buyCount, s.buyEach, s.buyAH = itemId, itemName, need, each, true end
+	return s
 end
 
 -- An item you could farm, but that a vendor sells or the auction house lists: buy it instead when
@@ -355,6 +359,11 @@ fixStop = function(quest, fo, index, remaining)
 	elseif fo.kind == "spot" then
 		stop.work = fo.seconds or cfg.eventSeconds or 20
 		stop.label = fo.name or "Go to the spot"
+		-- a fee (gold) to pay there: counts as the time it takes you to earn it
+		if fo.cost and fo.cost > 0 then
+			stop.work = stop.work + fo.cost * S.SecondsPerGold()
+			stop.label = string.format("%s (%sg fee)", stop.label, tostring(fo.cost))
+		end
 	elseif fo.kind == "objects" then
 		-- click / loot things lying around (herbs, crates)
 		local need = remaining or fo.count or countFromText(quest.texts, fo.name, cfg.defaultObjectCount or 4)
@@ -433,7 +442,37 @@ function S.BuildQuest(questId, logEntry, opts)
 		local pts = npcPoints(starts[1], true)
 		objectPoints(starts[2], pts)
 		local fixStart = #pts == 0 and fix and fix.start
-		if fixStart then pointsFromSpawns(fixStart.spawns, pts) end
+		if fixStart and fixStart.spawns then pointsFromSpawns(fixStart.spawns, pts) end
+		-- Started by an item that's another quest's REWARD (Forlorn Necklace from Not on Squealing Terms):
+		-- the item comes when you hand that quest in, so this one starts right there, after it. Already
+		-- handed in: the item is in your bags, start it where you are. From fix.start.afterQuest, or
+		-- Questie's item data (questRewards).
+		local afterLabel
+		if #pts == 0 then
+			local after = fixStart and fixStart.afterQuest
+			if not after then
+				for _, item in ipairs(starts[3] or {}) do
+					local rq = QS.Item(item, "questRewards")
+					if type(rq) == "table" and rq[1] then after = rq[1] break end
+				end
+			end
+			if after then
+				local done = Questie and Questie.db and Questie.db.char and Questie.db.char.complete or {}
+				local afterName = QS.Quest(after, "name") or ("quest " .. after)
+				if done[after] then
+					local here = ns.Geo.PlayerPoint()
+					if here then pts[1] = here end
+					afterLabel = string.format("Start %s (the item from %s, in your bags)", quest.name, afterName)
+				else
+					local fin = QS.Quest(after, "finishedBy") or {}
+					npcPoints(fin[1], true, pts)
+					objectPoints(fin[2], pts)
+					quest.requires = quest.requires or {}
+					quest.requires[#quest.requires + 1] = after
+					afterLabel = string.format("Start %s (with the reward from %s)", quest.name, afterName)
+				end
+			end
+		end
 		if #pts == 0 then
 			return nil, (starts[3] and #starts[3] > 0) and "started by an item" or "no pickup location"
 		end
@@ -454,6 +493,7 @@ function S.BuildQuest(questId, logEntry, opts)
 			for _, id in ipairs(ids) do pickup.mobs[id] = true end
 			pickup.label = string.format("Loot the starter for %s from %s", quest.name, fixStart.name or "mobs")
 		end
+		if afterLabel then pickup.label, pickup.npcIds = afterLabel, nil end
 		quest.stops[#quest.stops + 1] = pickup
 	end
 
