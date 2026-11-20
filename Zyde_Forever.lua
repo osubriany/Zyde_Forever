@@ -17,8 +17,8 @@
 -- 14) A small draggable info bar, three lines. Collapsed: location, gold,
 --     bags, and ammo. Max opens steps, swim, mounted, and jumps
 --     (InfoBar.lua).
--- 15) Tank threat list: mobs you have threat on, your percent, and the next
---     two people, one CSV line each (ThreatBox.lua).
+-- 15) Tank threat list: a table of mobs you have threat on, your percent,
+--     and the next two people (ThreatBox.lua).
 --
 -- /zyde test     - toggle preview of both icons (to see where they sit)
 -- /zyde resetxp  - put the XP readout back at its default spot
@@ -101,7 +101,7 @@ local FEATURES = {
 	{ key = "hideMicroMenu", short = "game menu buttons", label = "Hide micro menu", desc = "Hides the row of small game menu buttons (character, spellbook, talents, quest log, social, game menu...). Their keybinds still work", reload = true },
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
 	{ key = "infoBar", short = "location, gold, bags", label = "Info bar", desc = "Three short lines you can drag. Collapsed: where you are, gold, bag space, and ammo for a bow, gun, or throwing weapon. Max opens steps, yards swum, yards mounted, and jumps. Min hides that line. The travel counts are kept for this character" },
-	{ key = "threatBox", short = "tank threat, CSV", label = "Tank threat list", desc = "While you are set to the tank role in a party or raid: a draggable list of mobs you have threat on. Each line is mob, your threat percent, then the two people closest behind you and their percent. Only mobs with a nameplate, bosses, and your target can be listed. Drag the title to move it" },
+	{ key = "threatBox", short = "tank threat table", label = "Tank threat list", desc = "While you are set to the tank role in a party or raid: a draggable table of mobs you have threat on. Columns are the mob, your threat percent, then the two people closest behind you and their percent. Only mobs with a nameplate, bosses, and your target can be listed. Drag the title to move it" },
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames with buffs and debuffs, mana / rage / energy on party frames. Shift-drag a frame to move it", reload = true },
 	{ key = "targetTarget", short = "small frame by target", label = "Target of target", desc = "A small frame beside the target frame showing who your target is targeting (with the Zyde unit frames on). Shift-drag it to move it" },
 	{ key = "unitAuras", short = "icons on your frames", label = "Unit frame buffs / debuffs", desc = "Buff and debuff icons with time left on the Zyde unit frames: the target's debuffs (yours first) and buffs, your debuffs and buffs, and your pet's" },
