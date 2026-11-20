@@ -35,9 +35,10 @@ local function townsfolkIds(kind)
 	return TF.townsfolk and TF.townsfolk[kind]
 end
 
-local FLAG_FOR = { ["Flight Master"] = "FLIGHT_MASTER", ["Innkeeper"] = "INNKEEPER", ["Repair"] = "REPAIR" }
+local FLAG_FOR = { ["Flight Master"] = "FLIGHT_MASTER", ["Innkeeper"] = "INNKEEPER", ["Repair"] = "REPAIR",
+	["Auctioneer"] = "AUCTIONEER" }
 
--- kind: "Flight Master", "Innkeeper", "Repair" or "Class Trainer". Call inside a job.
+-- kind: "Flight Master", "Innkeeper", "Repair", "Auctioneer" or "Class Trainer". Call inside a job.
 function PL.List(kind)
 	if cache[kind] then return cache[kind] end
 	local QS = ns.QuestSource

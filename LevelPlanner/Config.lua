@@ -91,6 +91,19 @@ LevelPlannerConfig = {
 	objectSeconds = 12,         -- using / looting one object
 	eventSeconds = 20,          -- explore / reach-a-place objectives once you are there
 	defaultDropRate = 0.5,      -- chance a quest item drops when Questie has no rate (0-1)
+	-- Quest items no mob drops (crafted, sold): buy them. A vendor Questie knows sells it comes
+	-- first; else the auction house, when AHledger has seen it listed. The gold counts as time
+	-- (flightSecondsPerGold), so a buy is planned only when it's worth the trip and the price.
+	buyQuestItems = true,       -- plan buy steps at all
+	buySeconds = 30,            -- buying from a vendor
+	ahBuy = true,               -- also buy at the auction house (needs AHledger prices)
+	ahBuyMaxGold = 5,           -- ... at most this many gold for the whole stack
+	ahBuySeconds = 60,          -- ... finding it and buying it
+	-- What one gold is worth in time when buying: how long it takes to earn it at your level.
+	-- nil = from goldPerHourByLevel below (about 15 min per gold at level 33); a number = fixed.
+	-- (Gold comes slowly on Forever: the curve is set for that.)
+	buySecondsPerGold = nil,
+	goldPerHourByLevel = { [10] = 0.5, [20] = 1.5, [30] = 3, [40] = 6, [50] = 10, [60] = 18 },
 	defaultKillCount = 8,       -- when the quest text gives no count
 	defaultItemCount = 6,
 	defaultObjectCount = 4,

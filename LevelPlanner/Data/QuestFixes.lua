@@ -826,6 +826,23 @@ ns.QuestFixes = {
 }
 
 ----------------------------------------------------------------------------------------
+-- Quests confirmed live on Forever that Questie's trace data hasn't seen yet (race/class versions,
+-- dungeon versions). Never skipped as "not seen on Forever". Source: Wowhead Forever, via Google AI.
+----------------------------------------------------------------------------------------
+ns.LiveQuests = {
+	[94817] = true, [94825] = true, -- Confounding Flash (gnome priests)
+	[94773] = true, [94778] = true, -- Divine Grace (human priests)
+	[94818] = true,                 -- Contingency Plan (gnome priests)
+	[98166] = true,                 -- Your First Horse (humans, Theramore)
+	[98287] = true,                 -- Camping 101: Engineering (Alliance engineers)
+	[92753] = true,                 -- Destruction in Deadmines (Alliance)
+	[92415] = true,                 -- Remember That I Love You (Alliance)
+	[78699] = true,                 -- The Eye of Bhossca (rogues)
+	[78307] = true,                 -- The Horn of Xelthos (rogues)
+	[97288] = true,                 -- Unending Torment (Horde)
+}
+
+----------------------------------------------------------------------------------------
 -- Forever drop rates for quest items, in % (used instead of Questie's Classic-era rates).
 --   [itemId] = 19.3                       -- every mob that drops it
 --   [itemId] = { [npcId] = 19.3, all = 5 } -- per mob ("all": the rest)

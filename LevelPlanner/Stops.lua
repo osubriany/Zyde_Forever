@@ -126,6 +126,65 @@ end
 -- Objectives
 ----------------------------------------------------------------------------------------
 
+-- Seconds one gold is worth when buying: the time it takes to earn it at your level
+-- (cfg.goldPerHourByLevel, straight lines between the listed levels), unless set outright.
+function S.SecondsPerGold()
+	local cfg = ns.cfg
+	if type(cfg.buySecondsPerGold) == "number" then return cfg.buySecondsPerGold end
+	local tbl = cfg.goldPerHourByLevel or { [10] = 0.5, [20] = 1.5, [30] = 3, [40] = 6, [50] = 10, [60] = 18 }
+	local L = ns.playerLevel()
+	local lo, hi
+	for lvl in pairs(tbl) do
+		if lvl <= L and (not lo or lvl > lo) then lo = lvl end
+		if lvl >= L and (not hi or lvl < hi) then hi = lvl end
+	end
+	lo, hi = lo or hi, hi or lo
+	local gph = tbl[lo]
+	if hi ~= lo then gph = tbl[lo] + (tbl[hi] - tbl[lo]) * (L - lo) / (hi - lo) end
+	return 3600 / math.max(gph or 1, 0.1)
+end
+
+-- A quest item nobody drops: buy it. From a vendor Questie knows sells it, else at the auction house
+-- when AHledger has seen it listed (lowest buyout, else median) and it costs at most cfg.ahBuyMaxGold.
+-- The gold counts as time (S.SecondsPerGold: how long you'd take to earn it), so the planner weaves
+-- it in only when the detour and the price are worth it. Returns a finished stop, or nil.
+local function buyStop(quest, itemId, itemName, need)
+	local QS, cfg = ns.QuestSource, ns.cfg
+	local function make(points, label, seconds)
+		if #points == 0 then return nil end
+		if #points > 12 then -- (keep a spread of places; the planner picks the nearest)
+			local few, step = {}, #points / 12
+			for i = 1, 12 do few[i] = points[math.floor((i - 1) * step) + 1] end
+			points = few
+		end
+		return { kind = "objective", questId = quest.id, questName = quest.name, mobXp = 0, buy = true,
+			points = points, work = seconds, label = label, need = need }
+	end
+	if cfg.buyQuestItems == false then return nil end
+	-- 1) a vendor
+	local vendors = QS.Item(itemId, "vendors")
+	if type(vendors) == "table" and #vendors > 0 then
+		local s = make(npcPoints(vendors, true), string.format("Buy %d %s from %s", need, itemName,
+			QS.Npc(vendors[1], "name") or "a vendor"), cfg.buySeconds or 30)
+		if s then return s end
+	end
+	-- 2) the auction house
+	if cfg.ahBuy == false then return nil end
+	local api = _G.AHledgerAPI
+	local p = api and api.GetPrice and ns.safe(api.GetPrice, itemId)
+	local each = p and (p.minBuyout or p.median)
+	if type(each) ~= "number" or each <= 0 then return nil end
+	local total = each * need
+	if total > (cfg.ahBuyMaxGold or 5) * 10000 then return nil end
+	local places = ns.Places and ns.Places.List("Auctioneer") or {}
+	local pts = {}
+	for _, pl in ipairs(places) do pts[#pts + 1] = pl.point end
+	local gold = total / 10000
+	return make(pts, string.format("Buy %d %s at the auction house (~%s)", need, itemName,
+		gold >= 1 and string.format("%.1fg", gold) or string.format("%ds", math.max(1, math.floor(total / 100)))),
+		(cfg.ahBuySeconds or 60) + gold * S.SecondsPerGold())
+end
+
 -- Builds one objective stop. `remaining` is how many are still needed (nil = unknown, use text/defaults).
 -- Returns stop, or nil plus a reason when the objective can't be planned.
 local function objectiveStop(quest, od, remaining)
@@ -210,6 +269,11 @@ local function objectiveStop(quest, od, remaining)
 			local fo = fix and fix.items and fix.items[od.Id]
 			if fo and fo.kind == "have" then return "skip" end -- handed to you with the quest
 			if fo then return fixStop(quest, fo, "i" .. od.Id, remaining) end
+			-- nobody drops it: buy it (a vendor, else the auction house)
+			-- (how many: the log, else the quest text; "Bring a Moonsteel Broadsword" means 1, not the
+			-- drop default)
+			local bought = buyStop(quest, od.Id, itemName, remaining or countFromText(quest.texts, itemName, 1))
+			if bought then return bought end
 			return nil, "item source unknown"
 		end
 		stop.need = need
@@ -325,6 +389,17 @@ function S.BuildQuest(questId, logEntry, opts)
 
 	-- where Questie is missing something, a hand-filled entry (Data/QuestFixes.lua) may have it
 	local fix = ns.QuestFixes and ns.QuestFixes[questId]
+
+	-- Never seen on Forever, and nothing to do: Questie's quest XP for IDs past Classic's (10000+) comes
+	-- only from Forever players' traces, so no XP there means no one has done it here yet. With no
+	-- objectives either it's most likely a Season of Discovery leftover (e.g. 81570, a twin of "Jarl
+	-- Needs a Blade" with no prerequisite and no objectives) that would be planned as pick up -> hand
+	-- in. Untraced quests WITH objectives stay: many are real race/class versions few people have done.
+	-- Kept too: ones in your log, with a hand-filled entry, or confirmed live (ns.LiveQuests).
+	if not logEntry and quest.xpEstimated and questId >= (cfg.classicQuestIdMax or 10000) and not fix
+		and #(qo.ObjectiveData or {}) == 0 and not (ns.LiveQuests and ns.LiveQuests[questId]) then
+		return nil, "not seen on Forever"
+	end
 
 	-- pick up
 	if not logEntry then
