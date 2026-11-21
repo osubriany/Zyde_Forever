@@ -263,7 +263,8 @@ local icons = {
 }
 -- Battle Shout sits on the character, large, until you put it on.
 icons[1].frame.prominent = true
-icons[1].frame.label = icons[1].frame:CreateFontString(nil, "OVERLAY")
+-- (a font from the start: SetText runs before layout() sets the small font)
+icons[1].frame.label = icons[1].frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 icons[1].frame.label:SetTextColor(1, 0.9, 0.45)
 
 -- Other files add their own reminder icons to this column:
