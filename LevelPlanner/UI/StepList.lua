@@ -21,8 +21,20 @@ local C_NOW = { 0.35, 1, 0.55 }
 local C_XP = { 1, 0.82, 0.25 }
 local C_DIM = { 0.62, 0.62, 0.66 }
 local C_WARN = { 1, 0.6, 0.2 }
+-- left-edge stripe by step type
+local STRIPE = {
+	kill = { 0.9, 0.3, 0.3 },
+	collect = { 0.4, 0.85, 0.4 },
+	turnin = C_XP,
+	travel = { 0.35, 0.6, 1 },
+	pickup = { 0.85, 0.85, 0.85 },
+	other = { 0.7, 0.45, 0.95 },
+}
+local CHECK = "Interface\\RAIDFRAME\\ReadyCheck-Ready"
+local FADE_SECS, RISE_SECS = 0.35, 0.2 -- finished step: check + fade out, then the rows below move up
 
-local frame, title, status, summary, footer, toast
+local frame, list, title, status, summary, footer, toast
+local ghost -- copy of a finished step's row, faded out over the list (see L.Update)
 local rows = {}
 local lastPlan
 
@@ -65,30 +77,33 @@ local function fontString(parent, template, r, g, b, justify)
 	return fs
 end
 
-local function makeRow(i)
-	local r = CreateFrame("Frame", nil, frame)
+local function buildRow()
+	local r = CreateFrame("Frame", nil, list)
 	r:SetSize(WIDTH - PAD * 2, ROW_H)
 
 	r.highlight = r:CreateTexture(nil, "BACKGROUND")
 	r.highlight:SetAllPoints()
 	r.highlight:SetColorTexture(C_NOW[1], C_NOW[2], C_NOW[3], 0.10)
-	r.accent = r:CreateTexture(nil, "BORDER")
-	r.accent:SetPoint("TOPLEFT")
-	r.accent:SetPoint("BOTTOMLEFT")
-	r.accent:SetWidth(2)
-	r.accent:SetColorTexture(C_NOW[1], C_NOW[2], C_NOW[3], 0.9)
+	-- colour stripe on the left edge: the step's type (kill, collect, turn-in, travel, pick-up, other)
+	r.stripe = r:CreateTexture(nil, "BORDER")
+	r.stripe:SetPoint("TOPLEFT")
+	r.stripe:SetPoint("BOTTOMLEFT")
+	r.stripe:SetWidth(3)
+	r.stripe:SetColorTexture(1, 1, 1, 1)
 
 	r.icon = r:CreateTexture(nil, "ARTWORK")
 	r.icon:SetSize(20, 20)
 	r.icon:SetPoint("LEFT", 6, 0)
 	r.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 
+	-- right-hand column, the same on every row: +XP on top; "~time · »54%" (or "10/12 · »54%" on
+	-- the current step) below - » = level progress after this step
 	r.xp = fontString(r, "GameFontNormalSmall", C_XP[1], C_XP[2], C_XP[3], "RIGHT")
 	r.xp:SetPoint("TOPRIGHT", -4, -4)
 	r.xp:SetWidth(56)
 	r.time = fontString(r, "GameFontDisableSmall", C_DIM[1], C_DIM[2], C_DIM[3], "RIGHT")
 	r.time:SetPoint("BOTTOMRIGHT", -4, 5)
-	-- (no fixed width: it fits its text, e.g. "~13m  → 64%", and the detail line makes room)
+	-- (no fixed width: it fits its text, and the detail line makes room)
 
 	r.title = fontString(r, "GameFontHighlight")
 	r.title:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 8, 2)
@@ -107,23 +122,28 @@ local function makeRow(i)
 	r.bar.bg:SetAllPoints()
 	r.bar.bg:SetColorTexture(1, 1, 1, 0.08)
 
-	-- slide up into place (when a step is finished and the list moves up)
+	return r
+end
+
+-- Slide up into place (when a step is finished and the list moves up): the row starts one row
+-- lower - where it was before - waits while the finished step fades, then rises.
+local function addSlide(r)
 	r.slide = r:CreateAnimationGroup()
 	local drop = r.slide:CreateAnimation("Translation")
-	drop:SetOffset(0, -ROW_H)
+	drop:SetOffset(0, -(ROW_H + 2))
 	drop:SetDuration(0)
 	drop:SetOrder(1)
 	local rise = r.slide:CreateAnimation("Translation")
-	rise:SetOffset(0, ROW_H)
-	rise:SetDuration(0.28)
+	rise:SetOffset(0, ROW_H + 2)
+	rise:SetDuration(RISE_SECS)
 	rise:SetSmoothing("OUT")
+	rise:SetStartDelay(FADE_SECS)
 	rise:SetOrder(2)
-	local fadeIn = r.slide:CreateAnimation("Alpha")
-	fadeIn:SetFromAlpha(0.2)
-	fadeIn:SetToAlpha(1)
-	fadeIn:SetDuration(0.28)
-	fadeIn:SetOrder(2)
-	r.slideParts = { rise, fadeIn }
+end
+
+local function makeRow(i)
+	local r = buildRow()
+	addSlide(r)
 	-- clicks: right-click a pinned NPC step to remove it; drag still moves the list
 	r:EnableMouse(true)
 	r:RegisterForDrag("LeftButton")
@@ -189,8 +209,33 @@ function L.Init()
 	footer:SetJustifyH("LEFT")
 	footer:SetWidth(WIDTH - PAD * 2)
 
+	-- the rows live in a clipping area under the header: while they slide up, a row waiting below
+	-- the last place doesn't show outside the window
+	list = CreateFrame("Frame", nil, frame)
+	list:SetPoint("TOPLEFT", summary, "BOTTOMLEFT", 0, -2)
+	list:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD + 2, 2)
+	if list.SetClipsChildren then list:SetClipsChildren(true) end
+
 	for i = 1, MAX_ROWS do makeRow(i):Hide() end
 	for i = 1, MAX_ROWS do L.MakeDivider(i):Hide() end
+
+	-- finished step: a copy of its row with a check mark, fading out where it was
+	ghost = buildRow()
+	ghost:EnableMouse(false)
+	ghost:SetFrameLevel(list:GetFrameLevel() + 5)
+	ghost.check = ghost:CreateTexture(nil, "OVERLAY")
+	ghost.check:SetTexture(CHECK)
+	ghost.check:SetSize(22, 22)
+	ghost.check:SetPoint("CENTER", ghost.icon, "CENTER")
+	ghost.fade = ghost:CreateAnimationGroup()
+	local pop = ghost.fade:CreateAnimation("Alpha")
+	pop:SetFromAlpha(1)
+	pop:SetToAlpha(0)
+	pop:SetStartDelay(0.1)
+	pop:SetDuration(FADE_SECS - 0.1)
+	ghost.fade:SetScript("OnFinished", function() ghost:Hide() end)
+	ghost.fade:SetScript("OnStop", function() ghost:Hide() end)
+	ghost:Hide()
 
 	-- route-change notice
 	toast = CreateFrame("Frame", nil, frame, BackdropTemplateMixin and "BackdropTemplate" or nil)
@@ -341,7 +386,7 @@ local function groupSteps(plan)
 				kind = s.kind, mode = s.mode, point = s.point, n = 1, xp = s.xp or 0, mobXp = s.mobXp or 0,
 				work = s.work or 0, label = s.label, names = { s.questName }, npcName = s.npcName,
 				icon = s.icon, pinLabel = s.pinLabel,
-				questId = s.questId, objIndex = s.objIndex, objType = s.objType,
+				questId = s.questId, objIndex = s.objIndex, objType = s.objType, buy = s.buy,
 				chain = q and not q.isDungeon and (q.chainValue or 0) > 0,
 				grey = q and q.grey,
 			}
@@ -429,12 +474,39 @@ local function describe(step, plan)
 	return titleText, detail, xp, icon
 end
 
+-- The stripe colour for a step.
+local function stripeOf(step)
+	local k = step.kind
+	if k == "turnin" then return STRIPE.turnin end
+	if k == "pickup" then return STRIPE.pickup end
+	if k == "travel" or k == "flightpath" then return STRIPE.travel end
+	if k == "dungeon" or k == "grind" then return STRIPE.kill end
+	if k == "objective" then
+		if step.buy then return STRIPE.collect end
+		local t = objectiveType(step)
+		if t == "item" or t == "object" then return STRIPE.collect end
+		if t == "event" then return STRIPE.other end
+		return STRIPE.kill
+	end
+	return STRIPE.other
+end
+
 local DIV_H = 16
 local dividers = {}
 
 -- "--- Westfall ---": a thin line with the zone name, between rows when the route changes zone.
+-- The same in gold, "--- Level 35 ---", where the plan says you'll level up.
+local function styleDivider(d, level)
+	local a = level and 0.6 or 0.12
+	local c = level and C_XP or { 1, 1, 1 }
+	d.left:SetColorTexture(c[1], c[2], c[3], a)
+	d.right:SetColorTexture(c[1], c[2], c[3], a)
+	d.text:SetFontObject(level and "GameFontNormalSmall" or "GameFontDisableSmall")
+	d.text:SetTextColor(C_XP[1], C_XP[2], C_XP[3], level and 1 or 0.85)
+end
+
 function L.MakeDivider(i)
-	local d = CreateFrame("Frame", nil, frame)
+	local d = CreateFrame("Frame", nil, list)
 	d:SetSize(WIDTH - PAD * 2, DIV_H)
 	d.text = d:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	d.text:SetPoint("CENTER")
@@ -449,6 +521,7 @@ function L.MakeDivider(i)
 	d.right:SetHeight(1)
 	d.right:SetPoint("LEFT", d.text, "RIGHT", 6, 0)
 	d.right:SetPoint("RIGHT", -4, 0)
+	addSlide(d)
 	dividers[i] = d
 	return d
 end
@@ -468,9 +541,10 @@ function L.Update(plan)
 	if not frame then return end
 	local newPlan = plan ~= lastPlan
 	lastPlan = plan
-	for i = 1, MAX_ROWS do rows[i]:Hide() dividers[i]:Hide() end
 	footer:Hide()
 	if not plan or #plan.stops == 0 then
+		for i = 1, MAX_ROWS do rows[i]:Hide() dividers[i]:Hide() rows[i].slide:Stop() dividers[i].slide:Stop() end
+		ghost.fade:Stop()
 		hearthRow = nil
 		placeHearth()
 		summary:SetText("No plannable quests nearby  |cff999999(/lp debug for details)|r")
@@ -516,23 +590,51 @@ function L.Update(plan)
 	local gained, dinged = 0, false
 	local hearthFound
 
-	-- a finished step: the list slides up (only for a new plan whose first row changed)
+	-- a finished step (a new plan whose first row changed): its row shows a check mark and fades
+	-- out, then the rows below slide up into place. A re-plan in the middle restarts it cleanly from
+	-- where things are; a re-plan that keeps the first step ends it at once (rows in their places).
 	local firstId = steps[1] and ((steps[1].kind or "") .. "|" .. (steps[1].label or ""))
 	local slide = newPlan and lastFirst ~= nil and firstId ~= lastFirst
 	lastFirst = firstId
+	if newPlan then
+		for i = 1, MAX_ROWS do rows[i].slide:Stop() dividers[i].slide:Stop() end
+		ghost.fade:Stop()
+	end
+	if slide and rows[1]:IsShown() then
+		local old = rows[1]
+		ghost.icon:SetTexture(old.icon:GetTexture())
+		ghost.title:SetText(old.title:GetText())
+		ghost.detail:SetText(old.detail:GetText())
+		ghost.xp:SetText(old.xp:GetText())
+		ghost.time:SetText(old.time:GetText())
+		ghost.stripe:SetVertexColor(old.stripe:GetVertexColor())
+		ghost.highlight:SetShown(old.highlight:IsShown())
+		ghost.bar:Hide()
+		ghost:ClearAllPoints()
+		ghost:SetPoint("TOPLEFT", summary, "BOTTOMLEFT", 0, old.y or -6)
+		ghost:SetAlpha(1)
+		ghost:Show()
+		ghost.fade:Play()
+	end
+
+	-- a divider line: the zone ahead, or a gold "Level 35" after the step that levels you up
+	local function divider(text, level)
+		if nDiv >= MAX_ROWS then return end
+		nDiv = nDiv + 1
+		local d = dividers[nDiv]
+		styleDivider(d, level)
+		d.text:SetText(text)
+		d:ClearAllPoints()
+		d:SetPoint("TOPLEFT", summary, "BOTTOMLEFT", 0, y)
+		d:Show()
+		if slide then d.slide:Play() end
+		y = y - DIV_H
+	end
 
 	for i = 1, shown do
 		local s, r = steps[i], rows[i]
 		local zone = zoneOf(s.point)
-		if zone and zone ~= prevZone and zoneName(zone) and nDiv < MAX_ROWS then
-			nDiv = nDiv + 1
-			local d = dividers[nDiv]
-			d.text:SetText(zoneName(zone))
-			d:ClearAllPoints()
-			d:SetPoint("TOPLEFT", summary, "BOTTOMLEFT", 0, y)
-			d:Show()
-			y = y - DIV_H
-		end
+		if zone and zone ~= prevZone and zoneName(zone) then divider(zoneName(zone), false) end
 		if zone then prevZone = zone end
 
 		local titleText, detail, xp, icon = describe(s, plan)
@@ -541,24 +643,22 @@ function L.Update(plan)
 		local bonus = math.min(rested, kills)
 		rested = rested - bonus
 		gained = gained + (s.kind == "turnin" and s.xp or 0) + kills + bonus
-		if need and not dinged and gained >= need then
-			dinged = true
-			detail = "|cffffd100LEVEL UP|r  " .. detail
-		end
+		local dingHere = false
+		if need and not dinged and gained >= need then dinged, dingHere = true, true end
 		r.kind = s.kind
 		if s.kind == "travel" and s.mode == "hearth" and not hearthFound then hearthFound = r end
 		r.icon:SetTexture(icon)
 		r.title:SetText(titleText)
 		r.detail:SetText(detail)
-		r.xp:SetText(xp)
-		-- time only where it means something (not for a quick chat with an NPC)
-		local timed = s.kind == "objective" or s.kind == "dungeon" or s.kind == "grind"
-			or (s.kind == "travel" and s.mode ~= "pass" and s.mode ~= "border")
-		r.time:SetText(timed and s.work and s.work > 0 and ns.shortTime(s.work) or "")
+		-- top line: +XP, or a dim dash when the step gives none
+		r.xp:SetText((xp and xp ~= "") and xp or "|cff666666-|r")
+		-- bottom line: the step's time (every step that takes any)
+		r.time:SetText(s.work and s.work > 0 and ns.shortTime(s.work) or "")
 
 		local current = (i == 1)
 		r.highlight:SetShown(current)
-		r.accent:SetShown(current)
+		local c = stripeOf(s)
+		r.stripe:SetVertexColor(c[1], c[2], c[3], current and 1 or 0.7)
 		r:SetAlpha(current and 1 or 0.78)
 		r.title:SetTextColor(current and 1 or 0.9, current and 1 or 0.9, current and 1 or 0.9)
 
@@ -588,30 +688,29 @@ function L.Update(plan)
 			r.bar.target = nil
 		end
 
-		-- where you'll be after this step, as % of the level: "64%", or "L35 12%" past a ding
-		-- (no arrow: the game's font has no "→" and draws an empty box)
+		-- where you'll be after this step, as % of the level: "»64%", or "»L35 12%" past a ding
+		-- (» not an arrow: the game's font has no arrow glyph and draws an empty box)
 		-- (next level's size taken as this one's: close enough for a glance)
-		if xp and xp ~= "" and need and max and max > 0 then
+		if need and max and max > 0 then
 			local total, lvl = (max - need) + gained, ns.playerLevel()
 			while total >= max do total, lvl = total - max, lvl + 1 end
 			local pct = math.floor(total / max * 100)
-			local where = lvl > ns.playerLevel() and string.format("|cffffd100L%d %d%%|r", lvl, pct)
-				or string.format("%d%%", pct)
+			local where = lvl > ns.playerLevel() and string.format("|cffffd100»L%d %d%%|r", lvl, pct)
+				or string.format("»%d%%", pct)
 			local t = r.time:GetText()
-			r.time:SetText((t and t ~= "") and (t .. "  " .. where) or where)
+			r.time:SetText((t and t ~= "") and (t .. " · " .. where) or where)
 		end
 
 		r:ClearAllPoints()
 		r:SetPoint("TOPLEFT", summary, "BOTTOMLEFT", 0, y)
+		r.y = y
 		y = y - (ROW_H + 2)
 		r:Show()
-		if slide then
-			r.slide:Stop()
-			for _, part in ipairs(r.slideParts) do part:SetStartDelay((i - 1) * 0.03) end
-			r.slideParts[2]:SetToAlpha(current and 1 or 0.78) -- end at the row's normal brightness
-			r.slide:Play()
-		end
+		if slide then r.slide:Play() end
+		if dingHere then divider(string.format("Level %d", ns.playerLevel() + 1), true) end
 	end
+	for i = shown + 1, MAX_ROWS do rows[i]:Hide() rows[i].slide:Stop() end
+	for i = nDiv + 1, MAX_ROWS do dividers[i]:Hide() dividers[i].slide:Stop() end
 	hearthRow = hearthFound
 	placeHearth()
 	local height = PAD + title:GetStringHeight() + 4 + summary:GetStringHeight() - y
