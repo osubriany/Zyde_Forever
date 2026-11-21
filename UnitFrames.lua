@@ -830,9 +830,9 @@ local function fillGrid(grid, base)
 		local col, row = (i - 1) % grid.perRow, math.floor((i - 1) / grid.perRow)
 		b:ClearAllPoints()
 		if grid.up then
-			b:SetPoint("BOTTOMLEFT", grid.owner, "TOPLEFT", 1 + col * step, base + row * grid.rowH)
+			b:SetPoint("BOTTOMLEFT", grid.owner, "TOPLEFT", (grid.x or 1) + col * step, base + row * grid.rowH)
 		else
-			b:SetPoint("TOPLEFT", grid.owner, "BOTTOMLEFT", 1 + col * step, -(base + row * grid.rowH))
+			b:SetPoint("TOPLEFT", grid.owner, "BOTTOMLEFT", (grid.x or 1) + col * step, -(base + row * grid.rowH))
 		end
 	end
 	return n > 0 and math.ceil(n / grid.perRow) * grid.rowH or 0
@@ -1757,6 +1757,18 @@ function UF.applySkin()
 	end
 	rest:ClearAllPoints()
 	rest:SetPoint("LEFT", player.hp, "LEFT", math.floor(player.portraitSize / 2 + 6), 0)
+	-- Your buffs and debuffs start right of your portrait instead of over it.
+	local pr = math.floor(player.portraitSize / 2 + 4)
+	playerBuffs.x, playerDebuffs.x = pr, pr
+	-- Keep the portraits and name tabs on screen: the game only keeps a frame's
+	-- own box on screen, and these stick out of it (left, right and top).
+	-- (secure frames: only out of combat; a reload in combat leaves the old box)
+	if not InCombatLockdown() then
+		local partyR = math.floor(party[1].portraitSize / 2 + 2)
+		partyHolder:SetClampRectInsets(-partyR, 0, 16, 0)
+		player:SetClampRectInsets(-pr, 0, 0, 0)
+		target:SetClampRectInsets(0, math.floor(target.portraitSize / 2 + 2), 18, 0)
+	end
 	-- Room for the portraits: the pet and target-of-target boxes start clear of
 	-- them (unless you moved those), and the party boxes sit further apart.
 	LAYOUT.pet.x = LAYOUT.pet.x + 34
