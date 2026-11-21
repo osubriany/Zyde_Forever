@@ -254,7 +254,14 @@ local function mobOk(unit)
 	return true
 end
 
+-- Whole numbers only. A raw percent is often 8.4615..., and a hidden one
+-- cannot be rounded with math. RoundToNearestString accepts both.
 local function pctCell(n)
+	if n == nil then return "" end
+	if C_StringUtil and C_StringUtil.RoundToNearestString then
+		local s = safe(C_StringUtil.RoundToNearestString, n)
+		if isSecret(s) or type(s) == "string" or type(s) == "number" then return s end
+	end
 	if isSecret(n) then return n end
 	if type(n) ~= "number" then return "" end
 	return tostring(math.floor(n + 0.5))
@@ -307,8 +314,8 @@ local function lineFor(unit, others)
 	end)
 	local first, second = ranked[1], ranked[2]
 	local mineN, firstN
-	if not isSecret(mine) and type(mine) == "number" then mineN = mine end
-	if first and not isSecret(first.pct) and type(first.pct) == "number" then firstN = first.pct end
+	if not isSecret(mine) and type(mine) == "number" then mineN = math.floor(mine + 0.5) end
+	if first and not isSecret(first.pct) and type(first.pct) == "number" then firstN = math.floor(first.pct + 0.5) end
 	local gap = 999
 	if mineN and firstN then gap = mineN - firstN end
 	local cells = {
