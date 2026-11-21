@@ -366,7 +366,12 @@ end
 
 -- Each heading cycles nearest, then highest level, then lowest level.
 local SORT_NEXT = { low = "dist", dist = "high", high = "low" }
-local SORT_MARK = { dist = "•", high = "↓", low = "↑" }
+-- (small game icons, not "•" "↓" "↑": the game's font has none of those and draws an empty box)
+local SORT_MARK = {
+	dist = "|TInterface\\COMMON\\Indicator-Gray:12:12|t",
+	high = "|TInterface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up:14:14|t",
+	low = "|TInterface\\ChatFrame\\UI-ChatIcon-ScrollUp-Up:14:14|t",
+}
 local SORT_TIP = { dist = "Nearest first", high = "Highest level first", low = "Lowest level first" }
 local SORT_NEXT_TIP = { dist = "Click for highest level", high = "Click for lowest level", low = "Click for nearest" }
 local function sortMode(key)
