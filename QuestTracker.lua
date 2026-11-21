@@ -205,11 +205,13 @@ end
 local function byLevel(highFirst)
 	return function(a, b)
 		local al, bl = questLevel(a), questLevel(b)
-		if al and bl and al ~= bl then
+		if al ~= nil and bl ~= nil and al ~= bl then
 			if highFirst then return al > bl end
 			return al < bl
 		end
-		if al or bl then return al ~= nil end
+		-- Only when one quest has a level and the other does not. Saying
+		-- "this one wins" for two equal levels makes the sort abort.
+		if (al ~= nil) ~= (bl ~= nil) then return al ~= nil end
 		if a.dist and b.dist then return a.dist < b.dist end
 		if a.dist or b.dist then return a.dist ~= nil end
 		if type(a.title) == "string" and type(b.title) == "string" then return a.title < b.title end
