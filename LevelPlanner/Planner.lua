@@ -312,6 +312,41 @@ local function greedyFill(state, pool, ctx, opts)
 	return state
 end
 
+-- A full route (it covers the horizon) still takes any quest that raises its XP per minute: a
+-- turn-in you're standing on, a quest you just picked up next to the route. greedyFill stops at the
+-- horizon, so without this a kept route never takes them (and the 10% switch rule keeps it).
+-- At most Config.overHorizonSeconds extra per quest; best value per added second first.
+local function topUp(state, pool, ctx)
+	local maxExtra = ns.cfg.overHorizonSeconds or 300
+	local changed = true
+	while changed do
+		changed = false
+		local best, bestR, bestT, bestRate
+		local rate = worth(state, ctx) / math.max(60, state.total)
+		for _, q in ipairs(pool) do
+			ns.Check()
+			if not state.used[q] then
+				local r, t = insertQuest(state.route, q, ctx)
+				if r and t - state.total <= maxExtra then
+					local m = (state.mobXp or 0) + mobOf(q)
+					local newRate = ((state.value or 0) + value(q) + restedWorth(m, ctx)) / math.max(60, t)
+					if newRate > rate * 1.001 and (not bestRate or newRate > bestRate) then
+						best, bestR, bestT, bestRate = q, r, t, newRate
+					end
+				end
+			end
+		end
+		if best then
+			state.used[best] = true
+			state.route, state.total, state.xp = bestR, bestT, state.xp + best.xp
+			state.value = (state.value or 0) + value(best)
+			state.mobXp = (state.mobXp or 0) + mobOf(best)
+			changed = true
+		end
+	end
+	return state
+end
+
 -- Reverse route[i..j] in place (2-opt; call again to undo).
 local function reverse(r, i, j)
 	while i < j do r[i], r[j] = r[j], r[i] i, j = i + 1, j - 1 end
@@ -624,7 +659,7 @@ local function carryOver(previous, pool, ctx)
 		state.value = state.value + value(q)
 		state.mobXp = state.mobXp + mobOf(q)
 	end
-	return greedyFill(state, pool, ctx)
+	return topUp(greedyFill(state, pool, ctx), pool, ctx)
 end
 
 ----------------------------------------------------------------------------------------
@@ -898,7 +933,7 @@ function P.Plan(candidates, previous, opts)
 	-- it ends up clearly better.
 	local function empty() return { route = {}, total = 0, xp = 0, value = 0, used = {} } end
 	local function search(list)
-		local best = improve(greedyFill(empty(), list, ctx), list, ctx)
+		local best = topUp(improve(greedyFill(empty(), list, ctx), list, ctx), list, ctx)
 		local bestRate = rateOf(best, ctx)
 		local starts = {}
 		if quick then return best end
@@ -907,7 +942,7 @@ function P.Plan(candidates, previous, opts)
 			starts[#starts + 1] = { topK = cfg.graspTopK or 3, rand = rng(#list * 7919 + k * 104729) }
 		end
 		for _, o in ipairs(starts) do
-			local s = improve(greedyFill(empty(), list, ctx, o), list, ctx)
+			local s = topUp(improve(greedyFill(empty(), list, ctx, o), list, ctx), list, ctx)
 			local r = rateOf(s, ctx)
 			if r > bestRate * 1.001 then best, bestRate = s, r end
 		end
