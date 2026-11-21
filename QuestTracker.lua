@@ -1,7 +1,8 @@
 -- Zyde_Forever: a tidier quest tracker (replaces the game's objective tracker).
---   Ready to turn in  - finished quests, nearest turn-in first
---   This zone         - quests with an objective here, nearest first
+--   Ready to turn in  - finished quests, by level
+--   This zone         - quests with an objective here, by level
 --   Other zones       - everything else, folded away (click the heading)
+-- The mark on a heading cycles that list: nearest, highest level, lowest level.
 -- Finished objective lines are hidden; only what's left to do shows.
 -- Each quest has a level badge in its difficulty color.
 -- Dims in combat.
@@ -170,9 +171,16 @@ local function readLog()
 			local objectives = objectivesOf(questID, i)
 			local ready = isComplete(questID, completeFlag, objectives)
 			local dist, pt = questDistance(questID, ready, area, px, py, w, h)
+			-- The log writes an elite as "29+". The number is the level; the + is only the badge.
+			local elite = isElite(questID, info, tag)
+			if not isSecret(level) and type(level) == "string" then
+				if level:find("+", 1, true) then elite = true end
+				local digits = level:match("^(%d+)")
+				level = digits and tonumber(digits) or level
+			end
 			quests[#quests + 1] = {
 				index = i, questID = questID, title = title, level = level, ready = ready,
-				elite = isElite(questID, info, tag),
+				elite = elite,
 				objectives = objectives, dist = dist, map = pt and map, x = pt and pt[1], y = pt and pt[2],
 				here = dist ~= nil or (header ~= nil and header == zoneName),
 			}
@@ -183,16 +191,30 @@ local function readLog()
 		local g = q.ready and groups.ready or (q.here and groups.here or groups.other)
 		g[#g + 1] = q
 	end
-	-- Nearest first; quests with no known distance after, by level.
-	local function byDistance(a, b)
+	return groups, #quests
+end
+
+-- Level first. Same level: the closer quest stays above. A secret level
+-- cannot be compared, so it sorts after a plain one.
+local function questLevel(q)
+	local n = q.level
+	if isSecret(n) or type(n) ~= "number" then return nil end
+	return n
+end
+
+local function byLevel(highFirst)
+	return function(a, b)
+		local al, bl = questLevel(a), questLevel(b)
+		if al and bl and al ~= bl then
+			if highFirst then return al > bl end
+			return al < bl
+		end
+		if al or bl then return al ~= nil end
 		if a.dist and b.dist then return a.dist < b.dist end
 		if a.dist or b.dist then return a.dist ~= nil end
-		return (a.level or 0) < (b.level or 0)
+		if type(a.title) == "string" and type(b.title) == "string" then return a.title < b.title end
+		return false
 	end
-	table.sort(groups.ready, byDistance)
-	table.sort(groups.here, byDistance)
-	table.sort(groups.other, function(a, b) return (a.level or 0) < (b.level or 0) end)
-	return groups, #quests
 end
 
 ---------------------------------------------------------------------------
@@ -340,14 +362,52 @@ local function setFold(key, v)
 	db().questFold[key] = v and true or false
 end
 
+-- Each heading cycles nearest, then highest level, then lowest level.
+local SORT_NEXT = { low = "dist", dist = "high", high = "low" }
+local SORT_MARK = { dist = "•", high = "↓", low = "↑" }
+local SORT_TIP = { dist = "Nearest first", high = "Highest level first", low = "Lowest level first" }
+local SORT_NEXT_TIP = { dist = "Click for highest level", high = "Click for lowest level", low = "Click for nearest" }
+local function sortMode(key)
+	local v = (db().questLevelSort or {})[key]
+	if v == "high" or v == "dist" then return v end
+	return "low"
+end
+local function setSortMode(key, mode)
+	db().questLevelSort = db().questLevelSort or {}
+	db().questLevelSort[key] = mode
+end
+
 local refresh -- forward
 
 local function headRow(i)
 	local h = heads[i]
 	if h then return h end
 	h = CreateFrame("Button", nil, content)
+	h.sort = CreateFrame("Button", nil, h)
+	h.sort:SetSize(16, 16)
+	h.sort:SetPoint("RIGHT", -2, 0)
+	h.sort:RegisterForClicks("LeftButtonUp")
+	h.sort.label = font(h.sort:CreateFontString(nil, "OVERLAY"), 12)
+	h.sort.label:SetPoint("CENTER")
+	h.sort.label:SetTextColor(1, 0.9, 0.55)
+	h.sort:SetScript("OnClick", function(self)
+		local key = self:GetParent().key
+		setSortMode(key, SORT_NEXT[sortMode(key)])
+		refresh()
+	end)
+	h.sort:SetScript("OnEnter", function(self)
+		local mode = sortMode(self:GetParent().key)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:AddLine(SORT_TIP[mode], 1, 0.9, 0.55)
+		GameTooltip:AddLine(SORT_NEXT_TIP[mode], 0.8, 0.8, 0.8)
+		GameTooltip:Show()
+	end)
+	h.sort:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	h.text = font(h:CreateFontString(nil, "OVERLAY"), 12)
 	h.text:SetPoint("LEFT", 6, 0)
+	h.text:SetPoint("RIGHT", h.sort, "LEFT", -2, 0)
+	h.text:SetJustifyH("LEFT")
+	h.text:SetWordWrap(false)
 	h:SetScript("OnClick", function(self) setFold(self.key, not folded(self.key)) refresh() end)
 	heads[i] = h
 	return h
@@ -492,6 +552,21 @@ local GROUPS = {
 refresh = function()
 	if not on() then frame:Hide() return end
 	local groups, total = readLog()
+	for _, g in ipairs(GROUPS) do
+		local mode = sortMode(g.key)
+		if mode == "dist" then
+			table.sort(groups[g.key], function(a, b)
+				if a.dist and b.dist then return a.dist < b.dist end
+				if a.dist or b.dist then return a.dist ~= nil end
+				local al, bl = questLevel(a), questLevel(b)
+				if al and bl and al ~= bl then return al < bl end
+				if type(a.title) == "string" and type(b.title) == "string" then return a.title < b.title end
+				return false
+			end)
+		else
+			table.sort(groups[g.key], byLevel(mode == "high"))
+		end
+	end
 	local tracked = trackedQuest() -- the quest the game is following
 	title.count:SetFormattedText("%d/%d", total, MAX_QUESTLOG_QUESTS or 20)
 	local y = 0 -- (from the top of the scrolling list)
@@ -506,6 +581,15 @@ refresh = function()
 			if isFolded == nil then isFolded = g.foldByDefault or false end
 			h.text:SetFormattedText("%s %s (%d)", isFolded and "+" or "-", g.label, #list)
 			h.text:SetTextColor(g.color[1], g.color[2], g.color[3])
+			local mode = sortMode(g.key)
+			h.sort:SetSize(Q(16), Q(16))
+			h.sort.label:SetText(SORT_MARK[mode])
+			h.sort:SetScript("OnEnter", function(self)
+				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+				GameTooltip:AddLine(SORT_TIP[mode], 1, 0.9, 0.55)
+				GameTooltip:AddLine(SORT_NEXT_TIP[mode], 0.8, 0.8, 0.8)
+				GameTooltip:Show()
+			end)
 			h:SetHeight(Q(18))
 			h:ClearAllPoints()
 			h:SetPoint("TOPLEFT", content, "TOPLEFT", 0, y)
@@ -668,7 +752,7 @@ ev:SetScript("OnEvent", function(_, event)
 			"ZONE_CHANGED", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "PLAYER_LEVEL_UP", "SUPER_TRACKING_CHANGED" }) do
 			pcall(ev.RegisterEvent, ev, e)
 		end
-		-- Re-sort as you move (nearest first).
+		-- Re-sort as you move, so two quests of the same level stay nearest-first.
 		C_Timer.NewTicker(3, function() if on() then refresh() end end)
 		hideBlizzard()
 		refreshSoon()
