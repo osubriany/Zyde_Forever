@@ -123,6 +123,17 @@ end
 
 function ns.JobRunning() return job ~= nil end
 
+-- Why a job is paused right now (shown next to "Planning..."), or nil while it's working.
+-- (the same checks the runner below makes before each step)
+function ns.JobWaitReason()
+	if not job then return nil end
+	if UnitOnTaxi("player") then return "until you land" end
+	if InCombatLockdown() then return "after combat" end
+	local _, instanceType = IsInInstance()
+	if instanceType == "party" or instanceType == "raid" then return "until you leave the dungeon" end
+	return nil
+end
+
 -- A job that failed or ran too long: say so, clear "Planning...", and plan again once (a job never
 -- just disappears and leaves the window waiting).
 local function jobFailed(self, why, retryQuick)

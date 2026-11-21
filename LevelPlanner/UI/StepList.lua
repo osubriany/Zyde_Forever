@@ -274,7 +274,9 @@ function L.Init()
 		if elapsed < 0.4 then return end
 		elapsed = 0
 		dots = dots % 3 + 1
-		status:SetText("Planning" .. string.rep(".", dots))
+		-- paused (on a flight, in a fight, in a dungeon): say so, so it doesn't look stuck
+		local wait = ns.JobWaitReason and ns.JobWaitReason()
+		status:SetText("Planning" .. string.rep(".", dots) .. (wait and (" (waits " .. wait .. ")") or ""))
 	end)
 
 	L.MakeHearth()
