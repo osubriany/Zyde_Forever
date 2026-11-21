@@ -256,6 +256,13 @@ local function makeTargetRow()
 	ns.placeEdges(row.edges, row, -1, 1)
 	for _, t in ipairs(row.edges) do t:SetColorTexture(0, 0, 0, 0.95) end
 
+	-- The target's current mark, for the clicks below. It lives on a plain frame,
+	-- not the row: the row is protected now, so it can't be written during a fight,
+	-- and a stale mark made a click clear the new target instead of marking it.
+	local curHolder = CreateFrame("Frame", nil, UIParent)
+	curHolder:SetAttribute("cur", 0)
+	row.curHolder = curHolder
+
 	local function button(macro, markIndex)
 		local b = CreateFrame("Button", nil, row, "SecureActionButtonTemplate")
 		b:SetSize(ROW_ICON, ROW_ICON)
@@ -268,10 +275,12 @@ local function makeTargetRow()
 			-- The secure click cannot ask which icon is on the target. The row
 			-- holds that number, and this click clears only when it matches.
 			b:SetAttribute("mark", markIndex)
+			SecureHandlerSetFrameRef(b, "curHolder", curHolder)
 			SecureHandlerWrapScript(b, "PreClick", handler, [[
 				local mark = self:GetAttribute("mark")
 				if not mark then return end
-				local cur = self:GetParent():GetAttribute("cur")
+				local holder = self:GetFrameRef("curHolder")
+				local cur = holder and holder:GetAttribute("cur")
 				local cmd = "/tm " .. mark
 				if cur == mark then cmd = "/tm 0" end
 				self:SetAttribute("macrotext", cmd)
@@ -397,11 +406,16 @@ function placeTargetRow()
 	row:Show()
 end
 
+-- The mark the clicks compare against. A plain frame, so this works in a fight too.
+local function setCurMark()
+	if targetRow and targetRow.curHolder then targetRow.curHolder:SetAttribute("cur", targetMarker() or 0) end
+end
+
 function paintTargetRow()
+	setCurMark()
 	-- Recoloring the secure icons during a fight taints them, and then /tm will not run.
 	if InCombatLockdown() then return end
 	local cur = targetMarker()
-	targetRow:SetAttribute("cur", cur or 0)
 	for _, b in ipairs(targetRow.slots) do
 		local onMark = cur ~= nil and cur == b.item.index
 		local c = onMark and { 1, 0.92, 0.4 } or b.item.color
@@ -457,7 +471,10 @@ local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_LOGIN")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
 ev:RegisterEvent("PLAYER_TARGET_CHANGED")
+ev:RegisterEvent("RAID_TARGET_UPDATE")
 ev:SetScript("OnEvent", function(_, event)
+	-- New target or a mark changed: keep the clicks' idea of the current mark right, even mid-fight.
+	setCurMark()
 	if event == "PLAYER_LOGIN" or event == "PLAYER_REGEN_ENABLED" then
 		placeWorld()
 		if worldPanel and worldPanel.rehead then worldPanel.rehead() end

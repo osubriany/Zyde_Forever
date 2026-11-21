@@ -291,10 +291,19 @@ local function lineFor(unit, others)
 			if listed then ranked[#ranked + 1] = { name = unitLabel(u, ""), pct = p } end
 		end
 	end
+	-- Known percents first (highest first), then hidden ones, then people with no
+	-- percent at all; ties keep their order. Every pair gets a firm answer: saying
+	-- "equal" to some pairs and not others made table.sort throw "invalid order function".
+	local function kind(p)
+		if isSecret(p) then return 1 end
+		if type(p) == "number" then return 0 end
+		return 2
+	end
+	for i, e in ipairs(ranked) do e.i, e.k = i, kind(e.pct) end
 	table.sort(ranked, function(a, b)
-		if isSecret(a.pct) or isSecret(b.pct) then return false end
-		if type(a.pct) ~= "number" or type(b.pct) ~= "number" then return false end
-		return a.pct > b.pct
+		if a.k ~= b.k then return a.k < b.k end
+		if a.k == 0 and a.pct ~= b.pct then return a.pct > b.pct end
+		return a.i < b.i
 	end)
 	local first, second = ranked[1], ranked[2]
 	local mineN, firstN
@@ -334,16 +343,22 @@ local function lineFor(unit, others)
 end
 
 local function collect()
-	local seen, mobs = {}, {}
+	local seen, mobs, platesSeen = {}, {}, {}
 	local function add(unit)
 		if not unit or not mobOk(unit) then return end
 		local guid = plain(safe(UnitGUID, unit))
 		if guid and seen[guid] then return end
+		-- In a dungeon the GUID and UnitIsUnit can both be hidden. The nameplate
+		-- frame still tells: your target with a plate already listed is the same mob.
+		local plate = C_NamePlate and C_NamePlate.GetNamePlateForUnit and safe(C_NamePlate.GetNamePlateForUnit, unit)
+		if isSecret(plate) or type(plate) ~= "table" then plate = nil end
+		if plate and platesSeen[plate] then return end
 		for _, u in ipairs(mobs) do
 			if sameUnit(u, unit) then return end
 		end
 		if not myStatus(unit) then return end
 		if guid then seen[guid] = true end
+		if plate then platesSeen[plate] = true end
 		mobs[#mobs + 1] = unit
 	end
 	local plates = ns.Plates and safe(ns.Plates.units)
