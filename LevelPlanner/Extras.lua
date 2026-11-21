@@ -54,11 +54,11 @@ function X.VendorNeed()
 	return false
 end
 
--- Has a class trainer visit come due?
-function X.TrainerDue()
+-- Has a class trainer visit come due? (atLevel: would it be at that level - a predicted level-up)
+function X.TrainerDue(atLevel)
 	local cfg = ns.cfg
 	if cfg.trainerVisits == false then return false end
-	local L = ns.playerLevel()
+	local L = atLevel or ns.playerLevel()
 	ns.char.trainedLevel = ns.char.trainedLevel or L -- first time seen: assume you're trained up
 	return L >= ns.char.trainedLevel + (cfg.trainerEveryLevels or 2)
 end
@@ -141,14 +141,18 @@ function X.OptionalStops(route, ctx)
 	local out = {}
 	if #route == 0 or not ctx.start then return out end
 
-	-- class trainer
-	if X.TrainerDue() then
+	-- class trainer: due now, or due once the level-up the route reaches (ctx.dingLevel) happens; then
+	-- the visit has to come after the ding (q.unlockLevel keeps it behind it, see Planner.lua)
+	local dueNow = X.TrainerDue()
+	if dueNow or (ctx.dingLevel and X.TrainerDue(ctx.dingLevel)) then
 		local places = ns.Places.NearRoute("Class Trainer", route, 3000, 6)
 		if #places > 0 then
 			local pts, ids = {}, {}
 			for _, pl in ipairs(places) do pts[#pts + 1] = pl.point ids[#ids + 1] = pl.id end
-			local q = oneStopQuest("trainer", "trainer", "Class trainer",
-				string.format("Train new spells (%s, %s)", places[1].name, zoneName(places[1].point)), pts, 60, { npcIds = ids })
+			local label = string.format("Train new spells (%s, %s)", places[1].name, zoneName(places[1].point))
+			if not dueNow then label = label .. string.format(" - you'll be level %d", ctx.dingLevel) end
+			local q = oneStopQuest("trainer", "trainer", "Class trainer", label, pts, 60, { npcIds = ids })
+			if not dueNow then q.unlockLevel = ctx.dingLevel end
 			out[#out + 1] = { quest = q, worth = cfg.trainerValueMinutes or 15, maxDetour = cfg.trainerMaxDetourMinutes or 6 }
 		end
 	end
@@ -213,7 +217,7 @@ function X.GrindCandidates(here)
 			if xp > 0 then
 				local q = oneStopQuest(id, "grind", "Grind " .. spot.name,
 					string.format("Grind %s for %d min (~%d kills, ~%s XP)", spot.name, minutes, kills, ns.fmt(xp)),
-					{ spot.point }, minutes * 60, { mobXp = xp, mobs = { [spot.npcId] = true } })
+					{ spot.point }, minutes * 60, { mobXp = xp, mobLevel = spot.level, mobRank = 0, mobs = { [spot.npcId] = true } })
 				q.xp = xp
 				q.value = xp * (cfg.grindValueFactor or 0.85)
 				q.workSeconds = minutes * 60

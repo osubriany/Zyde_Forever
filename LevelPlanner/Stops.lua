@@ -229,6 +229,7 @@ local function objectiveStop(quest, od, remaining)
 		local key = od.Type == "monster" and ("monster:" .. tostring(od.Id)) or ("killcredit:" .. tostring(od.RootId))
 		stop.work = need * E.UnitSeconds(key, E.KillSeconds(lvl, rank, mobName))
 		stop.mobXp = need * E.MobXP(lvl, rank)
+		stop.mobLevel, stop.mobRank = lvl, rank -- (the planner re-prices the kills after a level-up)
 		stop.label = string.format("Kill %d %s", need, mobName or name)
 		stop.need = need
 
@@ -280,6 +281,7 @@ local function objectiveStop(quest, od, remaining)
 			local perItem = kills * E.KillSeconds(lvl, rank, QS.Npc(hostile[1], "name")) / need
 			stop.work = need * E.UnitSeconds("item:" .. tostring(od.Id), perItem)
 			stop.mobXp = kills * E.MobXP(lvl, rank)
+			stop.mobLevel, stop.mobRank = lvl, rank -- (the planner re-prices the kills after a level-up)
 			stop.label = string.format("Collect %d %s (~%d kills)", need, itemName, kills)
 			-- sold or listed for less than the farm costs you? buy it
 			local bought = buyInstead(quest, od.Id, itemName, need,
@@ -345,6 +347,7 @@ fixStop = function(quest, fo, index, remaining)
 			local need = remaining or fo.count or countFromText(quest.texts, fo.name, cfg.defaultKillCount or 8)
 			stop.work = need * E.UnitSeconds(key, E.KillSeconds(lvl, rank, fo.name))
 			stop.mobXp = need * E.MobXP(lvl, rank)
+			stop.mobLevel, stop.mobRank = lvl, rank -- (the planner re-prices the kills after a level-up)
 			stop.label = string.format("Kill %d %s", need, fo.name or "mobs")
 			stop.need = need
 		else
@@ -353,6 +356,7 @@ fixStop = function(quest, fo, index, remaining)
 			local kills = math.ceil(need / math.max(cfg.defaultDropRate or 0.5, 0.05))
 			stop.work = need * E.UnitSeconds(key, kills * E.KillSeconds(lvl, rank, fo.name) / need)
 			stop.mobXp = kills * E.MobXP(lvl, rank)
+			stop.mobLevel, stop.mobRank = lvl, rank -- (the planner re-prices the kills after a level-up)
 			stop.label = string.format("Collect %d from %s (~%d kills)", need, fo.name or "mobs", kills)
 			stop.need = need
 		end
@@ -489,6 +493,7 @@ function S.BuildQuest(questId, logEntry, opts)
 			local kills = fixStart.kills or 4
 			pickup.work = kills * E.KillSeconds(lvl, QS.Npc(ids[1] or 0, "rank"), fixStart.name) + pickup.work
 			pickup.mobXp = kills * E.MobXP(lvl, QS.Npc(ids[1] or 0, "rank"))
+			pickup.mobLevel, pickup.mobRank = lvl, QS.Npc(ids[1] or 0, "rank")
 			pickup.mobs = {}
 			for _, id in ipairs(ids) do pickup.mobs[id] = true end
 			pickup.label = string.format("Loot the starter for %s from %s", quest.name, fixStart.name or "mobs")

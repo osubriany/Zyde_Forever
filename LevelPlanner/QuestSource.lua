@@ -183,6 +183,7 @@ function QS.ScanCandidates()
 	local maxAbove = grouped and (cfg.groupMaxLevelsAbove or 6) or (cfg.maxLevelsAbove or 2)
 	local blocked = {}   -- in level range but waiting for a pre-quest: maybe a follow-up later in the route
 	local greyIds = {}   -- grey quests not too far below you, for the quick-grey check
+	local soonIds = {}   -- open one level up: the planner may take them after a level-up on the way
 
 	-- quest kinds we don't plan (returns a reason) — shared by available quests and follow-ups
 	local function excluded(id)
@@ -207,8 +208,10 @@ function QS.ScanCandidates()
 			local above = area and (cfg.groupMaxLevelsAbove or 6) or maxAbove
 			if req > player then
 				bump("required level too high", id)
+				if req == player + 1 and not area and lvl - (player + 1) <= above then soonIds[#soonIds + 1] = id end
 			elseif lvl - player > above then
 				bump(QS.ColourReason(lvl - player, grouped), id)
+				if lvl - (player + 1) <= above and not area then soonIds[#soonIds + 1] = id end
 			elseif isTrivial(lvl) then
 				-- grey: kept aside; quick ones near you may still be worth doing (checked below)
 				if cfg.greyQuests ~= false and not area and lvl >= player - (cfg.greyMaxLevelsBelow or 8) then
@@ -255,6 +258,30 @@ function QS.ScanCandidates()
 	for i, q in ipairs(result.available) do QS.ranks[q.id] = { rank = i, of = #result.available, rate = q.roughRate } end
 	local keep = cfg.maxCandidates or 60
 	for i = #result.available, keep + 1, -1 do result.available[i] = nil end
+
+	-- quests that open at your next level: the planner takes one only when the route's XP gets you
+	-- there first (its pick-up waits for the level-up, see Planner.lua). The most promising few.
+	result.upcoming = {}
+	if cfg.planLevelUps ~= false and #soonIds > 0 then
+		for _, id in ipairs(soonIds) do
+			ns.Check()
+			if ns.safe(QDB.IsDoable, id) and not excluded(id) then
+				local q = ns.Stops.BuildQuest(id, nil)
+				if q and q.stops[1] then
+					q.unlockLevel = player + 1
+					local first = q.stops[1]
+					local reach = here and ns.Stops.NearestPoint(first, here)
+					local t = reach and ns.Travel.Seconds(here, reach) or (cfg.continentChangeSeconds or 900)
+					q.roughRate = q.xp / math.max(60, t + q.workSeconds)
+					first.label = (first.label or "") .. string.format(" (opens at level %d)", player + 1)
+					result.upcoming[#result.upcoming + 1] = q
+				end
+			end
+		end
+		table.sort(result.upcoming, function(a, b) return a.roughRate > b.roughRate end)
+		for i = #result.upcoming, (cfg.levelUpCandidates or 15) + 1, -1 do result.upcoming[i] = nil end
+	end
+	stats["next level, plannable"] = #result.upcoming
 
 	-- quick grey quests: little quest XP and none from their mobs, but worth it when they are fast
 	-- and close. Kept only if their rough XP per minute is near what your plan gets anyway.

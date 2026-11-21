@@ -36,8 +36,9 @@ end
 local function isElite(rank) return rank == 1 or rank == 2 or rank == 3 end
 
 -- XP for one kill (no rested bonus). raw = skip the open-world group share (dungeons use their own).
-function E.MobXP(mobLevel, rank, raw)
-	local L = ns.playerLevel()
+-- atLevel: price the kill for that player level instead of yours (the planner, after a predicted level-up).
+function E.MobXP(mobLevel, rank, raw, atLevel)
+	local L = atLevel or ns.playerLevel()
 	if L >= (GetMaxPlayerLevel and GetMaxPlayerLevel() or 60) then return 0 end
 	mobLevel = mobLevel or L
 	if mobLevel <= greyLevel(L) then return 0 end

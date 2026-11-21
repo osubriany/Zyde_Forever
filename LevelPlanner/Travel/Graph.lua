@@ -300,10 +300,12 @@ local function reach(p)
 end
 
 -- Seconds from a to b by the fastest known way (without the hearthstone).
-function T.Seconds(a, b)
+-- speed: ride/run at this speed instead of today's (the planner, after a predicted level-up gives you
+-- a mount). Only the direct leg uses it; graph routes keep today's speed, so it never undercounts.
+function T.Seconds(a, b, speed)
 	if not a or not b then return 0 end
 	if not graph then return ns.Geo.TravelSeconds(a, b) end
-	local best = walkSeconds(a, b, graph.speed)
+	local best = walkSeconds(a, b, speed or graph.speed)
 	if graph.N > 0 then
 		local r = reach(a)
 		for _, e in ipairs(access(b)) do

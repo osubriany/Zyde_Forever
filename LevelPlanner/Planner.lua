@@ -21,6 +21,24 @@ local function travel(a, b)
 	return ns.Travel.Seconds(a, b)
 end
 
+-- XP a stop earns (its kills, plus the quest XP at a turn-in): used to see where the route levels you up.
+local function stopXp(s)
+	return (s.mobXp or 0) + (s.kind == "turnin" and (s.xp or 0) or 0)
+end
+
+-- The stop after which the route's XP takes you to your next level (nil: no level-up in it).
+-- ctx.toDing = XP still needed for the next level (nil when unknown or at the cap).
+local function dingIndex(route, ctx)
+	local need = ctx.toDing
+	if not need then return nil end
+	local xp = 0
+	for i, e in ipairs(route) do
+		xp = xp + stopXp(e.stop)
+		if xp >= need then return i end
+	end
+	return nil
+end
+
 local function copy(route)
 	local r = {}
 	for i = 1, #route do r[i] = route[i] end
@@ -63,31 +81,55 @@ local function addedWork(prevEntry, e, run, start)
 	return w, w
 end
 
--- Total time of a route (list of {stop, point}) from ctx.start.
+-- Total time of a route (list of {stop, point}) from ctx.start. Counts the shortcuts you'll really use:
+--  * the hearthstone, once (it's an hour's cooldown and a route is about an hour): on the leg where
+--    "cast, land at the inn, walk on" beats the normal way by the most, once it's off cooldown
+--    (ctx.hearth; finalize places the actual step, see there)
+--  * riding instead of running after a level-up on the way that reaches your mount level
+--    (ctx.mountSpeed). Flights, boats and zeppelins you know are in travel() already.
 local function routeSeconds(route, ctx)
 	local t, prev, prevEntry, run = 0, ctx.start, nil, 0
+	local h, hs, save = ctx.hearth, ctx.hearthSecs or 45, 0
+	local need, xp, speed = ctx.mountSpeed and ctx.toDing, 0, nil
 	for _, e in ipairs(route) do
 		local w
 		w, run = addedWork(prevEntry, e, run, ctx.start)
-		t = t + travel(prev, e.point) + w
+		local leg = speed and prev and ns.Travel.Seconds(prev, e.point, speed) or travel(prev, e.point)
+		if h and leg > hs and t >= h.readyIn then
+			local s = leg - hs - travel(h.point, e.point)
+			if s > save then save = s end
+		end
+		t = t + leg + w
 		prev, prevEntry = e.point, e
+		if need and not speed then
+			xp = xp + stopXp(e.stop)
+			if xp >= need then speed = ctx.mountSpeed end
+		end
 	end
-	return t
+	return t - save
 end
 
 -- What a quest is worth when choosing: its XP plus part of what it opens later (chain value).
 local function value(q) return q.value or q.xp or 0 end
 
 -- Order, follow-up, quest-log and bag rules.
+-- A quest that opens at your next level (q.unlockLevel) can only start after the stop where the
+-- route's XP gets you there.
 local function feasible(route, ctx)
 	local n, bag = ctx.logCount, 0
 	local turnedIn, lastOrder = {}, {}
+	local xp, need, level = 0, ctx.toDing, ctx.level or 0
 	for _, e in ipairs(route) do
 		local s = e.stop
 		local q = s.quest
+		local first = lastOrder[q] == nil
 		-- equal order is allowed: a dungeon's pick-ups (and its turn-ins) can come in any order
 		if s.order < (lastOrder[q] or 0) then return false end
 		lastOrder[q] = s.order
+		if first and q.unlockLevel and q.unlockLevel > level then
+			if not need or q.unlockLevel > level + 1 or xp < need then return false end
+		end
+		xp = xp + stopXp(s)
 		if s.kind == "pickup" and q.requires then
 			for _, req in ipairs(q.requires) do
 				if not turnedIn[req] then return false end
@@ -102,11 +144,18 @@ local function feasible(route, ctx)
 	return true
 end
 
--- Cheapest insertion of all of a quest's stops, in order (and after the quests it needs).
--- Returns the new route and its time, or nil when it can't fit.
-local function insertQuest(route, quest, ctx)
+-- Cheapest insertion of all of a quest's stops, in order (and after the quests it needs, and after
+-- the level-up when it opens at your next level).
+-- Returns the new route, its time and where the first stop went; nil when it can't fit.
+-- skipFirst: keep the first stop out of that position (the second-best place, for regret insertion).
+local function insertQuest(route, quest, ctx, skipFirst)
 	local r = copy(route)
 	local minPos = 1
+	if quest.unlockLevel and quest.unlockLevel > (ctx.level or 0) then
+		local d = quest.unlockLevel == (ctx.level or 0) + 1 and dingIndex(r, ctx)
+		if not d then return nil end
+		minPos = d + 1
+	end
 	if quest.requires then
 		for _, req in ipairs(quest.requires) do
 			local found
@@ -117,23 +166,27 @@ local function insertQuest(route, quest, ctx)
 			minPos = math.max(minPos, found + 1)
 		end
 	end
-	for _, stop in ipairs(quest.stops) do
+	local firstPos
+	for k, stop in ipairs(quest.stops) do
 		local bestPos, bestPoint, bestDelta
 		for pos = minPos, #r + 1 do
-			local prev = (pos == 1) and ctx.start or r[pos - 1].point
-			local nxt = r[pos] and r[pos].point
-			local base = nxt and travel(prev, nxt) or 0
-			for _, p in ipairs(stop.points) do
-				local d = travel(prev, p) + (nxt and travel(p, nxt) or 0) - base
-				if not bestDelta or d < bestDelta then bestPos, bestPoint, bestDelta = pos, p, d end
+			if not (k == 1 and pos == skipFirst) then
+				local prev = (pos == 1) and ctx.start or r[pos - 1].point
+				local nxt = r[pos] and r[pos].point
+				local base = nxt and travel(prev, nxt) or 0
+				for _, p in ipairs(stop.points) do
+					local d = travel(prev, p) + (nxt and travel(p, nxt) or 0) - base
+					if not bestDelta or d < bestDelta then bestPos, bestPoint, bestDelta = pos, p, d end
+				end
 			end
 		end
 		if not bestPos then return nil end
 		table.insert(r, bestPos, { stop = stop, point = bestPoint })
 		minPos = bestPos + 1
+		firstPos = firstPos or bestPos
 	end
 	if not feasible(r, ctx) then return nil end
-	return r, routeSeconds(r, ctx)
+	return r, routeSeconds(r, ctx), firstPos
 end
 
 local function removeQuest(route, quest)
@@ -171,27 +224,51 @@ end
 ----------------------------------------------------------------------------------------
 
 -- Adds quests until the route covers the horizon. state = {route, total, xp, used}
-local function greedyFill(state, pool, ctx)
+-- Plain: always the quest with the most value per added minute. opts (other starting routes for the
+-- search, see P.Plan):
+--   topK + rand: pick at random among the best few (GRASP), so each start explores a different route
+--   regret: favour quests that only fit well in one place (their second-best place costs much more):
+--           put off, they get expensive; the easy-to-place ones can still go in later
+local function greedyFill(state, pool, ctx, opts)
+	local topK = opts and opts.topK or 1
+	local rand = opts and opts.rand
+	local regret = opts and opts.regret
+	local regretWeight = ns.cfg.regretWeight or 0.5
 	while state.total < ctx.horizon do
-		local bestQ, bestRoute, bestTime, bestRate
+		local top = {} -- best first, at most topK (equal ones keep pool order: plain = the old greedy)
 		for _, q in ipairs(pool) do
 			ns.Check()
 			if not state.used[q] then
-				local r, t = insertQuest(state.route, q, ctx)
+				local r, t, pos = insertQuest(state.route, q, ctx)
 				if r then
-					local rate = value(q) / math.max(1, t - state.total)
-					if not bestRate or rate > bestRate then
-						bestQ, bestRoute, bestTime, bestRate = q, r, t, rate
+					local added = math.max(1, t - state.total)
+					local rate = value(q) / added
+					if regret then
+						local _, t2 = insertQuest(state.route, q, ctx, pos)
+						local extra = t2 and (t2 - t) / added or 1
+						rate = rate * (1 + regretWeight * math.min(1, math.max(0, extra)))
+					end
+					local k = #top + 1
+					while k > 1 and rate > top[k - 1].rate do k = k - 1 end
+					if k <= topK then
+						table.insert(top, k, { q = q, r = r, t = t, rate = rate })
+						top[topK + 1] = nil
 					end
 				end
 			end
 		end
-		if not bestQ then break end
-		state.used[bestQ] = true
-		state.route, state.total, state.xp = bestRoute, bestTime, state.xp + bestQ.xp
-		state.value = (state.value or 0) + value(bestQ)
+		if #top == 0 then break end
+		local c = top[(rand and #top > 1) and rand(#top) or 1]
+		state.used[c.q] = true
+		state.route, state.total, state.xp = c.r, c.t, state.xp + c.q.xp
+		state.value = (state.value or 0) + value(c.q)
 	end
 	return state
+end
+
+-- Reverse route[i..j] in place (2-opt; call again to undo).
+local function reverse(r, i, j)
+	while i < j do r[i], r[j] = r[j], r[i] i, j = i + 1, j - 1 end
 end
 
 -- Local-improvement passes. Each pass tries three kinds of move and keeps any that helps.
@@ -235,6 +312,53 @@ local function improve(state, pool, ctx)
 				state.route, state.total, better = r0, bestT, true
 			end
 			i = i + 1
+		end
+
+		if ns.cfg.segmentMoves ~= false then
+			-- 2b. move a run of 2-3 stops in a row to its best place (or-opt): a camp and the turn-in
+			--     next to it travel together, which single-stop moves can't do
+			for len = 2, 3 do
+				i = 1
+				while i + len - 1 <= #state.route do
+					ns.Check()
+					local r0 = copy(state.route)
+					local seg = {}
+					for k = 1, len do seg[k] = table.remove(r0, i) end
+					local bestPos, bestT = nil, state.total - 0.5
+					for pos = 1, #r0 + 1 do
+						if pos ~= i then
+							ns.Check()
+							for k = 1, len do table.insert(r0, pos + k - 1, seg[k]) end
+							if feasible(r0, ctx) then
+								local t = routeSeconds(r0, ctx)
+								if t < bestT then bestPos, bestT = pos, t end
+							end
+							for _ = 1, len do table.remove(r0, pos) end
+						end
+					end
+					if bestPos then
+						for k = 1, len do table.insert(r0, bestPos + k - 1, seg[k]) end
+						state.route, state.total, better = r0, bestT, true
+					end
+					i = i + 1
+				end
+			end
+
+			-- 2c. walk a stretch of the route the other way round (2-opt): undoes zig-zags
+			local span = ns.cfg.twoOptMaxSpan or 10
+			local r = state.route
+			for a = 1, #r - 1 do
+				for b = a + 1, math.min(#r, a + span - 1) do
+					ns.Check()
+					reverse(r, a, b)
+					local t = feasible(r, ctx) and routeSeconds(r, ctx)
+					if t and t < state.total - 0.5 then
+						state.total, better = t, true -- keep it
+					else
+						reverse(r, a, b)
+					end
+				end
+			end
 		end
 
 		-- 3. swap a planned quest for an unused one when that raises XP per minute
@@ -460,6 +584,8 @@ end
 ----------------------------------------------------------------------------------------
 local function addExtras(state, ctx)
 	if not ctx.start or #state.route == 0 then return state end
+	-- a level-up on the way: a trainer visit that falls due then can go right after it (Extras.lua)
+	ctx.dingLevel = dingIndex(state.route, ctx) and (ctx.level or 0) + 1 or nil
 	local perSecond = (state.value or 0) / math.max(60, state.total)
 	if perSecond <= 0 then return state end
 	for _, opt in ipairs(ns.Extras.OptionalStops(state.route, ctx)) do
@@ -479,12 +605,63 @@ local function addExtras(state, ctx)
 end
 
 ----------------------------------------------------------------------------------------
+-- Where the route ends: a small bonus when it ends near good quests it didn't take (a hub you
+-- carry on from), scaled down when the quest log is too full to take them. Capped at
+-- Config.endBonusMaxShare of the route's own value, so it only settles near-ties.
+----------------------------------------------------------------------------------------
+local function endBonus(route, ctx, routeValue)
+	local cfg = ns.cfg
+	local cap = (cfg.endBonusMaxShare or 0.03) * (routeValue or 0)
+	if cap <= 0 or #route == 0 or not ctx.pool then return 0 end
+	local last = route[#route].point
+	local radius = cfg.endHubYards or 300
+	local inRoute, logEnd = {}, ctx.logCount or 0
+	for _, e in ipairs(route) do
+		inRoute[e.stop.quest] = true
+		logEnd = logEnd + (e.stop.logDelta or 0)
+	end
+	local near = 0
+	for _, q in ipairs(ctx.pool) do
+		ns.Check()
+		local s = not inRoute[q] and q.stops and q.stops[1]
+		if s and s.points then
+			for _, p in ipairs(s.points) do
+				local d = ns.Geo.Distance(last, p)
+				if d and d <= radius then near = near + value(q) break end
+			end
+		end
+	end
+	local room = math.max(0, math.min(1, ((ctx.logCap or 20) - logEnd) / (cfg.endLogRoom or 4)))
+	return math.min(cap, near * (cfg.endHubValueShare or 0.1) * room)
+end
+
+-- What routes are compared on before the step list exists (value per second, end bonus included).
+local function rateOf(state, ctx)
+	return ((state.value or 0) + endBonus(state.route, ctx, state.value)) / math.max(60, state.total)
+end
+
+-- Deterministic random numbers (same situation, same plan: re-plans don't flicker). rand(n) = 1..n
+local function rng(seed)
+	local s = math.floor(seed) % 2147483646 + 1
+	return function(n)
+		s = (s * 16807) % 2147483647
+		return 1 + s % n
+	end
+end
+
+----------------------------------------------------------------------------------------
 -- Final step list: travel legs (hearth, flights, boats, passes) before each stop
 ----------------------------------------------------------------------------------------
 local function finalize(state, ctx)
 	local cfg = ns.cfg
 	local route, start = state.route, ctx.start
 	local hearthSecs = cfg.hearthSeconds or 45
+	-- level-up on the way: legs after it are ridden when it reaches your mount level (as in routeSeconds)
+	local ding = dingIndex(route, ctx)
+	local function legSeconds(idx, a, b)
+		if ding and idx > ding and ctx.mountSpeed and a then return ns.Travel.Seconds(a, b, ctx.mountSpeed) end
+		return travel(a, b)
+	end
 
 	-- hearthstone: used on the legs where it saves the most time, once per cooldown. A saving later in
 	-- the route counts for less (the route is re-planned as you go, so a later leg may never happen):
@@ -496,7 +673,7 @@ local function finalize(state, ctx)
 		local t, prev = 0, start
 		local later = cfg.hearthLaterDiscount or 0.5
 		for idx, e in ipairs(route) do
-			local normal = travel(prev, e.point)
+			local normal = legSeconds(idx, prev, e.point)
 			if t >= hearth.readyIn then
 				local save = normal - (hearthSecs + travel(hearth.point, e.point))
 				if save > 0 then
@@ -518,6 +695,7 @@ local function finalize(state, ctx)
 	end
 
 	local steps, keys = {}, {}
+	local xpAdj = 0
 	local arrived = (cfg.arrivedYards or 15) * 2
 	local t, prev, prevEntry, run = 0, start, nil, 0
 	for idx, e in ipairs(route) do
@@ -536,10 +714,21 @@ local function finalize(state, ctx)
 					work = leg.seconds, mobXp = 0, to = leg.to }
 			end
 		end
-		t = t + travel(from, e.point)
+		t = t + legSeconds(idx, from, e.point)
 		e.arrive = t
 		-- a per-plan view of the stop (the stop itself is shared between the plans being compared)
-		steps[#steps + 1] = setmetatable({ point = e.point, arrive = t }, { __index = e.stop })
+		local view = setmetatable({ point = e.point, arrive = t }, { __index = e.stop })
+		steps[#steps + 1] = view
+		if ding and idx > ding and (e.stop.mobXp or 0) > 0 and e.stop.mobLevel and ns.Estimate then
+			-- after the level-up the same kills give a little less (or nothing, once grey)
+			local E = ns.Estimate
+			local now = E.MobXP(e.stop.mobLevel, e.stop.mobRank)
+			if now > 0 then
+				view.mobXp = e.stop.mobXp * E.MobXP(e.stop.mobLevel, e.stop.mobRank, nil, (ctx.level or 0) + 1) / now
+				xpAdj = xpAdj + view.mobXp - e.stop.mobXp
+			end
+		end
+		if idx == ding then view.dingTo = (ctx.level or 0) + 1 end
 		keys[#keys + 1] = { key = e.stop.key, wx = e.point.wx, wy = e.point.wy, inst = e.point.inst }
 		local w
 		w, run = addedWork(prevEntry, e, run, start)
@@ -547,14 +736,19 @@ local function finalize(state, ctx)
 		prev, prevEntry = e.point, e
 	end
 
+	local xp = state.xp + xpAdj
+	local worth = (state.value or state.xp) + xpAdj * (cfg.mobXpWeight or 1)
+	local bonus = endBonus(route, ctx, worth)
 	return {
 		stops = steps,
 		keys = keys,
 		route = route,
-		xp = state.xp,                                        -- real XP, shown in the list
+		xp = xp,                                              -- real XP, shown in the list
 		seconds = t,
-		rate = t > 0 and state.xp / (t / 60) or 0,            -- real XP per minute, shown
-		score = t > 0 and (state.value or state.xp) / (t / 60) or 0, -- what routes are compared on
+		rate = t > 0 and xp / (t / 60) or 0,                  -- real XP per minute, shown
+		score = t > 0 and (worth + bonus) / (t / 60) or 0,    -- what routes are compared on
+		endBonus = bonus,
+		dingAt = ding,
 		hearthPlanned = next(hearthLegs) ~= nil,
 	}
 end
@@ -574,11 +768,32 @@ function P.Plan(candidates, previous, opts)
 		logCount = ns.QuestSource.LogCount(),
 		logCap = ns.QuestSource.LogCap and ns.QuestSource.LogCap() or 20,
 		bagFree = ns.QuestSource.FreeBagSlots() - (cfg.bagReserveSlots or 2),
+		level = ns.playerLevel and ns.playerLevel() or 1,
+		hearthSecs = cfg.hearthSeconds or 45,
 	}
+	-- XP still needed for the next level: the route levels you up when its XP gets there (then quests
+	-- of the next level open, kills give a bit less, the trainer may be due, and you may ride)
+	if cfg.planLevelUps ~= false and UnitXP and UnitXPMax then
+		local cur, max = UnitXP("player"), UnitXPMax("player")
+		local secret = ns.isSecret and (ns.isSecret(cur) or ns.isSecret(max))
+		local cap = GetMaxPlayerLevel and GetMaxPlayerLevel() or 60
+		if not secret and type(cur) == "number" and type(max) == "number" and max > 0 and ctx.level < cap then
+			ctx.toDing = math.max(1, max - cur)
+		end
+	end
+	-- the level-up reaches your mount level: legs after it are ridden
+	if ctx.toDing and cfg.mountLevel and ctx.level < cfg.mountLevel and ctx.level + 1 >= cfg.mountLevel then
+		ctx.mountSpeed = cfg.mountSpeed or 11.2
+	end
+	-- the hearthstone counts in every route's time, not only in the final step list
+	if cfg.hearthInRoute ~= false then
+		local ok, h = pcall(ns.Travel.Hearth)
+		if ok and h and h.point then ctx.hearth = h end
+	end
 
 	local pool = {}
 	for _, list in ipairs({ candidates and candidates.log or {}, candidates and candidates.available or {},
-			candidates and candidates.locked or {} }) do
+			candidates and candidates.locked or {}, candidates and candidates.upcoming or {} }) do
 		for _, q in ipairs(list) do
 			if not ns.skipped[q.id] then pool[#pool + 1] = q end
 		end
@@ -597,8 +812,27 @@ function P.Plan(candidates, previous, opts)
 		return state
 	end
 
-	local fresh = greedyFill({ route = {}, total = 0, xp = 0, value = 0, used = {} }, pool, ctx)
-	fresh = addExtras(hereFirst(fillWithGrind(improve(fresh, pool, ctx)), ctx), ctx)
+	-- The search: the plain greedy route, then other starting routes (regret insertion, and a few
+	-- randomized greedy ones), each polished by improve(). A start replaces the plain one only when
+	-- it ends up clearly better.
+	local function empty() return { route = {}, total = 0, xp = 0, value = 0, used = {} } end
+	local function search(list)
+		local best = improve(greedyFill(empty(), list, ctx), list, ctx)
+		local bestRate = rateOf(best, ctx)
+		local starts = {}
+		if cfg.regretStart ~= false then starts[#starts + 1] = { regret = true } end
+		for k = 1, (cfg.graspStarts or 2) do
+			starts[#starts + 1] = { topK = cfg.graspTopK or 3, rand = rng(#list * 7919 + k * 104729) }
+		end
+		for _, o in ipairs(starts) do
+			local s = improve(greedyFill(empty(), list, ctx, o), list, ctx)
+			local r = rateOf(s, ctx)
+			if r > bestRate * 1.001 then best, bestRate = s, r end
+		end
+		return best
+	end
+
+	local fresh = addExtras(hereFirst(fillWithGrind(search(pool)), ctx), ctx)
 	local plan = finalize(fresh, ctx)
 
 	-- dungeons: considered only when a run beats questing XP per minute, or when you're grouped

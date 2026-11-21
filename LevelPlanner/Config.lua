@@ -38,6 +38,19 @@ LevelPlannerConfig = {
 	-- Planner (phase 3) ------------------------------------------------------------------
 	improvementPasses = 3,      -- local-improvement rounds after the first greedy route
 	swapCandidates = 15,        -- unused quests tried as swaps in each round (more = better plans, slower)
+	regretStart = true,         -- also try a route built quests-that-fit-in-one-place-first (regret insertion)
+	regretWeight = 0.5,         -- how much "only fits well in one place" counts in that build
+	graspStarts = 1,            -- extra routes built picking at random among the best few (0 = off; more = slower)
+	graspTopK = 3,              -- ...among this many of the best
+	segmentMoves = true,        -- improvement also moves runs of 2-3 stops and reverses stretches of the route
+	twoOptMaxSpan = 10,         -- longest stretch (stops) tried reversed
+	endBonusMaxShare = 0.03,    -- ending near good quests not taken (a hub) adds at most this share of the route's value
+	endHubYards = 300,          -- "near" the route's last stop
+	endHubValueShare = 0.1,     -- share of those quests' value counted (before the cap)
+	endLogRoom = 4,             -- free quest-log slots at the end for the full bonus (fewer: less)
+	planLevelUps = true,        -- see where the route levels you up: next-level quests, kill XP, trainer, mount
+	levelUpCandidates = 15,     -- next-level quests offered to the planner (the most promising)
+	hearthInRoute = true,       -- count the hearthstone in every route's time while choosing (not just the step list)
 	switchThreshold = 0.10,     -- only switch to a new route if it is at least 10% better (XP per minute)
 	chainLookahead = true,      -- plan follow-up quests unlocked by quests in the route
 	bagReserveSlots = 2,        -- keep this many bag slots free for loot
