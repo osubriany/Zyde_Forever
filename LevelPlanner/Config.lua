@@ -38,6 +38,8 @@ LevelPlannerConfig = {
 	-- Planner (phase 3) ------------------------------------------------------------------
 	improvementPasses = 3,      -- local-improvement rounds after the first greedy route
 	swapCandidates = 15,        -- unused quests tried as swaps in each round (more = better plans, slower)
+	planTimeoutSeconds = 45,    -- a plan still working after this long (fights and flights not counted) is stopped
+	                            -- and the quicker search is used for 10 minutes
 	regretStart = true,         -- also try a route built quests-that-fit-in-one-place-first (regret insertion)
 	regretWeight = 0.5,         -- how much "only fits well in one place" counts in that build
 	graspStarts = 1,            -- extra routes built picking at random among the best few (0 = off; more = slower)

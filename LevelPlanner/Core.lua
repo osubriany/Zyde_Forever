@@ -111,32 +111,64 @@ function ns.Check()
 	end
 end
 
+local jobSeconds = 0 -- time the job has been working (paused time in fights or flights not counted)
+local jobRetried = false
+
 function ns.RunJob(name, fn, onDone)
 	job = coroutine.create(fn)
 	jobName, jobDone = name, onDone
+	jobSeconds = 0
 	runner:Show()
 end
 
 function ns.JobRunning() return job ~= nil end
 
+-- A job that failed or ran too long: say so, clear "Planning...", and plan again once (a job never
+-- just disappears and leaves the window waiting).
+local function jobFailed(self, why, retryQuick)
+	local name = jobName
+	job, jobName, jobDone = nil, nil, nil
+	self:Hide()
+	ns.print(why)
+	if ns.StepList then ns.StepList.SetPlanning(false) end
+	if name == "plan" and ns.RequestReplan then
+		if retryQuick then
+			-- a full search that slow will be again: the quick one for the next 10 minutes
+			ns.quickPlanUntil = GetTime() + 600
+			ns.RequestReplan(false)
+		elseif not jobRetried then
+			jobRetried = true
+			C_Timer.After(5, function() ns.RequestReplan(true) end)
+		end
+	end
+end
+
 runner:Hide()
-runner:SetScript("OnUpdate", function(self)
+runner:SetScript("OnUpdate", function(self, elapsed)
 	if not job then self:Hide() return end
 	if InCombatLockdown() or UnitOnTaxi("player") then return end -- no planning work during fights or flights
 	local _, instanceType = IsInInstance()
 	if instanceType == "party" or instanceType == "raid" then return end -- the plan waits until you leave the dungeon
-	frameStart = debugprofilestop()
-	local ok, result = coroutine.resume(job)
-	if not ok then
-		ns.print("planning error in " .. tostring(jobName) .. ": " .. tostring(result))
-		if ns.StepList then ns.StepList.SetPlanning(false) end
-		job = nil
-		self:Hide()
+	jobSeconds = jobSeconds + (elapsed or 0)
+	local limit = ns.cfg.planTimeoutSeconds or 45
+	if jobName == "plan" and jobSeconds > limit and not (ns.quickPlanUntil and GetTime() < ns.quickPlanUntil) then
+		jobFailed(self, string.format("planning took over %d s - switching to the quicker search for a while", limit), true)
 		return
 	end
-	if coroutine.status(job) == "dead" then
+	frameStart = debugprofilestop()
+	local co = job
+	local ok, result = coroutine.resume(co)
+	if not ok then
+		local stack = debugstack and select(2, pcall(debugstack, co, 1, 4, 0))
+		jobFailed(self, "planning error in " .. tostring(jobName) .. ": " .. tostring(result)
+			.. (type(stack) == "string" and stack ~= "" and ("\n" .. stack) or "")
+			.. (jobRetried and "" or "\n(trying again in 5 s)"))
+		return
+	end
+	if coroutine.status(co) == "dead" then
 		local done = jobDone
 		job, jobName, jobDone = nil, nil, nil
+		jobRetried = false
 		self:Hide()
 		if done then
 			local okDone, err = pcall(done, result)
@@ -161,7 +193,8 @@ local function startWork()
 	end
 	local rescan = pendingRescan or not ns.candidates
 	local previous = (not ns.forceFresh) and ns.plan or nil
-	local opts = { threshold = ns.offTrail and (ns.cfg.offTrailSwitchThreshold or 0.02) or nil }
+	local opts = { threshold = ns.offTrail and (ns.cfg.offTrailSwitchThreshold or 0.02) or nil,
+		quick = ns.quickPlanUntil and GetTime() < ns.quickPlanUntil }
 	local why = (ns.forceFresh and "fresh" or (ns.offTrail and "off the trail, 2% bar" or "10% bar")) .. (rescan and ", quests re-read" or "")
 	pendingRescan, ns.forceFresh, ns.offTrail = false, false, false
 	if ns.StepList then ns.StepList.SetPlanning(true) end

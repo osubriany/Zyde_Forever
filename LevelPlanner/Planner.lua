@@ -16,9 +16,16 @@ ns.Planner = P
 
 -- (the quest log's size comes from the game: ctx.logCap, see QuestSource.LogCap)
 
+-- Travel times are looked up hundreds of thousands of times while searching, mostly for the same
+-- pairs of points: each plan keeps them (P.Plan starts a fresh table, so nothing goes stale).
+local tcache = setmetatable({}, { __mode = "k" })
 local function travel(a, b)
 	if not a or not b then return 0 end
-	return ns.Travel.Seconds(a, b)
+	local row = tcache[a]
+	if not row then row = setmetatable({}, { __mode = "k" }) tcache[a] = row end
+	local t = row[b]
+	if not t then t = ns.Travel.Seconds(a, b) row[b] = t end
+	return t
 end
 
 -- XP a stop earns (its kills, plus the quest XP at a turn-in): used to see where the route levels you up.
@@ -819,6 +826,9 @@ end
 -- opts.threshold: switch threshold for this plan (lower when you've left the planned path).
 function P.Plan(candidates, previous, opts)
 	local cfg = ns.cfg
+	tcache = setmetatable({}, { __mode = "k" }) -- (fresh travel times: you've moved, flights learned...)
+	-- opts.quick: the plain search only (the job runner asks for it when a full search took too long)
+	local quick = opts and opts.quick
 	local ctx = {
 		start = ns.Geo.PlayerPoint(),
 		targetNpc = (function() local ok, id = pcall(P.TargetNpc) return ok and id or nil end)(), -- (the mob you're fighting: its objective goes first, see hereFirst)
@@ -891,6 +901,7 @@ function P.Plan(candidates, previous, opts)
 		local best = improve(greedyFill(empty(), list, ctx), list, ctx)
 		local bestRate = rateOf(best, ctx)
 		local starts = {}
+		if quick then return best end
 		if cfg.regretStart ~= false then starts[#starts + 1] = { regret = true } end
 		for k = 1, (cfg.graspStarts or 2) do
 			starts[#starts + 1] = { topK = cfg.graspTopK or 3, rand = rng(#list * 7919 + k * 104729) }
