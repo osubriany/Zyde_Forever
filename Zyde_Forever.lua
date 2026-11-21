@@ -105,6 +105,7 @@ local FEATURES = {
 	{ key = "threatBox", short = "tank threat table", label = "Tank threat list", desc = "While you are set to the tank role in a party or raid: a draggable table of mobs you have threat on. Columns are the mob, your threat percent, then the two people closest behind you and their percent. Only mobs with a nameplate, bosses, and your target can be listed. Drag the title to move it" },
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames with buffs and debuffs, mana / rage / energy on party frames. Shift-drag a frame to move it", reload = true },
 	{ key = "targetTarget", short = "small frame by target", label = "Target of target", desc = "A small frame beside the target frame showing who your target is targeting (with the Zyde unit frames on). Shift-drag it to move it" },
+	{ key = "framePortraits", short = "round portraits, slanted bars", label = "Portrait style", desc = "Player, target and party frames get a round portrait in a ring of the class color with the level in a badge under it, bars with slanted ends and a glossy color gradient, and the name on a dark tab. Gold ring for elites and bosses, silver for rares. Off: the plain flat boxes", reload = true },
 	{ key = "unitAuras", short = "icons on your frames", label = "Unit frame buffs / debuffs", desc = "Buff and debuff icons with time left on the Zyde unit frames: the target's debuffs (yours first) and buffs, your debuffs and buffs, and your pet's" },
 	{ key = "plates", short = "flat enemy nameplates", label = "Nameplates", desc = "Flat enemy nameplates in the unit frames' style: full name above, level badge (elite +, rare dragon, boss skull), cast bar (orange = interruptible), your debuffs with time left, aggro warning (AGGRO on mobs attacking you, LOOSE when you tank and a mob isn't on you), Execute-range color for warriors, and the quest icon, count and drop chance together on the right (Questie). Friendly and object nameplates keep the game's look" },
 	{ key = "barTidy", short = "short keys, no empty slots", label = "Tidy action bars", desc = "Short keybind labels on action buttons (a-1 becomes A1, Mouse Button 4 becomes M4) and empty slots hidden - they show again while you drag a spell or item" },
@@ -2352,7 +2353,7 @@ local COL_W = 330    -- width of one column of features
 local CATEGORIES = {
 	{
 		{ "Interface", {
-			{ "unitFrames", children = { "unitAuras", "targetTarget" } },
+			{ "unitFrames", children = { "unitAuras", "targetTarget", "framePortraits" } },
 			"plates", "xp", "reminders",
 			{ group = "Action bars", children = { "hideBars", "hideMicroMenu", "barTidy" } },
 			"gear",
@@ -2375,7 +2376,7 @@ local CATEGORIES = {
 
 -- Short names for options shown on an indented line beside each other.
 local CHILD_LABEL = {
-	unitAuras = "Buffs / debuffs", targetTarget = "Target of target",
+	unitAuras = "Buffs / debuffs", targetTarget = "Target of target", framePortraits = "Portraits",
 	hideBars = "Hide bar art", hideMicroMenu = "Hide micro menu", barTidy = "Tidy keys & slots",
 	questAlert = "Glow alert", questIcons = "Icons over nodes",
 	questMobs = "Quest mobs", questieDrops = "Drop chances",
