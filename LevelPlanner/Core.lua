@@ -339,6 +339,7 @@ local function onQuestieReady()
 	events:RegisterEvent("BAG_UPDATE_DELAYED")
 	events:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
 	events:RegisterEvent("PLAYER_XP_UPDATE")
+	events:RegisterEvent("UPDATE_EXHAUSTION")
 	ns.RequestReplan(true)
 end
 
@@ -389,8 +390,21 @@ events:SetScript("OnEvent", function(self, event, arg1)
 			ns.lastVendorNeed = need
 			ns.RequestReplan(false)
 		end
-	elseif event == "PLAYER_XP_UPDATE" then
+	elseif event == "PLAYER_XP_UPDATE" or event == "UPDATE_EXHAUSTION" then
 		if ns.StepList and ns.plan then ns.StepList.Update(ns.plan) end -- refresh the level-up ETA
+		-- the plan counted rested XP: plan again once it runs out (kill-heavy picks lose their edge),
+		-- or when it grew a lot (rested at an inn)
+		local plan = ns.plan
+		if plan and plan.restedPool and ns.cfg.plannerRested ~= false then
+			local pool = ns.Estimate.RestedPool()
+			local max = UnitXPMax("player")
+			local big = (not ns.isSecret(max) and type(max) == "number" and max > 0) and max * (ns.cfg.restedReplanShare or 0.2) or 2000
+			if (plan.restedPool > 0 and pool <= 0) or pool - plan.restedPool > big then
+				plan.restedPool = pool -- (once per change)
+				ns.dprint("rested XP " .. (pool <= 0 and "used up" or "grew") .. " - re-planning")
+				ns.RequestReplan(false)
+			end
+		end
 	elseif event == "GROUP_ROSTER_UPDATE" then
 		-- only when "grouped" actually flips (the event also fires for roster changes inside a group)
 		local g = ns.IsGrouped()

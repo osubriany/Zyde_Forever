@@ -22,8 +22,13 @@ local function travel(a, b)
 end
 
 -- XP a stop earns (its kills, plus the quest XP at a turn-in): used to see where the route levels you up.
-local function stopXp(s)
-	return (s.mobXp or 0) + (s.kind == "turnin" and (s.xp or 0) or 0)
+-- pool = rested XP left before this stop (kills give double while it lasts). Returns the XP and the
+-- pool left after the stop.
+local function stopXp(s, pool)
+	local m = s.mobXp or 0
+	local b = 0
+	if pool and pool > 0 and m > 0 then b, pool = ns.Estimate.RestedBonus(pool, m) end
+	return m + b + (s.kind == "turnin" and (s.xp or 0) or 0), pool
 end
 
 -- The stop after which the route's XP takes you to your next level (nil: no level-up in it).
@@ -31,12 +36,34 @@ end
 local function dingIndex(route, ctx)
 	local need = ctx.toDing
 	if not need then return nil end
-	local xp = 0
+	local xp, pool = 0, ctx.rested
 	for i, e in ipairs(route) do
-		xp = xp + stopXp(e.stop)
+		local g
+		g, pool = stopXp(e.stop, pool)
+		xp = xp + g
 		if xp >= need then return i end
 	end
 	return nil
+end
+
+-- Kill XP in a quest (or grind / dungeon), for the rested bonus.
+local function mobOf(q)
+	if q.mobXp then return q.mobXp end
+	if q._mobXp == nil then
+		local m = 0
+		for _, s in ipairs(q.stops or {}) do m = m + (s.mobXp or 0) end
+		q._mobXp = m
+	end
+	return q._mobXp
+end
+
+-- The rested bonus a route earns: kills worth mobXp in all, the pool used up by them in route order.
+-- The total doesn't depend on the order (min(pool, kill XP)), so it's kept as a running sum
+-- (state.mobXp) and costs nothing while searching.
+local function restedWorth(mobXp, ctx)
+	local pool = ctx.rested or 0
+	if pool <= 0 then return 0 end
+	return math.min(pool, mobXp or 0) * (ns.cfg.mobXpWeight or 1)
 end
 
 local function copy(route)
@@ -90,7 +117,7 @@ end
 local function routeSeconds(route, ctx)
 	local t, prev, prevEntry, run = 0, ctx.start, nil, 0
 	local h, hs, save = ctx.hearth, ctx.hearthSecs or 45, 0
-	local need, xp, speed = ctx.mountSpeed and ctx.toDing, 0, nil
+	local need, xp, speed, pool = ctx.mountSpeed and ctx.toDing, 0, nil, ctx.rested
 	for _, e in ipairs(route) do
 		local w
 		w, run = addedWork(prevEntry, e, run, ctx.start)
@@ -102,7 +129,9 @@ local function routeSeconds(route, ctx)
 		t = t + leg + w
 		prev, prevEntry = e.point, e
 		if need and not speed then
-			xp = xp + stopXp(e.stop)
+			local g
+			g, pool = stopXp(e.stop, pool)
+			xp = xp + g
 			if xp >= need then speed = ctx.mountSpeed end
 		end
 	end
@@ -112,13 +141,18 @@ end
 -- What a quest is worth when choosing: its XP plus part of what it opens later (chain value).
 local function value(q) return q.value or q.xp or 0 end
 
+-- What a route is worth: its quests plus the rested bonus on its kills.
+local function worth(state, ctx)
+	return (state.value or 0) + restedWorth(state.mobXp, ctx)
+end
+
 -- Order, follow-up, quest-log and bag rules.
 -- A quest that opens at your next level (q.unlockLevel) can only start after the stop where the
 -- route's XP gets you there.
 local function feasible(route, ctx)
 	local n, bag = ctx.logCount, 0
 	local turnedIn, lastOrder = {}, {}
-	local xp, need, level = 0, ctx.toDing, ctx.level or 0
+	local xp, need, level, pool = 0, ctx.toDing, ctx.level or 0, ctx.rested
 	for _, e in ipairs(route) do
 		local s = e.stop
 		local q = s.quest
@@ -129,7 +163,9 @@ local function feasible(route, ctx)
 		if first and q.unlockLevel and q.unlockLevel > level then
 			if not need or q.unlockLevel > level + 1 or xp < need then return false end
 		end
-		xp = xp + stopXp(s)
+		local g
+		g, pool = stopXp(s, pool)
+		xp = xp + g
 		if s.kind == "pickup" and q.requires then
 			for _, req in ipairs(q.requires) do
 				if not turnedIn[req] then return false end
@@ -242,7 +278,9 @@ local function greedyFill(state, pool, ctx, opts)
 				local r, t, pos = insertQuest(state.route, q, ctx)
 				if r then
 					local added = math.max(1, t - state.total)
-					local rate = value(q) / added
+					-- (its kills while rested count double: what that adds to the route's rested bonus)
+					local gain = restedWorth((state.mobXp or 0) + mobOf(q), ctx) - restedWorth(state.mobXp, ctx)
+					local rate = (value(q) + gain) / added
 					if regret then
 						local _, t2 = insertQuest(state.route, q, ctx, pos)
 						local extra = t2 and (t2 - t) / added or 1
@@ -262,6 +300,7 @@ local function greedyFill(state, pool, ctx, opts)
 		state.used[c.q] = true
 		state.route, state.total, state.xp = c.r, c.t, state.xp + c.q.xp
 		state.value = (state.value or 0) + value(c.q)
+		state.mobXp = (state.mobXp or 0) + mobOf(c.q)
 	end
 	return state
 end
@@ -372,7 +411,7 @@ local function improve(state, pool, ctx)
 		end)
 		for k = #unused, (ns.cfg.swapCandidates or 15) + 1, -1 do unused[k] = nil end
 
-		local rate = (state.value or 0) / math.max(1, state.total)
+		local rate = worth(state, ctx) / math.max(1, state.total)
 		for _, q in ipairs(questsIn(state.route)) do
 			if state.used[q] and not hasDependents(state.route, q) then
 				local r0 = removeQuest(state.route, q)
@@ -382,7 +421,8 @@ local function improve(state, pool, ctx)
 					if not state.used[c] then
 						local r, t = insertQuest(r0, c, ctx)
 						if r and t <= ctx.horizon * 1.25 then
-							local newRate = ((state.value or 0) - value(q) + value(c)) / math.max(1, t)
+							local m = (state.mobXp or 0) - mobOf(q) + mobOf(c)
+							local newRate = ((state.value or 0) - value(q) + value(c) + restedWorth(m, ctx)) / math.max(1, t)
 							if newRate > bestRate then bestR, bestT, bestC, bestRate = r, t, c, newRate end
 						end
 					end
@@ -392,6 +432,7 @@ local function improve(state, pool, ctx)
 					state.route, state.total = bestR, bestT
 					state.xp = state.xp - q.xp + bestC.xp
 					state.value = (state.value or 0) - value(q) + value(bestC)
+					state.mobXp = (state.mobXp or 0) - mobOf(q) + mobOf(bestC)
 					rate = bestRate
 					better = true
 				end
@@ -569,10 +610,12 @@ local function carryOver(previous, pool, ctx)
 	end
 	if #whole == 0 or not feasible(whole, ctx) then return nil end
 	local state = { route = whole, total = routeSeconds(whole, ctx), xp = 0, value = 0, used = {} }
+	state.mobXp = 0
 	for _, q in ipairs(questsIn(whole)) do
 		state.used[q] = true
 		state.xp = state.xp + (q.xp or 0)
 		state.value = state.value + value(q)
+		state.mobXp = state.mobXp + mobOf(q)
 	end
 	return greedyFill(state, pool, ctx)
 end
@@ -637,7 +680,8 @@ end
 
 -- What routes are compared on before the step list exists (value per second, end bonus included).
 local function rateOf(state, ctx)
-	return ((state.value or 0) + endBonus(state.route, ctx, state.value)) / math.max(60, state.total)
+	local w = worth(state, ctx)
+	return (w + endBonus(state.route, ctx, w)) / math.max(60, state.total)
 end
 
 -- Deterministic random numbers (same situation, same plan: re-plans don't flicker). rand(n) = 1..n
@@ -743,17 +787,24 @@ local function finalize(state, ctx)
 	end
 
 	local xp = state.xp + xpAdj
-	local worth = (state.value or state.xp) + xpAdj * (cfg.mobXpWeight or 1)
-	local bonus = endBonus(route, ctx, worth)
+	-- rested bonus on the route's kills (after the level-up re-pricing): counted in the score; the
+	-- step list adds it to what it shows from the live pool (Estimate.RestedBonus, same rule)
+	local kills = 0
+	for _, s in ipairs(steps) do kills = kills + (s.mobXp or 0) end
+	local rested = restedWorth(kills, ctx)
+	local w = (state.value or state.xp) + xpAdj * (cfg.mobXpWeight or 1) + rested
+	local bonus = endBonus(route, ctx, w)
 	return {
 		stops = steps,
 		keys = keys,
 		route = route,
-		xp = xp,                                              -- real XP, shown in the list
+		xp = xp,                                              -- real XP, shown in the list (rested not included)
 		seconds = t,
 		rate = t > 0 and xp / (t / 60) or 0,                  -- real XP per minute, shown
-		score = t > 0 and (worth + bonus) / (t / 60) or 0,    -- what routes are compared on
+		score = t > 0 and (w + bonus) / (t / 60) or 0,        -- what routes are compared on
 		endBonus = bonus,
+		restedPool = ctx.rested or 0,                         -- (Core re-plans when it runs out)
+		restedBonus = rested,
 		corpseRun = ctx.corpseSecs ~= nil,
 		dingAt = ding,
 		hearthPlanned = next(hearthLegs) ~= nil,
@@ -777,6 +828,8 @@ function P.Plan(candidates, previous, opts)
 		bagFree = ns.QuestSource.FreeBagSlots() - (cfg.bagReserveSlots or 2),
 		level = ns.playerLevel and ns.playerLevel() or 1,
 		hearthSecs = cfg.hearthSeconds or 45,
+		-- rested XP: kills give double until it's used up (counted in route value and level-ups)
+		rested = (cfg.plannerRested ~= false and ns.Estimate and ns.Estimate.RestedPool) and ns.Estimate.RestedPool() or 0,
 	}
 	-- XP still needed for the next level: the route levels you up when its XP gets there (then quests
 	-- of the next level open, kills give a bit less, the trainer may be due, and you may ride)

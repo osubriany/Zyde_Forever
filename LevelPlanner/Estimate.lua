@@ -54,6 +54,23 @@ function E.MobXP(mobLevel, rank, raw, atLevel)
 	return math.max(0, xp)
 end
 
+-- Rested XP: kills give double until the rested pool is used up (quest XP is never rested). The
+-- planner and the step list both count it with these two, so they show the same numbers.
+-- The pool right now (0 when the game hides it or has none).
+function E.RestedPool()
+	local r = GetXPExhaustion and GetXPExhaustion()
+	if r == nil or (ns.isSecret and ns.isSecret(r)) or type(r) ~= "number" then return 0 end
+	return math.max(0, r)
+end
+
+-- Kills worth killXp while pool is left: the extra XP they give, and the pool left after them.
+function E.RestedBonus(pool, killXp)
+	pool, killXp = pool or 0, killXp or 0
+	local b = killXp < pool and killXp or pool
+	if b < 0 then b = 0 end
+	return b, pool - b
+end
+
 -- Kill time from Config alone (what learning compares against).
 function E.KillSecondsDefault(mobLevel, rank)
 	local cfg = ns.cfg

@@ -557,12 +557,13 @@ function L.Update(plan)
 	-- header: totals, level-up ETA, warnings
 	local cur, max = UnitXP("player"), UnitXPMax("player")
 	local need = (not ns.isSecret(cur) and not ns.isSecret(max) and max and max > 0) and (max - cur) or nil
-	-- rested XP doubles kill XP until the rested pool is used up (quest XP isn't rested)
-	local rested = GetXPExhaustion and GetXPExhaustion() or 0
-	if ns.isSecret(rested) or type(rested) ~= "number" then rested = 0 end
+	-- rested XP doubles kill XP until the rested pool is used up (quest XP isn't rested) - the same
+	-- rule the planner uses (Estimate.RestedBonus), from the live pool
+	local E = ns.Estimate
+	local rested = E.RestedPool()
 	local planMobXp = 0
 	for _, st in ipairs(plan.stops) do planMobXp = planMobXp + (st.mobXp or 0) end
-	local restedBonus = math.min(rested, planMobXp)
+	local restedBonus = E.RestedBonus(rested, planMobXp)
 	local rate = plan.seconds > 0 and (plan.xp + restedBonus) / (plan.seconds / 60) or plan.rate or 0
 	-- a ghost has the run back to the corpse to do first
 	local corpseSecs = 0
@@ -643,8 +644,8 @@ function L.Update(plan)
 		local titleText, detail, xp, icon = describe(s, plan)
 		-- kills earn double while rested XP lasts
 		local kills = s.mobXp or 0
-		local bonus = math.min(rested, kills)
-		rested = rested - bonus
+		local bonus
+		bonus, rested = E.RestedBonus(rested, kills)
 		gained = gained + (s.kind == "turnin" and s.xp or 0) + kills + bonus
 		local dingHere = false
 		if need and not dinged and gained >= need then dinged, dingHere = true, true end
