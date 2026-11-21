@@ -384,10 +384,11 @@ local function onQuestieReady()
 	events:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
 	events:RegisterEvent("PLAYER_XP_UPDATE")
 	events:RegisterEvent("UPDATE_EXHAUSTION")
+	events:RegisterEvent("CHAT_MSG_MONSTER_YELL") -- quests offered only now and then (the giver yells)
 	ns.RequestReplan(true)
 end
 
-events:SetScript("OnEvent", function(self, event, arg1)
+events:SetScript("OnEvent", function(self, event, arg1, arg2)
 	if event == "ADDON_LOADED" and arg1 == ADDON then
 		LevelPlannerDB = LevelPlannerDB or {}
 		LevelPlannerCharDB = LevelPlannerCharDB or {}
@@ -448,6 +449,13 @@ events:SetScript("OnEvent", function(self, event, arg1)
 				ns.dprint("rested XP " .. (pool <= 0 and "used up" or "grew") .. " - re-planning")
 				ns.RequestReplan(false)
 			end
+		end
+	elseif event == "CHAT_MSG_MONSTER_YELL" then
+		-- a now-and-then quest giver (Cork Gizelton's caravan) announcing a stop: plan with it
+		local text, sender = arg1, arg2
+		if not ns.isSecret(text) and not ns.isSecret(sender) and ns.Stops.TimedYell(text, sender) then
+			ns.dprint(tostring(sender) .. " yelled - re-planning with that quest")
+			ns.RequestReplan(true)
 		end
 	elseif event == "GROUP_ROSTER_UPDATE" then
 		-- only when "grouped" actually flips (the event also fires for roster changes inside a group)

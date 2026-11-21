@@ -61,6 +61,7 @@ local ICON = {
 	vendor = "Interface\\GossipFrame\\VendorGossipIcon",
 	grind = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01",
 	corpse = "Interface\\Icons\\Spell_Holy_Resurrection",
+	wait = "Interface\\Icons\\INV_Misc_PocketWatch_01",
 	default = "Interface\\Icons\\INV_Misc_QuestionMark",
 }
 
@@ -450,7 +451,8 @@ local function describe(step, plan)
 		icon = ICON[step.mode] or ICON.pass
 		local what = { fly = "Flight", boat = "Boat", zeppelin = "Zeppelin", tram = "Deeprun Tram",
 			hearth = "Hearthstone", pass = "On the way", portal = "Portal", border = "On the way",
-			corpse = "The rest of the route starts there" }
+			corpse = "The rest of the route starts there",
+			wait = "The quest is offered only while he's stopped here" }
 		detail = what[step.mode] or "Travel"
 		if step.mode == "hearth" then detail = "Hearthstone  |cff999999· click to use|r" end
 	elseif k == "dungeon" then

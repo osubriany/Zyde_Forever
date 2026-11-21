@@ -887,3 +887,20 @@ ns.QuestDropRates = {
 	[5481] = 19.3, -- Satyr Horns (Xavian satyrs, Ashenvale): Wowhead Forever 581/3013. Questie: 50%
 	[7128] = 0.6,  -- Uncloven Satyr Hoof (Xavian satyrs): Wowhead Forever 17/3013, not quest-only. Questie: 80%
 }
+
+----------------------------------------------------------------------------------------
+-- Quests offered only now and then: the giver walks a loop and stops at the pick-up for a few
+-- minutes. LevelPlanner plans one only inside a window it knows - from the giver's yell (heard
+-- anywhere in the zone), or predicted from the last one it heard - and waits there if early.
+-- Never heard: not planned (/lp why says so).
+--   npc / npcName: the giver; yell: part of the yell's text that means "here now" (omitted: any yell)
+--   open: minutes the pick-up stays open; every: minutes between stops
+--   after: { npc = another giver, minutes = n } - this one also opens n minutes after that one's yell
+-- Added 2026-11-21. Source: the user (the caravan stops about once an hour; the return trip ~30 min later).
+----------------------------------------------------------------------------------------
+ns.TimedQuests = {
+	[5821] = { name = "Bodyguard for Hire", npc = 11625, npcName = "Cork Gizelton", yell = "bodyguard",
+		open = 5, every = 60 },
+	[5943] = { name = "Gizelton Caravan", npc = 11626, npcName = "Rigger Gizelton",
+		open = 5, every = 60, after = { npc = 11625, minutes = 30 } },
+}

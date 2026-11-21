@@ -53,6 +53,19 @@ local function dingIndex(route, ctx)
 	return nil
 end
 
+-- A quest offered only now and then (Stops.TimedWindow): at its pick-up, arriving at t seconds into
+-- the route, how long you wait for the giver, and whether you're too late. MISSED is added to the
+-- route's time when you are, so no route keeps a pick-up it can't make.
+local MISSED = 1e6
+local function timedWait(s, t, ctx)
+	local q = s.quest
+	if s.kind ~= "pickup" or not q.timedFrom or not ctx.now then return 0 end
+	local from, to = q.timedFrom - ctx.now, q.timedTo - ctx.now
+	if t > to then return MISSED end
+	if t < from then return from - t end
+	return 0
+end
+
 -- Kill XP in a quest (or grind / dungeon), for the rested bonus.
 local function mobOf(q)
 	if q.mobXp then return q.mobXp end
@@ -133,7 +146,9 @@ local function routeSeconds(route, ctx)
 			local s = leg - hs - travel(h.point, e.point)
 			if s > save then save = s end
 		end
-		t = t + leg + w
+		t = t + leg
+		if e.stop.quest.timedFrom then t = t + timedWait(e.stop, t, ctx) end
+		t = t + w
 		prev, prevEntry = e.point, e
 		if need and not speed then
 			local g
@@ -160,10 +175,16 @@ local function feasible(route, ctx)
 	local n, bag = ctx.logCount, 0
 	local turnedIn, lastOrder = {}, {}
 	local xp, need, level, pool = 0, ctx.toDing, ctx.level or 0, ctx.rested
+	local prevStop
 	for _, e in ipairs(route) do
 		local s = e.stop
 		local q = s.quest
 		local first = lastOrder[q] == nil
+		-- an escort starts the moment you take it: its objective comes right after its pick-up
+		if q.escort and s.kind == "objective" and lastOrder[q] and not (prevStop and prevStop.quest == q) then
+			return false
+		end
+		prevStop = s
 		-- equal order is allowed: a dungeon's pick-ups (and its turn-ins) can come in any order
 		if s.order < (lastOrder[q] or 0) then return false end
 		lastOrder[q] = s.order
@@ -212,7 +233,10 @@ local function insertQuest(route, quest, ctx, skipFirst)
 	local firstPos
 	for k, stop in ipairs(quest.stops) do
 		local bestPos, bestPoint, bestDelta
-		for pos = minPos, #r + 1 do
+		-- an escort's objective goes right after its pick-up (it starts when you take it)
+		local maxPos = #r + 1
+		if quest.escort and stop.kind == "objective" and k > 1 and quest.stops[k - 1].kind == "pickup" then maxPos = minPos end
+		for pos = minPos, maxPos do
 			if not (k == 1 and pos == skipFirst) then
 				local prev = (pos == 1) and ctx.start or r[pos - 1].point
 				local nxt = r[pos] and r[pos].point
@@ -229,7 +253,9 @@ local function insertQuest(route, quest, ctx, skipFirst)
 		firstPos = firstPos or bestPos
 	end
 	if not feasible(r, ctx) then return nil end
-	return r, routeSeconds(r, ctx), firstPos
+	local t = routeSeconds(r, ctx)
+	if t >= MISSED then return nil end -- (a now-and-then quest's giver would be gone)
+	return r, t, firstPos
 end
 
 local function removeQuest(route, quest)
@@ -807,6 +833,14 @@ local function finalize(state, ctx)
 			end
 		end
 		t = t + legSeconds(idx, from, e.point)
+		-- the giver of a now-and-then quest isn't there yet: wait for him
+		local wait = e.stop.quest.timedFrom and timedWait(e.stop, t, ctx) or 0
+		if wait > 0 and wait < MISSED then
+			steps[#steps + 1] = { kind = "travel", mode = "wait", point = e.point, work = wait, arrive = t, mobXp = 0,
+				label = string.format("Wait for %s (~%d min)", (ns.TimedQuests and ns.TimedQuests[e.stop.quest.id]
+					and ns.TimedQuests[e.stop.quest.id].npcName) or "the quest giver", math.ceil(wait / 60)) }
+			t = t + wait
+		end
 		e.arrive = t
 		-- a per-plan view of the stop (the stop itself is shared between the plans being compared)
 		local view = setmetatable({ point = e.point, arrive = t }, { __index = e.stop })
@@ -873,6 +907,7 @@ function P.Plan(candidates, previous, opts)
 		bagFree = ns.QuestSource.FreeBagSlots() - (cfg.bagReserveSlots or 2),
 		level = ns.playerLevel and ns.playerLevel() or 1,
 		hearthSecs = cfg.hearthSeconds or 45,
+		now = GetServerTime and GetServerTime() or nil, -- (for quests offered only now and then)
 		-- rested XP: kills give double until it's used up (counted in route value and level-ups)
 		rested = (cfg.plannerRested ~= false and ns.Estimate and ns.Estimate.RestedPool) and ns.Estimate.RestedPool() or 0,
 	}

@@ -404,6 +404,59 @@ end
 -- logEntry: Questie's quest log entry when the quest is already picked up, else nil.
 -- Returns quest {id, name, level, xp, stops, workSeconds} or nil plus a reason.
 -- opts.dungeon: the objectives happen inside a dungeon, so only pick-up and turn-in stops are made.
+----------------------------------------------------------------------------------------
+-- Quests offered only now and then (Data/QuestFixes.lua: ns.TimedQuests): when the giver is at
+-- the pick-up. Times are the server's clock (GetServerTime), kept per realm for the whole account.
+----------------------------------------------------------------------------------------
+local function seenTable()
+	local db = ns.db
+	if not db then return {} end
+	db.timedSeen = db.timedSeen or {}
+	local realm = GetRealmName and GetRealmName() or "?"
+	db.timedSeen[realm] = db.timedSeen[realm] or {}
+	return db.timedSeen[realm]
+end
+
+-- A yell from one of these givers: remember when. Returns true when it counted.
+function S.TimedYell(text, sender)
+	if not (ns.TimedQuests and sender) then return false end
+	local hit = false
+	for _, tq in pairs(ns.TimedQuests) do
+		if tq.npcName == sender and (not tq.yell or (text or ""):lower():find(tq.yell, 1, true)) then
+			seenTable()[tq.npc] = GetServerTime()
+			hit = true
+		end
+	end
+	return hit
+end
+
+-- The pick-up window of a timed quest: from, to (server time; may be in the future), or nil and
+-- why. Predicted from the last yell heard, for up to Config.timedPredictHours after it.
+function S.TimedWindow(questId)
+	local tq = ns.TimedQuests and ns.TimedQuests[questId]
+	if not tq then return nil end
+	local seen = seenTable()
+	local base = seen[tq.npc]
+	local a = tq.after and seen[tq.after.npc]
+	if a then
+		a = a + tq.after.minutes * 60
+		if not base or a > base then base = a end
+	end
+	local who = tq.npcName or "the quest giver"
+	if not base then
+		return nil, string.format("only offered when %s stops there (about every %d min) - planned once you've heard his yell in the zone",
+			who, tq.every)
+	end
+	local now, every, open = GetServerTime(), tq.every * 60, tq.open * 60
+	if now - base > (ns.cfg.timedPredictHours or 3) * 3600 then
+		return nil, string.format("only offered when %s stops there (about every %d min) - last heard too long ago to guess the next stop",
+			who, tq.every)
+	end
+	local from = base
+	if now > from + open then from = from + math.ceil((now - from - open) / every) * every end
+	return from, from + open
+end
+
 function S.BuildQuest(questId, logEntry, opts)
 	local QS, cfg = ns.QuestSource, ns.cfg
 	local qo = QS.GetQuest(questId)
@@ -435,6 +488,16 @@ function S.BuildQuest(questId, logEntry, opts)
 	-- Needs a Blade" with no prerequisite and no objectives) that would be planned as pick up -> hand
 	-- in. Untraced quests WITH objectives stay: many are real race/class versions few people have done.
 	-- Kept too: ones in your log, with a hand-filled entry, or confirmed live (ns.LiveQuests).
+	-- offered only now and then: plan it only inside a window we know (the planner waits if early)
+	if not logEntry and ns.TimedQuests and ns.TimedQuests[questId] then
+		local from, to = S.TimedWindow(questId)
+		if not from then return nil, to end
+		if from - GetServerTime() > (cfg.horizonMinutes or 60) * 60 then
+			return nil, "only offered when the giver stops there - the next stop is past this hour's plan"
+		end
+		quest.timedFrom, quest.timedTo = from, to
+	end
+
 	if not logEntry and quest.xpEstimated and questId >= (cfg.classicQuestIdMax or 10000) and not fix
 		and #(qo.ObjectiveData or {}) == 0 and not (ns.LiveQuests and ns.LiveQuests[questId]) then
 		return nil, "not seen on Forever"
