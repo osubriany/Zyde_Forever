@@ -1,4 +1,4 @@
--- Pin: the step list's "..." menu finds the nearest innkeeper, ammo vendor, class trainer or repair
+-- Pin: the step list's "..." menu finds the nearest innkeeper, ammo vendor, class trainer, repair or auctioneer
 -- vendor and puts it at the top of the steps (arrow, map pins and all). It stays until you
 -- right-click that step. Kept per character, so it survives a /reload.
 local ADDON, zyde = ...
@@ -14,6 +14,7 @@ Pin.KINDS = {
 	{ key = "ammo", label = "Ammo vendor", ammo = true, icon = "Interface\\Icons\\INV_Ammo_Arrow_02" },
 	{ key = "trainer", label = "Class trainer", place = "Class Trainer", icon = "Interface\\Minimap\\Tracking\\Class" },
 	{ key = "repair", label = "Repair", place = "Repair", icon = "Interface\\Minimap\\Tracking\\Repair" },
+	{ key = "auction", label = "Auctioneer", place = "Auctioneer", icon = "Interface\\Minimap\\Tracking\\Auctioneer" },
 }
 
 local function current() return ns.char and ns.char.pin end
