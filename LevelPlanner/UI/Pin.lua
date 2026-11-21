@@ -119,9 +119,41 @@ function Pin.ToggleMenu(anchor)
 			b:SetScript("OnClick", function() menu:Hide() Pin.Set(kind) end)
 			y = y - 20
 		end
+		-- planner setting: elite quests (auto -> on -> off; same as /lp elites)
+		local sep = menu:CreateTexture(nil, "ARTWORK")
+		sep:SetColorTexture(1, 1, 1, 0.12)
+		sep:SetHeight(1)
+		sep:SetPoint("TOPLEFT", 8, y - 3)
+		sep:SetPoint("TOPRIGHT", -8, y - 3)
+		y = y - 7
+		local e = CreateFrame("Button", nil, menu)
+		e:SetSize(150, 20)
+		e:SetPoint("TOPLEFT", 4, y)
+		e.hl = e:CreateTexture(nil, "HIGHLIGHT")
+		e.hl:SetAllPoints()
+		e.hl:SetColorTexture(1, 1, 1, 0.1)
+		e.icon = e:CreateTexture(nil, "ARTWORK")
+		e.icon:SetSize(16, 16)
+		e.icon:SetPoint("LEFT", 4, 0)
+		e.icon:SetTexture("Interface\\Icons\\INV_Misc_Head_Dragon_01")
+		e.text = e:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		e.text:SetPoint("LEFT", e.icon, "RIGHT", 6, 0)
+		local NEXT = { auto = "on", on = "off", off = "auto" }
+		local WORD = { auto = "|cffbbbbbbauto|r", on = "|cff66ff66on|r", off = "|cffff6666off|r" }
+		menu.eliteRefresh = function() e.text:SetText("Elite quests: " .. WORD[ns.EliteMode()]) end
+		e:SetScript("OnClick", function() ns.SetEliteMode(NEXT[ns.EliteMode()]) menu.eliteRefresh() end)
+		e:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+			GameTooltip:AddLine("Elite quests in the plan")
+			GameTooltip:AddLine("Click to switch: auto (when grouped, or a hunter solo once they're yellow), on (always), off (only when grouped).", 1, 1, 1, true)
+			GameTooltip:Show()
+		end)
+		e:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		y = y - 20
 		menu:SetSize(158, -y + 6)
 		tinsert(UISpecialFrames, "LevelPlannerPinMenu") -- Escape closes it
 	end
+	menu.eliteRefresh()
 	menu:ClearAllPoints()
 	menu:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -2)
 	menu:Show()

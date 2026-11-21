@@ -79,9 +79,34 @@ end
 -- Elite quests and elite mobs are planned when grouped (or always, if Config says so). A hunter
 -- solo (the pet tanks) also gets them when they're yellow or easier: `level` (the quest's or the
 -- mob's) at most Config.hunterEliteLevelsAbove over yours. Bosses (rank 3) stay out solo.
+-- Your choice overrides that (per character: /lp elites, or the step list's "..." menu):
+--   "on"   - elite quests and mobs always planned, solo too
+--   "off"  - never solo (still planned when grouped)
+--   "auto" - the rule above (default)
 local _, playerClass = UnitClass("player")
+local ELITE_MODES = { auto = true, on = true, off = true }
+function ns.EliteMode()
+	local m = ns.char and ns.char.elites
+	return ELITE_MODES[m] and m or "auto"
+end
+
+function ns.SetEliteMode(mode)
+	if not ELITE_MODES[mode] then return end
+	ns.char.elites = mode
+	ns.print(({
+		on = "elite quests: on - planned solo too.",
+		off = "elite quests: off - planned only when grouped.",
+		auto = "elite quests: auto - planned when grouped" .. (playerClass == "HUNTER" and ", or solo once they're yellow or easier (your pet tanks)." or "."),
+	})[mode])
+	ns.forceFresh = true
+	if ns.RequestReplan then ns.RequestReplan(true) end
+end
+
 function ns.AllowElite(level, rank)
-	if ns.cfg.includeEliteQuests or ns.IsGrouped() then return true end
+	local mode = ns.EliteMode()
+	if mode == "on" or ns.IsGrouped() then return true end
+	if mode == "off" then return false end
+	if ns.cfg.includeEliteQuests then return true end
 	if playerClass == "HUNTER" and ns.cfg.hunterSoloElites ~= false and rank ~= 3 and level then
 		return level <= ns.playerLevel() + (ns.cfg.hunterEliteLevelsAbove or 2)
 	end
@@ -525,6 +550,13 @@ SlashCmdList.LEVELPLANNER = function(msg)
 			or ("group mark removed" .. (ns.IsGrouped() and " (you are still in a party, which counts as grouped)." or ".")))
 		ns.forceFresh = true
 		ns.RequestReplan(true)
+	elseif msg == "elites" or msg == "elites on" or msg == "elites off" or msg == "elites auto" then
+		local mode = msg:match("^elites (%a+)$")
+		if not mode then
+			ns.print("elite quests: " .. ns.EliteMode() .. ". Use /lp elites on, off or auto.")
+			return
+		end
+		ns.SetEliteMode(mode)
 	elseif msg == "debug" then
 		ns.debug = not ns.debug
 		ns.char.debug = ns.debug
@@ -562,6 +594,7 @@ SlashCmdList.LEVELPLANNER = function(msg)
 		ns.print("/lp reset - stop skipping quests")
 		ns.print("/lp replan - plan again from scratch now")
 		ns.print("/lp group on|off - plan elite and red quests for a group")
+		ns.print("/lp elites on|off|auto - elite quests solo: always, never, or by the usual rule")
 		ns.print("/lp arrow - show or hide the built-in arrow")
 		ns.print("/lp cleanup - quests in your log the plan doesn't use")
 		ns.print("/lp auto on|off - automatic accept / turn-in of planned quests")
