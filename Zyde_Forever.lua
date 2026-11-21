@@ -105,7 +105,6 @@ local FEATURES = {
 	{ key = "threatBox", short = "tank threat table", label = "Tank threat list", desc = "While you are set to the tank role in a party or raid: a draggable table of mobs you have threat on. Columns are the mob, your threat percent, then the two people closest behind you and their percent. Only mobs with a nameplate, bosses, and your target can be listed. Drag the title to move it" },
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames with buffs and debuffs, mana / rage / energy on party frames. Shift-drag a frame to move it", reload = true },
 	{ key = "targetTarget", short = "small frame by target", label = "Target of target", desc = "A small frame beside the target frame showing who your target is targeting (with the Zyde unit frames on). Shift-drag it to move it" },
-	{ key = "framePortraits", short = "round portraits, slanted bars", label = "Portrait style", desc = "Player, target and party frames get a round portrait in a ring of the class color with the level in a badge under it, bars with slanted ends and a glossy color gradient, and the name on a dark tab. Gold ring for elites and bosses, silver for rares. Off: the plain flat boxes", reload = true },
 	{ key = "unitAuras", short = "icons on your frames", label = "Unit frame buffs / debuffs", desc = "Buff and debuff icons with time left on the Zyde unit frames: the target's debuffs (yours first) and buffs, your debuffs and buffs, and your pet's" },
 	{ key = "plates", short = "flat enemy nameplates", label = "Nameplates", desc = "Flat enemy nameplates in the unit frames' style: full name above, level badge (elite +, rare dragon, boss skull), cast bar (orange = interruptible), your debuffs with time left, aggro warning (AGGRO on mobs attacking you, LOOSE when you tank and a mob isn't on you), Execute-range color for warriors, and the quest icon, count and drop chance together on the right (Questie). Friendly and object nameplates keep the game's look" },
 	{ key = "barTidy", short = "short keys, no empty slots", label = "Tidy action bars", desc = "Short keybind labels on action buttons (a-1 becomes A1, Mouse Button 4 becomes M4) and empty slots hidden - they show again while you drag a spell or item" },
@@ -2349,11 +2348,12 @@ local COL_W = 330    -- width of one column of features
 --                                 out while it's off)
 --   { group = "Name", children }  a name with several features on one line
 -- Children are feature keys or slider keys (see SLIDERS in buildOptions).
+-- chooser = "key" adds a drop-down line under a feature (see CHOOSERS there).
 -- A feature missing here still shows, under "Other" at the end.
 local CATEGORIES = {
 	{
 		{ "Interface", {
-			{ "unitFrames", children = { "unitAuras", "targetTarget", "framePortraits" } },
+			{ "unitFrames", children = { "unitAuras", "targetTarget" }, chooser = "frameStyle" },
 			"plates", "xp", "reminders",
 			{ group = "Action bars", children = { "hideBars", "hideMicroMenu", "barTidy" } },
 			"gear",
@@ -2376,7 +2376,7 @@ local CATEGORIES = {
 
 -- Short names for options shown on an indented line beside each other.
 local CHILD_LABEL = {
-	unitAuras = "Buffs / debuffs", targetTarget = "Target of target", framePortraits = "Portraits",
+	unitAuras = "Buffs / debuffs", targetTarget = "Target of target",
 	hideBars = "Hide bar art", hideMicroMenu = "Hide micro menu", barTidy = "Tidy keys & slots",
 	questAlert = "Glow alert", questIcons = "Icons over nodes",
 	questMobs = "Quest mobs", questieDrops = "Drop chances",
@@ -2398,6 +2398,21 @@ local function buildOptions()
 			desc = "How big the quest tracker's text is (13 is the normal size). The tracker grows with it.",
 			get = function() return ns.QuestTracker and ns.QuestTracker.GetFontSize() or 13 end,
 			set = function(v) if ns.QuestTracker then ns.QuestTracker.SetFontSize(v) end end,
+		},
+	}
+
+	-- Drop-downs (a feature's `chooser` in CATEGORIES).
+	local CHOOSERS = {
+		frameStyle = {
+			label = "Style", parent = "unitFrames",
+			desc = "How the player, target and party frames look. Takes a reload.",
+			options = function() return ns.UnitFrames and ns.UnitFrames.STYLES or {} end,
+			get = function() return ns.UnitFrames and ns.UnitFrames.GetStyle() end,
+			set = function(k) if ns.UnitFrames then ns.UnitFrames.SetStyle(k) end end,
+			changed = function()
+				local UF = ns.UnitFrames
+				return UF and UF.styleAtLoad and UF.styleAtLoad ~= UF.GetStyle() or false
+			end,
 		},
 	}
 
@@ -2458,7 +2473,7 @@ local function buildOptions()
 	local close = CreateFrame("Button", nil, o, "UIPanelCloseButton")
 	close:SetPoint("TOPRIGHT", 2, 2)
 
-	o.rows, o.sliders = {}, {}
+	o.rows, o.sliders, o.choosers = {}, {}, {}
 
 	local function heading(x, y, text)
 		local h = o:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -2548,6 +2563,71 @@ local function buildOptions()
 		o.sliders[#o.sliders + 1] = s
 	end
 
+	-- "Style  [ Gilded Slant  v ]": click for the list, hover a choice for what it looks like.
+	local function chooserRow(def, x, y)
+		local c = CreateFrame("Button", nil, o, "BackdropTemplate")
+		c.def = def
+		c.label = o:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		c.label:SetPoint("TOPLEFT", x + 4, y - 6)
+		c.label:SetText(def.label)
+		c:SetSize(150, 20)
+		c:SetPoint("LEFT", c.label, "RIGHT", 10, 0)
+		c:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+		c:SetBackdropColor(0, 0, 0, 0.6)
+		c:SetBackdropBorderColor(0.69, 0.35, 1, 0.5)
+		c.text = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		c.text:SetPoint("LEFT", 8, 0)
+		local arrow = c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		arrow:SetPoint("RIGHT", -7, 0)
+		arrow:SetText("v")
+		c.note = o:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		c.note:SetPoint("LEFT", c, "RIGHT", 8, 0)
+
+		local menu = CreateFrame("Frame", nil, c, "BackdropTemplate")
+		menu:SetPoint("TOPLEFT", c, "BOTTOMLEFT", 0, -2)
+		menu:SetFrameLevel(o:GetFrameLevel() + 40)
+		menu:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+		menu:SetBackdropColor(0.05, 0.05, 0.06, 0.98)
+		menu:SetBackdropBorderColor(0.69, 0.35, 1, 0.8)
+		menu:Hide()
+		c.menu = menu
+		local list = def.options()
+		for i, opt in ipairs(list) do
+			local b = CreateFrame("Button", nil, menu)
+			b:SetSize(148, 20)
+			b:SetPoint("TOPLEFT", 1, -1 - (i - 1) * 20)
+			local hl = b:CreateTexture(nil, "HIGHLIGHT")
+			hl:SetAllPoints()
+			hl:SetColorTexture(0.69, 0.35, 1, 0.3)
+			b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			b.text:SetPoint("LEFT", 8, 0)
+			b.text:SetText(opt.label)
+			b:SetScript("OnClick", function()
+				def.set(opt.key)
+				menu:Hide()
+				o:Refresh()
+			end)
+			b:SetScript("OnEnter", function(self)
+				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+				GameTooltip:AddLine(opt.label)
+				GameTooltip:AddLine(opt.desc, 1, 1, 1, true)
+				GameTooltip:Show()
+			end)
+			b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		end
+		menu:SetSize(150, #list * 20 + 2)
+		c:SetScript("OnClick", function() menu:SetShown(not menu:IsShown()) end)
+		c:SetScript("OnHide", function() menu:Hide() end)
+		c:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:AddLine(def.label)
+			GameTooltip:AddLine(def.desc, 1, 1, 1, true)
+			GameTooltip:Show()
+		end)
+		c:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		o.choosers[#o.choosers + 1] = c
+	end
+
 	-- One indented line of children: checkboxes side by side, or a slider. A checkbox that would run
 	-- into the next column goes on a new line underneath. Returns how many lines it took (0 = none).
 	local INDENT = 26
@@ -2612,6 +2692,10 @@ local function buildOptions()
 						checkbox(FEATURE_BY_KEY[e[1]], x, y)
 						y = y - ROW
 						y = y - ROW * childLine(e.children, x, y, e[1], x + COL_W - 16)
+						if e.chooser and CHOOSERS[e.chooser] then
+							chooserRow(CHOOSERS[e.chooser], x + INDENT, y)
+							y = y - ROW
+						end
 					end
 				end
 			end
@@ -2699,6 +2783,19 @@ local function buildOptions()
 			if live then s:Enable() else s:Disable() end
 			s.label:SetTextColor(live and 1 or 0.5, live and 1 or 0.5, live and 1 or 0.5)
 			s:SetAlpha(live and 1 or 0.5)
+		end
+		for _, c in ipairs(self.choosers) do
+			local cur, label = c.def.get(), nil
+			for _, opt in ipairs(c.def.options()) do if opt.key == cur then label = opt.label end end
+			c.text:SetText(label or "-")
+			local live = not c.def.parent or F(c.def.parent)
+			if live then c:Enable() else c:Disable() c.menu:Hide() end
+			local v = live and 1 or 0.5
+			c.label:SetTextColor(v, v, v)
+			c:SetAlpha(live and 1 or 0.5)
+			local changed = c.def.changed()
+			needReload = needReload or changed
+			c.note:SetText(changed and "|cffffd200reload to apply|r" or "")
 		end
 		self.reload:SetShown(needReload)
 		self.reloadHint:SetShown(needReload)

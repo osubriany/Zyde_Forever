@@ -1557,19 +1557,67 @@ local function hideBlizzardUnitFrames()
 end
 
 ---------------------------------------------------------------------------
--- Portrait style (an option, on by default): a round portrait in a ring of
--- the class color with the level in a badge under it, bars with slanted ends
--- and a glossy color gradient, and the name on a dark tab above the bar.
+-- Frame styles: how the player, target, party, pet and target-of-target
+-- frames look. Picked in /zyde (Unit frames > Style), saved as
+-- ZydeForeverDB.frameStyle, and built once at login, so a change needs a /reload.
+--   slant  Gilded Slant (default): round portrait in a class-colored ring,
+--          level badge, slanted bar ends, glossy class gradient, name on a tab
+--   flat   Clean Flat: the plain flat boxes, no portraits
+--   hex    Hex Crest: hexagon portraits in a steel rim, bars ending in an
+--          arrow point, a gold line between health and power
+--   glass  Glass Glow: dark rounded cards, a glowing ring, pill-shaped bars
+--   plate  Arcane Plate: square portraits with clipped corners and gold trim,
+--          bars with cut corners
 -- Player and party have the portrait on the left, the target on the right.
--- Pet and target of target get the slanted, glossy bars only.
--- Built once at login, so turning it on or off needs a /reload.
+-- Pet and target of target get the bars only. Raid frames stay flat.
 ---------------------------------------------------------------------------
+UF.STYLES = {
+	{ key = "slant", label = "Gilded Slant", desc = "Round portrait in a ring of the class color, level badge, slanted bar ends with a glossy class gradient, name on a dark tab" },
+	{ key = "flat", label = "Clean Flat", desc = "The plain flat boxes: no portraits, least screen space" },
+	{ key = "hex", label = "Hex Crest", desc = "Hexagon portraits in a steel rim, bars that end in an arrow point, a thin gold line between health and power" },
+	{ key = "glass", label = "Glass Glow", desc = "Dark rounded cards, a soft glow around a round portrait, pill-shaped bars" },
+	{ key = "plate", label = "Arcane Plate", desc = "Square portraits with clipped corners and gold trim, chunky bars with cut corners" },
+}
+
+function UF.GetStyle()
+	local db = ZydeForeverDB
+	local want = db and db.frameStyle
+	for _, s in ipairs(UF.STYLES) do
+		if s.key == want then return want end
+	end
+	-- (before there was a list: the portrait option turned off meant the flat boxes)
+	if db and db.features and db.features.framePortraits == false then return "flat" end
+	return "slant"
+end
+
+function UF.SetStyle(key)
+	ZydeForeverDB = ZydeForeverDB or {}
+	ZydeForeverDB.frameStyle = key
+end
+
 do -- own scope (200-local limit)
 local MEDIA = "Interface\\AddOns\\Zyde_Forever\\Media\\"
 local ROUND = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
-local SLANT = 24 / 256 -- how far the ends lean, as a share of the width (matches the textures)
+local FRIZ = "Fonts\\FRIZQT__.TTF"
+local LEAN = 24 / 256 -- how far a slant or arrow end reaches in, as a share of the width (matches the textures)
 local GOLD, SILVER = { 1, 0.78, 0.25 }, { 0.80, 0.84, 0.90 }
 local CLAMP = "CLAMPTOBLACKADDITIVE"
+
+-- What each style is made of.
+--   bar/back  mask over the bars (back: the target's, mirrored); whole = one
+--             shape over health and power together, else one per bar
+--   portrait  mask for the portrait, ring and its rim; ring = how it's colored
+--   badge     level badge kind; name = where the name goes; border, shade, card
+local SPEC = {
+	slant = { bar = "Slant", back = "SlantBack", whole = true, portrait = ROUND, ring = "class", badge = "disc",
+		name = "tab", border = "dark", shade = "shine", gap = 22 },
+	hex = { bar = "Arrow", back = "ArrowBack", whole = true, portrait = MEDIA .. "Hex", ring = "steel", badge = "hex",
+		name = "inside", border = "steel", shade = "gloss", divider = true, font = FRIZ, gap = 16 },
+	glass = { bar = "Pill", back = "Pill", whole = false, portrait = ROUND, ring = "glow", badge = "chip",
+		name = "inside", card = true, shade = "shine", gap = 28 },
+	plate = { bar = "Cut", back = "Cut", whole = true, portrait = MEDIA .. "Octagon", ring = "gold", badge = "tag",
+		name = "above", border = "gold", shade = "gloss", font = FRIZ, gap = 24 },
+}
 
 -- A two-color gradient on a plain texture. Horizontal: left, right. Vertical: bottom, top.
 local function gradient(tex, orient, r1, g1, b1, a1, r2, g2, b2, a2)
@@ -1590,169 +1638,320 @@ local function cut(owner, file, area, list)
 	return m
 end
 
--- Slanted ends (the shape spans the whole frame, health and power together),
--- lighter toward the right, a little darker along the bottom, glossy on top.
-local function skinBar(bar, f, file)
-	for _, t in ipairs(bar.edges or {}) do t:Hide() end
-	local fill = bar:GetStatusBarTexture()
-	local shine = bar:CreateTexture(nil, "ARTWORK", nil, 3)
-	shine:SetTexture(FLAT)
-	shine:SetPoint("TOPLEFT", fill, "TOPLEFT")
-	shine:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT")
-	gradient(shine, "HORIZONTAL", 0, 0, 0, 0.22, 1, 1, 1, 0.30)
-	local low = bar:CreateTexture(nil, "ARTWORK", nil, 4)
-	low:SetTexture(FLAT)
-	low:SetPoint("BOTTOMLEFT", fill, "BOTTOMLEFT")
-	low:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT")
-	low:SetHeight(math.max(2, math.floor(bar:GetHeight() * 0.4)))
-	gradient(low, "VERTICAL", 0, 0, 0, 0.35, 0, 0, 0, 0)
-	if bar.sheen then gradient(bar.sheen, "VERTICAL", 1, 1, 1, 0, 1, 1, 1, 0.18) end
-	bar.bg:SetColorTexture(0.07, 0.06, 0.06, 0.88)
-	cut(bar, file, f, { bar.bg, fill, shine, low, bar.sheen })
-end
-
--- A dark slanted border behind the bars (the gap between health and power shows it too).
-local function skinBorder(f, file)
-	local b = f:CreateTexture(nil, "BACKGROUND", nil, -8)
-	b:SetTexture(FLAT)
-	b:SetPoint("TOPLEFT", f, "TOPLEFT", -3, 2)
-	b:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 3, -2)
-	gradient(b, "VERTICAL", 0.01, 0.01, 0.01, 0.95, 0.20, 0.18, 0.16, 0.95)
-	cut(f, file, b, { b })
-end
-
--- A round texture: the circle mask over its own area.
-local function round(owner, layer, sub)
+local function plainTex(owner, layer, sub)
 	local t = owner:CreateTexture(nil, layer, nil, sub)
-	cut(owner, ROUND, t, { t })
+	t:SetTexture(FLAT)
 	return t
 end
 
-local function addPortrait(f, onRight)
+-- Bars: the style's shape, and its shading on the filled part.
+--   shine  lighter toward the right end, darker along the bottom, glossy top
+--   gloss  light top, dark bottom (a rounded, metal look)
+local function skinBar(bar, f, spec, file)
+	for _, t in ipairs(bar.edges or {}) do t:Hide() end
+	local fill = bar:GetStatusBarTexture()
+	local list = { bar.bg, fill }
+	if spec.shade == "shine" then
+		local shine = plainTex(bar, "ARTWORK", 3)
+		shine:SetPoint("TOPLEFT", fill, "TOPLEFT")
+		shine:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT")
+		gradient(shine, "HORIZONTAL", 0, 0, 0, 0.22, 1, 1, 1, 0.30)
+		list[#list + 1] = shine
+	end
+	local low = plainTex(bar, "ARTWORK", 4)
+	low:SetPoint("BOTTOMLEFT", fill, "BOTTOMLEFT")
+	low:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT")
+	low:SetHeight(math.max(2, math.floor(bar:GetHeight() * (spec.shade == "gloss" and 0.5 or 0.4))))
+	gradient(low, "VERTICAL", 0, 0, 0, spec.shade == "gloss" and 0.45 or 0.35, 0, 0, 0, 0)
+	list[#list + 1] = low
+	if bar.sheen then
+		gradient(bar.sheen, "VERTICAL", 1, 1, 1, 0, 1, 1, 1, spec.shade == "gloss" and 0.32 or 0.18)
+		list[#list + 1] = bar.sheen
+	end
+	if spec.card then bar.bg:SetColorTexture(1, 1, 1, 0.08) else bar.bg:SetColorTexture(0.07, 0.06, 0.06, 0.88) end
+	cut(bar, file, spec.whole and f or bar, list)
+end
+
+-- Behind the bars (the gap between health and power shows it too).
+local function skinBorder(f, spec, file)
+	if spec.border == "dark" then
+		local b = plainTex(f, "BACKGROUND", -8)
+		b:SetPoint("TOPLEFT", f, "TOPLEFT", -3, 2)
+		b:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 3, -2)
+		gradient(b, "VERTICAL", 0.01, 0.01, 0.01, 0.95, 0.20, 0.18, 0.16, 0.95)
+		cut(f, file, b, { b })
+	elseif spec.border == "steel" then
+		local b = plainTex(f, "BACKGROUND", -8)
+		b:SetPoint("TOPLEFT", f, "TOPLEFT", -3, 2)
+		b:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 3, -2)
+		gradient(b, "VERTICAL", 0.14, 0.15, 0.17, 1, 0.83, 0.85, 0.87, 1)
+		cut(f, file, b, { b })
+	elseif spec.border == "gold" then
+		local g = plainTex(f, "BACKGROUND", -8)
+		g:SetPoint("TOPLEFT", f, "TOPLEFT", -3, 3)
+		g:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 3, -3)
+		gradient(g, "VERTICAL", 0.48, 0.33, 0.06, 1, 0.95, 0.82, 0.48, 1)
+		cut(f, file, g, { g })
+		local d = plainTex(f, "BACKGROUND", -7)
+		d:SetPoint("TOPLEFT", f, "TOPLEFT", -1, 1)
+		d:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 1, -1)
+		d:SetColorTexture(0.03, 0.02, 0.02, 1)
+		cut(f, file, d, { d })
+	end
+	if spec.divider and f.power then
+		local line = f:CreateTexture(nil, "ARTWORK")
+		line:SetColorTexture(0.79, 0.64, 0.29, 1)
+		line:SetPoint("TOPLEFT", f.hp, "BOTTOMLEFT", 0, 0)
+		line:SetPoint("TOPRIGHT", f.hp, "BOTTOMRIGHT", 0, 0)
+		line:SetHeight(1)
+		cut(f, file, f, { line })
+	end
+end
+
+-- Glass: a dark rounded card behind the frame (and its portrait).
+local function addCard(f, left, right)
+	local c = CreateFrame("Frame", nil, f, "BackdropTemplate")
+	c:SetPoint("TOPLEFT", f, "TOPLEFT", -left, 9)
+	c:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", right, -9)
+	c:SetFrameLevel(math.max(0, f.hp:GetFrameLevel() - 1))
+	c:SetBackdrop({
+		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12,
+		insets = { left = 3, right = 3, top = 3, bottom = 3 },
+	})
+	c:SetBackdropColor(0.04, 0.04, 0.07, 0.72)
+	c:SetBackdropBorderColor(1, 1, 1, 0.28)
+	f.card = c
+end
+
+local function shaped(owner, shape, layer, sub)
+	local t = owner:CreateTexture(nil, layer, nil, sub)
+	cut(owner, shape, t, { t })
+	return t
+end
+
+local function addPortrait(f, spec, onRight)
 	local d = frameHeight(f.cfg) + (f.isParty and 12 or 16)
 	local s = CreateFrame("Frame", nil, f)
 	s:SetSize(d, d)
 	s:SetPoint("CENTER", f, onRight and "RIGHT" or "LEFT", onRight and -2 or 2, 0)
 	s:SetFrameLevel(f.hp:GetFrameLevel() + 6)
-	f.ring = round(s, "BACKGROUND")
+	if spec.ring == "glow" then
+		f.glow = s:CreateTexture(nil, "BACKGROUND", nil, -8)
+		f.glow:SetTexture(MEDIA .. "Glow")
+		f.glow:SetPoint("CENTER")
+		f.glow:SetSize(d * 1.5, d * 1.5)
+		f.glow:SetBlendMode("ADD")
+	end
+	f.ring = shaped(s, spec.portrait, "BACKGROUND")
 	f.ring:SetAllPoints()
 	f.ring:SetTexture(FLAT)
-	local inner = round(s, "BORDER")
-	inner:SetPoint("TOPLEFT", 3, -3)
-	inner:SetPoint("BOTTOMRIGHT", -3, 3)
+	local rim = spec.ring == "glow" and 2 or 3
+	local inner = shaped(s, spec.portrait, "BORDER")
+	inner:SetPoint("TOPLEFT", rim, -rim)
+	inner:SetPoint("BOTTOMRIGHT", -rim, rim)
 	inner:SetColorTexture(0.04, 0.04, 0.04, 1)
-	f.portrait = round(s, "ARTWORK")
-	f.portrait:SetPoint("TOPLEFT", 4, -4)
-	f.portrait:SetPoint("BOTTOMRIGHT", -4, 4)
-	-- Level badge: a small dark disc with a colored rim on the bottom of the ring.
-	local bs = f.isParty and 18 or 21
-	f.badgeEdge = round(s, "ARTWORK", 6)
-	f.badgeEdge:SetSize(bs + 2, bs + 2)
-	f.badgeEdge:SetPoint("CENTER", s, "BOTTOM", 0, 4)
-	f.badgeEdge:SetColorTexture(1, 1, 1, 1)
-	local disc = round(s, "ARTWORK", 7)
-	disc:SetSize(bs, bs)
-	disc:SetPoint("CENTER", f.badgeEdge, "CENTER")
-	disc:SetTexture(FLAT)
-	gradient(disc, "VERTICAL", 0.02, 0.02, 0.02, 1, 0.20, 0.18, 0.16, 1)
-	f.badge = makeText(s, f.isParty and 9 or 10)
-	f.badge:SetPoint("CENTER", disc, "CENTER", 0, 0)
+	f.portrait = shaped(s, spec.portrait, "ARTWORK")
+	f.portrait:SetPoint("TOPLEFT", rim + 1, -rim - 1)
+	f.portrait:SetPoint("BOTTOMRIGHT", -rim - 1, rim + 1)
+
+	-- The level badge.
+	local small = f.isParty
+	local size = small and 9 or 10
+	if spec.badge == "disc" then
+		local bs = small and 18 or 21
+		f.badgeEdge = shaped(s, ROUND, "ARTWORK", 6)
+		f.badgeEdge:SetSize(bs + 2, bs + 2)
+		f.badgeEdge:SetPoint("CENTER", s, "BOTTOM", 0, 4)
+		f.badgeEdge:SetColorTexture(1, 1, 1, 1)
+		local disc = shaped(s, ROUND, "ARTWORK", 7)
+		disc:SetSize(bs, bs)
+		disc:SetPoint("CENTER", f.badgeEdge, "CENTER")
+		disc:SetTexture(FLAT)
+		gradient(disc, "VERTICAL", 0.02, 0.02, 0.02, 1, 0.20, 0.18, 0.16, 1)
+		f.badge = makeText(s, size)
+		f.badge:SetPoint("CENTER", disc, "CENTER", 0, 0)
+	elseif spec.badge == "hex" then
+		local hb = shaped(s, MEDIA .. "Hex", "ARTWORK", 7)
+		hb:SetSize(small and 22 or 26, small and 16 or 19)
+		hb:SetPoint("CENTER", s, "BOTTOM", 0, 3)
+		hb:SetTexture(FLAT)
+		gradient(hb, "VERTICAL", 0.55, 0.40, 0.10, 1, 0.95, 0.82, 0.45, 1)
+		f.badge = s:CreateFontString(nil, "OVERLAY")
+		f.badge:SetFont(FRIZ, size - 1, "")
+		f.badge:SetTextColor(0.1, 0.07, 0.02)
+		f.badge:SetPoint("CENTER", hb, "CENTER", 0, 0)
+		f.badgeDark = true
+	elseif spec.badge == "chip" then
+		local chip = shaped(s, MEDIA .. "Pill", "ARTWORK", 7)
+		chip:SetSize(small and 22 or 26, small and 13 or 15)
+		chip:SetPoint("CENTER", s, onRight and "BOTTOMLEFT" or "BOTTOMRIGHT", onRight and 4 or -4, 6)
+		chip:SetColorTexture(0.05, 0.05, 0.08, 0.95)
+		f.badge = makeText(s, size)
+		f.badge:SetPoint("CENTER", chip, "CENTER", 0, 0)
+	elseif spec.badge == "tag" then
+		local tag = s:CreateTexture(nil, "ARTWORK", nil, 7)
+		tag:SetColorTexture(0.03, 0.02, 0.02, 0.95)
+		tag:SetSize(small and 18 or 22, small and 11 or 13)
+		tag:SetPoint("BOTTOMLEFT", f.portrait, "BOTTOMLEFT", 2, 2)
+		f.badge = s:CreateFontString(nil, "OVERLAY")
+		f.badge:SetFont(FRIZ, size - 1, "")
+		f.badge:SetTextColor(0.95, 0.82, 0.48)
+		f.badge:SetPoint("CENTER", tag, "CENTER", 0, 0)
+		f.badgeGold = true
+	end
 	f.portraitSize = d
+	f.ringKind = spec.ring
 end
 
--- The name on a dark slanted tab sitting on the top edge of the bar.
-local function nameTab(f, left, width, size, file)
-	local tab = CreateFrame("Frame", nil, f)
-	tab:SetSize(width, size + 5)
-	tab:SetPoint("BOTTOMLEFT", f, "TOPLEFT", left, -3)
-	tab:SetFrameLevel(f.hp:GetFrameLevel() + 3)
-	local bg = tab:CreateTexture(nil, "BACKGROUND")
-	bg:SetAllPoints()
-	bg:SetTexture(FLAT)
-	gradient(bg, "VERTICAL", 0.02, 0.02, 0.02, 0.94, 0.22, 0.20, 0.18, 0.94)
-	cut(tab, file, bg, { bg })
-	f.name:SetParent(tab)
-	f.name:ClearAllPoints()
-	f.name:SetPoint("LEFT", tab, "LEFT", 10, 0)
-	f.name:SetPoint("RIGHT", tab, "RIGHT", -10, 0)
-	f.name:SetFont(FONT, size, "OUTLINE")
-	f.name:SetJustifyH(f.unit == "target" and "LEFT" or "CENTER")
-	-- The raid marker moves just right of the tab (it sat where the tab is).
-	if f.mark then
-		f.mark:ClearAllPoints()
-		f.mark:SetPoint("CENTER", tab, "RIGHT", 12, -2)
+-- Names. tab: on a dark slanted tab sitting on the bar's top edge.
+-- inside: in the health bar, on the left. above: plain text just above the bar.
+local function placeName(f, spec, file, left, width)
+	local size = f.unit == "target" and 13 or 11
+	if spec.name == "tab" then
+		local tab = CreateFrame("Frame", nil, f)
+		tab:SetSize(width, size + 5)
+		tab:SetPoint("BOTTOMLEFT", f, "TOPLEFT", left, -3)
+		tab:SetFrameLevel(f.hp:GetFrameLevel() + 3)
+		local bg = plainTex(tab, "BACKGROUND")
+		bg:SetAllPoints()
+		gradient(bg, "VERTICAL", 0.02, 0.02, 0.02, 0.94, 0.22, 0.20, 0.18, 0.94)
+		cut(tab, file, bg, { bg })
+		f.name:SetParent(tab)
+		f.name:ClearAllPoints()
+		f.name:SetPoint("LEFT", tab, "LEFT", 10, 0)
+		f.name:SetPoint("RIGHT", tab, "RIGHT", -10, 0)
+		f.name:SetFont(FONT, size, "OUTLINE")
+		f.name:SetJustifyH(f.unit == "target" and "LEFT" or "CENTER")
+		if f.mark then
+			f.mark:ClearAllPoints()
+			f.mark:SetPoint("CENTER", tab, "RIGHT", 12, -2)
+		end
+	elseif spec.name == "inside" then
+		f.name:SetParent(f.hp)
+		f.name:ClearAllPoints()
+		f.name:SetPoint("LEFT", f.hp, "LEFT", left + 6, 0)
+		f.name:SetPoint("RIGHT", f.text, "LEFT", -6, 0)
+		f.name:SetFont(spec.font or FONT, size - (spec.font and 1 or 0), "OUTLINE")
+		f.name:SetJustifyH("LEFT")
+	else -- above
+		f.name:SetParent(f)
+		f.name:ClearAllPoints()
+		f.name:SetPoint("BOTTOMLEFT", f, "TOPLEFT", left + 2, 4)
+		f.name:SetWidth(width)
+		f.name:SetFont(spec.font or FONT, size - 1, "OUTLINE")
+		f.name:SetJustifyH("LEFT")
+		if f.mark then
+			f.mark:ClearAllPoints()
+			f.mark:SetPoint("CENTER", f.hp, "TOPRIGHT", -24, 0)
+		end
 	end
 end
 
 -- Ring color: class color for players and group members, gold for elites and
 -- bosses, silver for rares, otherwise the same reaction color as the bar.
+-- Steel and gold rims keep their metal unless it's an elite or a rare.
 local function ringColor(f)
 	local unit = f.unit
+	local special
 	if not plain(UnitIsPlayer(unit)) and not f.isGroup then
 		local cls = plain(UnitClassification(unit))
-		if cls == "elite" or cls == "worldboss" then return GOLD[1], GOLD[2], GOLD[3] end
-		if cls == "rare" or cls == "rareelite" then return SILVER[1], SILVER[2], SILVER[3] end
+		if cls == "elite" or cls == "worldboss" then special = GOLD
+		elseif cls == "rare" or cls == "rareelite" then special = SILVER end
 	end
+	if special then return special[1], special[2], special[3], true end
 	return healthColor(f)
 end
+
+local function lift(v) return math.min(1, v * 1.15 + 0.1) end
 
 local function skinUpdate(f)
 	local unit = f.unit
 	if not UnitExists(unit) then return end
 	pcall(SetPortraitTexture, f.portrait, unit)
 	f.portrait:SetDesaturated(isDead(unit) or isOffline(unit))
-	local r, g, b = ringColor(f)
-	gradient(f.ring, "VERTICAL", r * 0.45, g * 0.45, b * 0.45, 1,
-		math.min(1, r * 1.15 + 0.1), math.min(1, g * 1.15 + 0.1), math.min(1, b * 1.15 + 0.1), 1)
-	f.badgeEdge:SetVertexColor(r, g, b, 1)
+	local r, g, b, special = ringColor(f)
+	local kind = f.ringKind
+	if kind == "steel" and not special then
+		gradient(f.ring, "VERTICAL", 0.29, 0.31, 0.34, 1, 0.90, 0.91, 0.93, 1)
+	elseif kind == "gold" and not special then
+		gradient(f.ring, "VERTICAL", 0.48, 0.33, 0.06, 1, 0.95, 0.82, 0.48, 1)
+	elseif kind == "glow" then
+		gradient(f.ring, "VERTICAL", r, g, b, 1, lift(r), lift(g), lift(b), 1)
+		f.glow:SetVertexColor(r, g, b, 0.8)
+		if f.card then f.card:SetBackdropBorderColor(r, g, b, special and 0.6 or 0.3) end
+	else
+		gradient(f.ring, "VERTICAL", r * 0.45, g * 0.45, b * 0.45, 1, lift(r), lift(g), lift(b), 1)
+	end
+	if f.badgeEdge then f.badgeEdge:SetVertexColor(r, g, b, 1) end
 	local lvl = plain(UnitLevel(unit))
 	if not lvl then
 		f.badge:SetText("")
-	elseif unit == "player" or f.isGroup then
-		f.badge:SetText(lvl)
+	elseif unit == "player" or f.isGroup or f.badgeDark then
+		f.badge:SetText(lvl < 0 and "??" or lvl)
 	else
 		f.badge:SetText((levelText(unit):gsub("%s+$", ""))) -- (difficulty color, "+" for elites)
 	end
 end
 
-function UF.applySkin()
-	if UF.skinned then return end
-	UF.skinned = true
+-- Where the right end of the bars sits in, at the health text's height.
+local function endInset(spec, f)
+	local lean = LEAN * f.cfg.w
+	local mid = (f.cfg.h / 2) / frameHeight(f.cfg)
+	if spec.bar == "Slant" then return lean * mid end
+	if spec.bar == "Arrow" then return lean * math.abs(2 * mid - 1) end
+	if spec.bar == "Pill" then return f.cfg.h * 0.3 end
+	return 2
+end
+
+function UF.applySkin(style)
+	local spec = SPEC[style]
+	if not spec or UF.skinned then return end
+	UF.skinned = style
 	local list = { player, target, pet, tot }
 	for i = 1, 4 do list[#list + 1] = party[i] end
 	for _, f in ipairs(list) do
-		local file = MEDIA .. (f == target and "SlantBack" or "Slant")
-		local w, H, lean = f.cfg.w, frameHeight(f.cfg), SLANT * f.cfg.w
-		skinBorder(f, file)
-		skinBar(f.hp, f, file)
-		if f.power then skinBar(f.power, f, file) end
-		-- Keep the health number clear of the slanted right end.
-		local mid = (f.cfg.h / 2) / H
+		local isTarget = f == target
+		local file = MEDIA .. (isTarget and spec.back or spec.bar)
+		local w = f.cfg.w
+		if spec.card then
+			f.hp:SetFrameLevel(f:GetFrameLevel() + 3)
+			if f.power then f.power:SetFrameLevel(f:GetFrameLevel() + 3) end
+		end
+		skinBorder(f, spec, file)
+		skinBar(f.hp, f, spec, file)
+		if f.power then skinBar(f.power, f, spec, file) end
+		-- Keep the health number clear of the bar's right end.
 		f.text:ClearAllPoints()
-		f.text:SetPoint("RIGHT", f.hp, "RIGHT", -math.floor(lean * mid + 8), 0)
-		f.text:SetFont(FONT, f.cfg.font + 1, "OUTLINE")
+		f.text:SetPoint("RIGHT", f.hp, "RIGHT", -math.floor(endInset(spec, f) + 8), 0)
+		f.text:SetFont(spec.font or FONT, f.cfg.font + (spec.font and 0 or 1), "OUTLINE")
 		if f.ptext then
 			f.ptext:ClearAllPoints()
-			f.ptext:SetPoint("RIGHT", f.power, "RIGHT", -math.floor(lean + 4), 0)
+			f.ptext:SetPoint("RIGHT", f.power, "RIGHT", -math.floor((spec.bar == "Slant" and LEAN * w or 2) + 4), 0)
 		end
-		if f == player or f == target or f.isParty then
-			addPortrait(f, f == target)
+		if f == player or isTarget or f.isParty then
+			addPortrait(f, spec, isTarget)
 			f.skinUpdate = skinUpdate
 			local r = f.portraitSize / 2
-			if f == target then
+			if spec.card then
+				if isTarget then addCard(f, 9, math.floor(r + 6)) else addCard(f, math.floor(r + 6), 9) end
+			end
+			if isTarget then
 				f.text:ClearAllPoints()
 				f.text:SetPoint("RIGHT", f.hp, "RIGHT", -math.floor(r + 6), 0)
-				nameTab(f, 4, math.floor(w * 0.72), 13, file)
+				placeName(f, spec, file, spec.name == "tab" and 4 or 0, math.floor(w * 0.72))
 				if f.classEdge then for _, t in ipairs(f.classEdge) do t:Hide() end end
-				f.classEdge = nil -- (the ring turns gold or silver instead)
+				f.classEdge = nil -- (the ring shows elite and rare instead)
 			else
 				-- Role / leader icons and the resting "zzz" move clear of the portrait.
 				for i, t in ipairs(f.groupIcons) do
 					t:ClearAllPoints()
 					t:SetPoint("CENTER", f.hp, "TOPLEFT", r + 8 + (i - 1) * 13, 0)
 				end
-				if f.isParty then nameTab(f, math.floor(r + 2), math.floor(w * 0.62), 11, file) end
+				if f.isParty then placeName(f, spec, file, math.floor(r + 2), math.floor(w * 0.62)) end
 			end
+		elseif spec.card then
+			addCard(f, 7, 7)
 		end
 	end
 	rest:ClearAllPoints()
@@ -1760,21 +1959,19 @@ function UF.applySkin()
 	-- Your buffs and debuffs start right of your portrait instead of over it.
 	local pr = math.floor(player.portraitSize / 2 + 4)
 	playerBuffs.x, playerDebuffs.x = pr, pr
-	-- Keep the portraits and name tabs on screen: the game only keeps a frame's
-	-- own box on screen, and these stick out of it (left, right and top).
-	-- (secure frames: only out of combat; a reload in combat leaves the old box)
-	if not InCombatLockdown() then
-		local partyR = math.floor(party[1].portraitSize / 2 + 2)
-		partyHolder:SetClampRectInsets(-partyR, 0, 16, 0)
-		player:SetClampRectInsets(-pr, 0, 0, 0)
-		target:SetClampRectInsets(0, math.floor(target.portraitSize / 2 + 2), 18, 0)
-	end
 	-- Room for the portraits: the pet and target-of-target boxes start clear of
 	-- them (unless you moved those), and the party boxes sit further apart.
 	LAYOUT.pet.x = LAYOUT.pet.x + 34
 	LAYOUT.tot.x = LAYOUT.tot.x + 36
+	-- (secure frames: only out of combat; a reload in combat leaves the old spacing)
 	if not InCombatLockdown() then
-		local gap = 22
+		-- Keep the portraits and names on screen: the game only keeps a frame's
+		-- own box on screen, and these stick out of it (left, right and top).
+		local partyR = math.floor(party[1].portraitSize / 2 + 2)
+		partyHolder:SetClampRectInsets(-partyR, 0, 16, 0)
+		player:SetClampRectInsets(-pr, 0, 0, 0)
+		target:SetClampRectInsets(0, math.floor(target.portraitSize / 2 + 2), 18, 0)
+		local gap = spec.gap
 		for i = 1, 4 do
 			party[i]:ClearAllPoints()
 			party[i]:SetPoint("TOPLEFT", partyHolder, "TOPLEFT", 0, -(i - 1) * (pheight + gap))
@@ -1782,7 +1979,7 @@ function UF.applySkin()
 		partyHolder:SetHeight(pheight * 4 + gap * 3)
 	end
 end
-end -- portrait style
+end -- frame styles
 
 ---------------------------------------------------------------------------
 -- Events
@@ -1875,7 +2072,8 @@ end
 ev:SetScript("OnEvent", function(_, event, unit)
 	if event == "PLAYER_LOGIN" then
 		if not ns.F("unitFrames") then disableUnitFrames() return end
-		if ns.F("framePortraits") then UF.applySkin() end
+		UF.styleAtLoad = UF.GetStyle() -- (the /zyde window asks for a reload when it changes)
+		UF.applySkin(UF.styleAtLoad)
 		placeAll()
 		applyTot()
 		buildRaid()
