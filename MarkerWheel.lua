@@ -109,7 +109,8 @@ local function makePalette(cfg)
 	for i, b in ipairs(squares) do key:SetFrameRef("sq" .. i, b) end
 	key:SetAttribute("on", true)
 	key:SetAttribute("nsq", #squares)
-	-- Header is the panel, same as the target wheel. The key cannot run this itself.
+	-- Header is the panel. No HookScript on this key: one would taint it, and
+	-- then the toggle could not run during a fight.
 	SecureHandlerWrapScript(key, "OnClick", panel, [[
 		if not down then return end
 		if not self:GetAttribute("on") then return end
@@ -122,9 +123,6 @@ local function makePalette(cfg)
 			if show then b:Show() else b:Hide() end
 		end
 	]])
-	key:HookScript("OnClick", function(_, _, down)
-		if debugOn and down then print(P .. cfg.bind .. ": toggled") end
-	end)
 
 	-- Drag handle sits beside the secure frame, not inside it. Moving a secure
 	-- frame from one of its own scripts blocks later marker clicks.
@@ -144,10 +142,12 @@ local function makePalette(cfg)
 	drag.title:SetText(cfg.title or "Markers")
 	drag.title:SetTextColor(1, 0.84, 0.35)
 	local function parkDrag()
-		if not panel:IsShown() or InCombatLockdown() then drag:Hide() return end
+		-- The title is this frame, not part of the secure grid. Hiding it in a
+		-- fight is what left the box with no heading and nothing to grab.
+		if not panel:IsShown() then drag:Hide() return end
 		drag:ClearAllPoints()
-		drag:SetPoint("TOPLEFT", panel, "TOPLEFT", 1, -1)
-		drag:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -1, -1)
+		drag:SetWidth(math.max((panel:GetWidth() or 0) - 2, 40))
+		drag:SetPoint("TOP", panel, "TOP", 0, -1)
 		drag:Show()
 	end
 	-- Move by setting the panel's point. StartMoving on the secure frame would block the markers.
@@ -164,8 +164,10 @@ local function makePalette(cfg)
 		self.dragging = false
 		if InCombatLockdown() then return end
 		local point, _, _, x, y = panel:GetPoint()
-		ZydeForeverDB = ZydeForeverDB or {}
-		ZydeForeverDB.worldMarkerPos = { point = point, x = x, y = y }
+		if point and type(x) == "number" and type(y) == "number" then
+			ZydeForeverDB = ZydeForeverDB or {}
+			ZydeForeverDB.worldMarkerPos = { point = point, x = x, y = y }
+		end
 		parkDrag()
 	end)
 	drag:SetScript("OnUpdate", function(self)
@@ -176,9 +178,12 @@ local function makePalette(cfg)
 		panel:ClearAllPoints()
 		panel:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x / scale - self.ox, y / scale - self.oy)
 	end)
-	key:HookScript("OnClick", function(_, _, down)
-		if down then C_Timer.After(0, parkDrag) end
-	end)
+	-- The title follows the grid from the normal update loop. A click hook on
+	-- the key would taint the toggle, and the squares would not open in a fight.
+	panel.drag = drag
+	drag:RegisterEvent("PLAYER_REGEN_ENABLED")
+	drag:SetScript("OnEvent", function() parkDrag() end)
+	panel.rehead = parkDrag
 
 	return key, panel
 end
@@ -220,9 +225,9 @@ for _, m in ipairs({
 	WORLD_ITEMS[#WORLD_ITEMS + 1] = { marker = m[1], name = m[3], color = m[4], icon = RAID_ICON .. m[2] }
 end
 
--- 25% smaller than the 30px row. Four icons on each row. Two tall buttons
+-- Four icons on each row, 24px. Two tall buttons
 -- on the end: red removes your target's mark, gold removes every mark.
-local ROW_ICON, ROW_GAP, ROW_PAD, ROW_SPLIT, ROW_COLS = 22, 2, 2, 4, 4
+local ROW_ICON, ROW_GAP, ROW_PAD, ROW_SPLIT, ROW_COLS = 24, 2, 2, 4, 4
 local CLEAR_W, ALL_W = 22, 32
 local placeTargetRow, paintTargetRow
 
@@ -235,7 +240,9 @@ local function makeTargetRow()
 	handler:Hide()
 	local gridW = ROW_COLS * ROW_ICON + (ROW_COLS - 1) * ROW_GAP
 	local gridH = ROW_ICON * 2 + ROW_GAP
-	local row = CreateFrame("Frame", "ZydeForeverTargetMarks", UIParent)
+	-- Protected, so the hold key can show it during a fight. A plain frame cannot
+	-- be shown from the secure click once combat has started.
+	local row = CreateFrame("Frame", "ZydeForeverTargetMarks", UIParent, "SecureHandlerBaseTemplate")
 	row:SetSize(ROW_PAD * 2 + gridW + ROW_SPLIT + CLEAR_W + ROW_GAP + ALL_W, ROW_PAD * 2 + gridH)
 	row:SetFrameStrata("HIGH")
 	row:SetClampedToScreen(true)
@@ -249,14 +256,14 @@ local function makeTargetRow()
 	ns.placeEdges(row.edges, row, -1, 1)
 	for _, t in ipairs(row.edges) do t:SetColorTexture(0, 0, 0, 0.95) end
 
-	local function button(macro, tag, markIndex)
+	local function button(macro, markIndex)
 		local b = CreateFrame("Button", nil, row, "SecureActionButtonTemplate")
 		b:SetSize(ROW_ICON, ROW_ICON)
 		b:RegisterForClicks("AnyDown", "AnyUp")
 		if b.SetMouseClickEnabled then b:SetMouseClickEnabled(true) end
 		b:SetAttribute("type", "macro")
-		b:SetAttribute("macrotext", macro .. "\n/run ZydeForever_WheelRan(\"" .. tag .. "\")")
-		b:SetAttribute("ran", tag)
+		-- /tm only. A /run on the same click is blocked in combat and takes the mark with it.
+		b:SetAttribute("macrotext", macro)
 		if markIndex then
 			-- The secure click cannot ask which icon is on the target. The row
 			-- holds that number, and this click clears only when it matches.
@@ -267,8 +274,6 @@ local function makeTargetRow()
 				local cur = self:GetParent():GetAttribute("cur")
 				local cmd = "/tm " .. mark
 				if cur == mark then cmd = "/tm 0" end
-				local ran = self:GetAttribute("ran")
-				if ran then cmd = cmd .. "\n/run ZydeForever_WheelRan(\"" .. ran .. "\")" end
 				self:SetAttribute("macrotext", cmd)
 			]])
 		end
@@ -283,7 +288,7 @@ local function makeTargetRow()
 
 	row.slots = {}
 	for i, it in ipairs(TARGET_ITEMS) do
-		local b = button(it.macro, it.name, it.index)
+		local b = button(it.macro, it.index)
 		local col = (i - 1) % ROW_COLS
 		local line = math.floor((i - 1) / ROW_COLS)
 		b:SetPoint("TOPLEFT", row, "TOPLEFT", ROW_PAD + col * (ROW_ICON + ROW_GAP), -(ROW_PAD + line * (ROW_ICON + ROW_GAP)))
@@ -292,7 +297,7 @@ local function makeTargetRow()
 		for _, t in ipairs(b.edges) do t:SetColorTexture(it.color[1], it.color[2], it.color[3], 1) end
 		row.slots[i] = b
 	end
-	local clear = button("/tm 0", "Remove mark")
+	local clear = button("/tm 0")
 	clear:SetSize(CLEAR_W, gridH)
 	clear:SetPoint("TOPLEFT", row, "TOPLEFT", ROW_PAD + gridW + ROW_SPLIT, -ROW_PAD)
 	clear.icon:SetTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Up")
@@ -305,7 +310,7 @@ local function makeTargetRow()
 	all:RegisterForClicks("AnyDown", "AnyUp")
 	if all.SetMouseClickEnabled then all:SetMouseClickEnabled(true) end
 	all:SetAttribute("type", "macro")
-	all:SetAttribute("macrotext", CLEAR_ALL .. "\n/run ZydeForever_WheelRan(\"Clear all\")")
+	all:SetAttribute("macrotext", CLEAR_ALL)
 	all.bg = all:CreateTexture(nil, "BACKGROUND")
 	all.bg:SetPoint("TOPLEFT", 1, -1)
 	all.bg:SetPoint("BOTTOMRIGHT", -1, 1)
@@ -322,7 +327,9 @@ local function makeTargetRow()
 
 	-- Same click binding as the old hold wheel, so the key you already set still works.
 	_G["BINDING_NAME_CLICK ZydeForeverMarkerKey:LeftButton"] = "Marker wheel (hold)"
-	local key = CreateFrame("Button", "ZydeForeverMarkerKey", UIParent, "SecureActionButtonTemplate, SecureHandlerBaseTemplate")
+	-- SecureHandlerClickTemplate runs _onclick itself. A wrap through another frame,
+	-- or a read of the plain cursor frame, is what combat was cancelling before Show.
+	local key = CreateFrame("Button", "ZydeForeverMarkerKey", UIParent, "SecureHandlerClickTemplate")
 	key:SetSize(1, 1)
 	key:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -10, 10)
 	key:SetAlpha(0)
@@ -330,38 +337,37 @@ local function makeTargetRow()
 	key:SetFrameRef("row", row)
 	key:SetFrameRef("ui", UIParent)
 	key:SetAttribute("on", true)
-	-- "held" is 1 or 0. The click hook does not run during a fight, so this
-	-- handler places the row itself, from the cursor spot stored beforehand.
-	SecureHandlerWrapScript(key, "OnClick", handler, [[
+	key:SetAttribute("_onclick", [[
 		if not self:GetAttribute("on") then return end
 		local row = self:GetFrameRef("row")
+		if not row then return end
 		if down then
-			row:SetAttribute("held", 1)
-			local x = row:GetAttribute("cx")
-			local y = row:GetAttribute("cy")
-			if x and y then
-				row:ClearAllPoints()
-				row:SetPoint("TOP", self:GetFrameRef("ui"), "BOTTOMLEFT", x, y)
-			end
 			row:Show()
+			row:SetAttribute("held", 1)
+			local ui = self:GetFrameRef("ui")
+			if ui and ui.GetMousePosition then
+				local xRatio, yRatio = ui:GetMousePosition()
+				if xRatio and yRatio then
+					local w = ui:GetWidth()
+					local h = ui:GetHeight()
+					if w and h then
+						row:ClearAllPoints()
+						row:SetPoint("TOP", ui, "BOTTOMLEFT", w * xRatio, h * yRatio - 4)
+					end
+				end
+			end
 		else
 			row:SetAttribute("held", 0)
 			row:Hide()
 		end
 	]])
-	key:HookScript("OnClick", function(_, _, down)
-		row.held = down and true or false
-		if row.held then placeTargetRow() paintTargetRow() else row.cx, row.cy = nil, nil row:Hide() end
-		if debugOn then print(P .. "target markers: " .. (down and "pressed" or "released")) end
-	end)
 	return row, key
 end
 
 local targetRow, markKey = makeTargetRow()
 
 -- Opens under the cursor, centered on it, and stays put so the mouse can
--- reach an icon. The spot is taken once, on the press. A frame with no
--- point sits in the middle of the screen, which is what showed before.
+-- reach an icon. A frame with no point sits in the middle of the screen.
 local CURSOR_GAP = 4
 
 local function heldNow(row)
@@ -380,28 +386,21 @@ end
 
 function placeTargetRow()
 	local row = targetRow
-	if not row then return end
-	if not on() or not heldNow(row) then row.cx, row.cy = nil, nil return end
+	if not row or InCombatLockdown() then return end
+	if not on() or not heldNow(row) then return end
 	local exists = ns.safe(UnitExists, "target")
-	if not ns.isSecret(exists) and not exists then row.cx, row.cy = nil, nil row:Hide() return end
-	if not row.cx then
-		local px, py = cursorPoint()
-		if not px then return end
-		row.cx, row.cy = px, py
-	end
-	local point, _, relPoint, x, y = row:GetPoint(1)
-	local same = row:GetNumPoints() == 1 and point == "TOP" and relPoint == "BOTTOMLEFT"
-		and not ns.isSecret(x) and not ns.isSecret(y) and type(x) == "number" and type(y) == "number"
-		and math.abs(x - row.cx) < 0.5 and math.abs(y - row.cy) < 0.5
-	if same then return end
+	if not ns.isSecret(exists) and not exists then row:Hide() return end
+	local px, py = cursorPoint()
+	if not px then return end
 	row:ClearAllPoints()
-	if not pcall(row.SetPoint, row, "TOP", UIParent, "BOTTOMLEFT", row.cx, row.cy) then return end
+	row:SetPoint("TOP", UIParent, "BOTTOMLEFT", px, py)
 	row:Show()
 end
 
 function paintTargetRow()
+	-- Recoloring the secure icons during a fight taints them, and then /tm will not run.
+	if InCombatLockdown() then return end
 	local cur = targetMarker()
-	-- Plain frame, so this can be written during a fight. 0 means "no mark we can see".
 	targetRow:SetAttribute("cur", cur or 0)
 	for _, b in ipairs(targetRow.slots) do
 		local onMark = cur ~= nil and cur == b.item.index
@@ -446,31 +445,56 @@ local function syncOn()
 			for _, b in ipairs(worldPanel.squares) do b:Hide() end
 		end
 	end
-	if not on() then targetRow.held = false targetRow.cx, targetRow.cy = nil, nil targetRow:Hide() end
+	if not on() then targetRow.held = false targetRow:Hide() end
 end
+local function plainShown(frame)
+	local shown = ns.safe(frame.IsShown, frame)
+	if shown == nil or ns.isSecret(shown) then return end
+	return shown and true or false
+end
+
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_LOGIN")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
 ev:RegisterEvent("PLAYER_TARGET_CHANGED")
 ev:SetScript("OnEvent", function(_, event)
-	if event == "PLAYER_LOGIN" then placeWorld() end
+	if event == "PLAYER_LOGIN" or event == "PLAYER_REGEN_ENABLED" then
+		placeWorld()
+		if worldPanel and worldPanel.rehead then worldPanel.rehead() end
+	end
 	syncOn()
 	placeTargetRow()
-	if targetRow:IsShown() then paintTargetRow() end
+	if plainShown(targetRow) then paintTargetRow() end
 end)
 local wait = 0
+
 ev:SetScript("OnUpdate", function(_, dt)
-	local px, py = cursorPoint()
-	if px and (targetRow.cxAttr ~= px or targetRow.cyAttr ~= py) then
-		targetRow.cxAttr, targetRow.cyAttr = px, py
-		pcall(targetRow.SetAttribute, targetRow, "cx", px)
-		pcall(targetRow.SetAttribute, targetRow, "cy", py)
+	-- The secure click shows and hides the row. Follow that here, out of combat,
+	-- to put it on the real cursor and paint the current mark. Do not hide it
+	-- during a fight: that call is blocked and can cancel the next open.
+	local shown = plainShown(targetRow)
+	if shown ~= nil and shown ~= targetRow.wasShown then
+		targetRow.wasShown = shown
+		targetRow.held = shown
+		if shown then
+			if not InCombatLockdown() then placeTargetRow() end
+			paintTargetRow()
+		end
+		if debugOn then print(P .. "target markers: " .. (shown and "shown" or "hidden")) end
 	end
-	placeTargetRow()
+	if worldPanel and worldPanel.rehead then
+		local shown = plainShown(worldPanel)
+		local dragShown = worldPanel.drag and plainShown(worldPanel.drag)
+		if shown ~= nil and dragShown ~= nil and shown ~= dragShown then worldPanel.rehead() end
+		if debugOn and shown ~= nil and shown ~= worldPanel.wasShown then
+			print(P .. "world markers: " .. (shown and "shown" or "hidden"))
+		end
+		if shown ~= nil then worldPanel.wasShown = shown end
+	end
 	wait = wait + dt
 	if wait < 0.2 then return end
 	wait = 0
-	if targetRow:IsShown() then paintTargetRow() end
+	if plainShown(targetRow) then paintTargetRow() end
 end)
 ns.OnFeatureChanged(function(k) if k == "markerWheel" then syncOn() end end)
 

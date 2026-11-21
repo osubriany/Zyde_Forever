@@ -17,8 +17,8 @@
 -- 14) A small draggable info bar, three lines. Collapsed: location, gold,
 --     bags, and ammo. Max opens steps, swim, mounted, and jumps
 --     (InfoBar.lua).
--- 15) Tank threat list: mobs you have threat on, your percent, and the next
---     two people, one CSV line each (ThreatBox.lua).
+-- 15) Tank threat list: a table of mobs you have threat on, your percent,
+--     and the next two people (ThreatBox.lua).
 --
 -- /zyde test     - toggle preview of both icons (to see where they sit)
 -- /zyde resetxp  - put the XP readout back at its default spot
@@ -101,7 +101,7 @@ local FEATURES = {
 	{ key = "hideMicroMenu", short = "game menu buttons", label = "Hide micro menu", desc = "Hides the row of small game menu buttons (character, spellbook, talents, quest log, social, game menu...). Their keybinds still work", reload = true },
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
 	{ key = "infoBar", short = "location, gold, bags", label = "Info bar", desc = "Three short lines you can drag. Collapsed: where you are, gold, bag space, and ammo for a bow, gun, or throwing weapon. Max opens steps, yards swum, yards mounted, and jumps. Min hides that line. The travel counts are kept for this character" },
-	{ key = "threatBox", short = "tank threat, CSV", label = "Tank threat list", desc = "While you are set to the tank role in a party or raid: a draggable list of mobs you have threat on. Each line is mob, your threat percent, then the two people closest behind you and their percent. Only mobs with a nameplate, bosses, and your target can be listed. Drag the title to move it" },
+	{ key = "threatBox", short = "tank threat table", label = "Tank threat list", desc = "While you are set to the tank role in a party or raid: a draggable table of mobs you have threat on. Columns are the mob, your threat percent, then the two people closest behind you and their percent. Only mobs with a nameplate, bosses, and your target can be listed. Drag the title to move it" },
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames with buffs and debuffs, mana / rage / energy on party frames. Shift-drag a frame to move it", reload = true },
 	{ key = "targetTarget", short = "small frame by target", label = "Target of target", desc = "A small frame beside the target frame showing who your target is targeting (with the Zyde unit frames on). Shift-drag it to move it" },
 	{ key = "unitAuras", short = "icons on your frames", label = "Unit frame buffs / debuffs", desc = "Buff and debuff icons with time left on the Zyde unit frames: the target's debuffs (yours first) and buffs, your debuffs and buffs, and your pet's" },
@@ -112,7 +112,7 @@ local FEATURES = {
 	{ key = "mapNotes", short = "alt-click to mark", label = "Map markers", desc = "Your own named markers on the world map, kept between sessions. Alt-click the map to drop one and name it, alt-click a marker to remove it, right-click to rename it" },
 	{ key = "flight", short = "skip flight chat", label = "Flight master shortcut", desc = "Flight masters open the map directly (hold Shift to talk)" },
 	{ key = "tracking", short = "re-enable after death", label = "Keep tracking after death", desc = "Turns Find Minerals, Find Herbs... back on after you die" },
-	{ key = "questTracker", short = "ready first, nearest first", label = "Quest tracker", desc = "Replaces the game's quest tracker: quests ready to turn in at the top, then this zone's quests nearest first, other zones folded away; finished objective lines hidden", reload = true },
+	{ key = "questTracker", short = "ready first, by level", label = "Quest tracker", desc = "Replaces the game's quest tracker: quests ready to turn in, then this zone, then other zones folded away. The mark on each heading cycles that list: nearest, highest level, lowest level. Finished objective lines are hidden", reload = true },
 	{ key = "rares", short = "flash + sound", label = "Rare announcer", desc = "When a rare or rare elite shows up (on a nameplate, as your target or mouseover, or on the minimap), its name flashes on screen, a line goes to chat and a sound plays. Each rare is announced once per 5 minutes. Rares you've just seen are also first for the \"Target nearest quest mob\" key" },
 	{ key = "questAlert", short = "glow on quest objects", label = "Quest object alert", desc = "Glow, ! and ping on nearby quest objects you pick up (not the loot of mobs you kill for a quest)" },
 	{ key = "questIcons", short = "icons over nodes", label = "Icons over nearby objects", desc = "The game's interact icons over herbs, ore and chests" },
