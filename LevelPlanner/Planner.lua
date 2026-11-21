@@ -104,7 +104,8 @@ end
 -- the same mobs are done together: the kills count for both, so only the longer one's time counts.
 -- run = the longest work time in the current "together" group.
 local function addedWork(prevEntry, e, run, start)
-	local w = e.stop.work or 0
+	-- (an area of higher-level mobs takes longer: point.workFactor, Stops.lua)
+	local w = (e.stop.work or 0) * (e.point.workFactor or 1)
 	if not prevEntry then
 		-- the first stop is an objective in the camp you're standing in: you've already found it
 		local d = start and e.stop.kind == "objective" and ns.Geo.Distance(start, e.point)
@@ -242,7 +243,9 @@ local function insertQuest(route, quest, ctx, skipFirst)
 				local nxt = r[pos] and r[pos].point
 				local base = nxt and travel(prev, nxt) or 0
 				for _, p in ipairs(stop.points) do
+					-- travel there, plus how much longer (or shorter) the work takes in that area
 					local d = travel(prev, p) + (nxt and travel(p, nxt) or 0) - base
+						+ (stop.work or 0) * ((p.workFactor or 1) - 1)
 					if not bestDelta or d < bestDelta then bestPos, bestPoint, bestDelta = pos, p, d end
 				end
 			end
@@ -792,7 +795,7 @@ local function finalize(state, ctx)
 					cands[#cands + 1] = { idx = idx, t = t, score = save * (1 - later * math.min(1, t / ctx.horizon)) }
 				end
 			end
-			t = t + normal + (e.stop.work or 0)
+			t = t + normal + (e.stop.work or 0) * (e.point.workFactor or 1)
 			prev = e.point
 		end
 		table.sort(cands, function(a, b) return a.score > b.score end)
@@ -845,13 +848,21 @@ local function finalize(state, ctx)
 		-- a per-plan view of the stop (the stop itself is shared between the plans being compared)
 		local view = setmetatable({ point = e.point, arrive = t }, { __index = e.stop })
 		steps[#steps + 1] = view
-		if ding and idx > ding and (e.stop.mobXp or 0) > 0 and e.stop.mobLevel and ns.Estimate then
+		-- kills in this area: its own mobs' level (Stops.lua: point.xpFactor, point.level)
+		local mx = e.stop.mobXp or 0
+		if mx > 0 and e.point.xpFactor then
+			view.mobXp = mx * e.point.xpFactor
+			xpAdj = xpAdj + view.mobXp - mx
+			mx = view.mobXp
+		end
+		local mobLevel = e.point.level or e.stop.mobLevel
+		if ding and idx > ding and mx > 0 and mobLevel and ns.Estimate then
 			-- after the level-up the same kills give a little less (or nothing, once grey)
 			local E = ns.Estimate
-			local now = E.MobXP(e.stop.mobLevel, e.stop.mobRank)
+			local now = E.MobXP(mobLevel, e.stop.mobRank)
 			if now > 0 then
-				view.mobXp = e.stop.mobXp * E.MobXP(e.stop.mobLevel, e.stop.mobRank, nil, (ctx.level or 0) + 1) / now
-				xpAdj = xpAdj + view.mobXp - e.stop.mobXp
+				view.mobXp = mx * E.MobXP(mobLevel, e.stop.mobRank, nil, (ctx.level or 0) + 1) / now
+				xpAdj = xpAdj + view.mobXp - mx
 			end
 		end
 		if idx == ding then view.dingTo = (ctx.level or 0) + 1 end

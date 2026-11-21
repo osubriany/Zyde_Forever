@@ -15,15 +15,19 @@ local fixStop            -- (below) an objective stop from Data/QuestFixes.lua
 -- Points and areas
 ----------------------------------------------------------------------------------------
 
--- All placeable points from a Questie spawn list {[areaId] = {{x,y},...}}.
-local function pointsFromSpawns(spawns, out)
+-- All placeable points from a Questie spawn list {[areaId] = {{x,y},...}}. npc: whose spawns
+-- they are (kept on each point, so an area knows its mobs' levels).
+local function pointsFromSpawns(spawns, out, npc)
 	out = out or {}
 	if type(spawns) ~= "table" then return out end
 	for areaId, list in pairs(spawns) do
 		if type(list) == "table" then
 			for _, c in ipairs(list) do
 				local p = ns.Geo.Point(areaId, c[1], c[2])
-				if p then out[#out + 1] = p end
+				if p then
+					p.npc = npc
+					out[#out + 1] = p
+				end
 			end
 		end
 	end
@@ -34,10 +38,23 @@ local function npcPoints(npcIds, friendlyOnly, out)
 	out = out or {}
 	for _, id in ipairs(npcIds or {}) do
 		if (not friendlyOnly) or ns.QuestSource.IsFriendly(id) then
-			pointsFromSpawns(ns.QuestSource.Npc(id, "spawns"), out)
+			pointsFromSpawns(ns.QuestSource.Npc(id, "spawns"), out, id)
 		end
 	end
 	return out
+end
+
+-- How well mobs of this level suit you, 0..1: equal or a little below is best; above you they're
+-- slower and riskier (Config.areaLevelAbovePenalty per level), far below they give little XP, grey
+-- none. Used to choose which spawn areas of an objective are offered.
+local function levelSuit(level)
+	if not level then return 1 end
+	local cfg = ns.cfg
+	local L = ns.playerLevel()
+	local d = level - L
+	if d > 0 then return math.max(0.05, 1 - d * (cfg.areaLevelAbovePenalty or 0.2)) end
+	if ns.Estimate.MobXP(level, 0, true) <= 0 then return 0.1 end -- grey
+	return math.max(0.3, 1 - (-d) * (cfg.areaLevelBelowPenalty or 0.04))
 end
 
 local function objectPoints(objectIds, out)
@@ -49,8 +66,11 @@ local function objectPoints(objectIds, out)
 end
 
 -- Groups spawn points into up to N areas. Each area is its densest spawn point, with how many
--- spawns lie within the cluster radius.
-local function clusterAreas(points)
+-- spawns lie within the cluster radius. When the points are mobs (p.npc), each area also gets
+-- its mobs' average level (area.level), and areas are chosen by count x how well that level suits
+-- you - a camp of your level beats a bigger one four levels above you. here: your position; the
+-- camp you're standing in is always one of the areas (so "you're there" counts).
+local function clusterAreas(points, here, byLevel)
 	local cfg = ns.cfg
 	local radius = cfg.clusterRadius or 120
 	local r2 = radius * radius
@@ -60,23 +80,30 @@ local function clusterAreas(points)
 		local step = #points / MAX_POINTS
 		for i = 1, MAX_POINTS do pts[i] = points[math.floor((i - 1) * step) + 1] end
 	end
-	local used, areas = {}, {}
-	for _ = 1, (cfg.maxAreasPerObjective or 3) do
-		local best, bestCount = nil, 0
-		for i, a in ipairs(pts) do
-			if not used[i] then
-				local n = 0
-				for j, b in ipairs(pts) do
-					if not used[j] and a.inst == b.inst then
-						local dx, dy = a.wx - b.wx, a.wy - b.wy
-						if dx * dx + dy * dy <= r2 then n = n + 1 end
-					end
+	local lvlOf = {}
+	local function levelOf(npc)
+		if not npc then return nil end
+		if lvlOf[npc] == nil then lvlOf[npc] = ns.Estimate.NpcLevel(npc) or false end
+		return lvlOf[npc] or nil
+	end
+	-- the area around point i: how many spawns, their average level
+	local function around(i, used)
+		local a = pts[i]
+		local n, lsum, ln = 0, 0, 0
+		for j, b in ipairs(pts) do
+			if not used[j] and a.inst == b.inst then
+				local dx, dy = a.wx - b.wx, a.wy - b.wy
+				if dx * dx + dy * dy <= r2 then
+					n = n + 1
+					local l = levelOf(b.npc)
+					if l then lsum, ln = lsum + l, ln + 1 end
 				end
-				if n > bestCount then best, bestCount = i, n end
 			end
 		end
-		if not best then break end
-		local centre = pts[best]
+		return n, ln > 0 and lsum / ln or nil
+	end
+	local function take(i, n, level, used)
+		local centre = pts[i]
 		for j, b in ipairs(pts) do
 			if not used[j] and centre.inst == b.inst then
 				local dx, dy = centre.wx - b.wx, centre.wy - b.wy
@@ -85,10 +112,54 @@ local function clusterAreas(points)
 		end
 		local area = {}
 		for k, v in pairs(centre) do area[k] = v end
-		area.count = bestCount
-		areas[#areas + 1] = area
+		area.count, area.level = n, level
+		return area
+	end
+	local used, areas = {}, {}
+
+	-- the camp you're in (spawns within Config.hereAreaYards): always offered
+	if here then
+		local bestI, bestD
+		for i, p in ipairs(pts) do
+			local d = ns.Geo.Distance(here, p)
+			if d and (not bestD or d < bestD) then bestI, bestD = i, d end
+		end
+		if bestI and bestD <= (cfg.hereAreaYards or cfg.sameCampYards or 200) then
+			local n, level = around(bestI, used)
+			areas[1] = take(bestI, n, level, used)
+		end
+	end
+
+	for _ = #areas + 1, (cfg.maxAreasPerObjective or 4) do
+		local best, bestScore, bestN, bestLevel = nil, 0, 0, nil
+		for i in ipairs(pts) do
+			if not used[i] then
+				local n, level = around(i, used)
+				local score = byLevel and n * levelSuit(level) or n
+				if score > bestScore then best, bestScore, bestN, bestLevel = i, score, n, level end
+			end
+		end
+		if not best then break end
+		areas[#areas + 1] = take(best, bestN, bestLevel, used)
 	end
 	return areas
+end
+
+-- Per-area cost of a kill / collect objective: its mobs' level against the level the objective was
+-- timed at (ref). area.workFactor scales the stop's work there (killing part only, not the
+-- overhead), area.xpFactor its kill XP. Planner.lua uses both.
+local function priceAreas(stop, ref, rank, mobName, killWork)
+	local E = ns.Estimate
+	if not ref or not killWork or killWork <= 0 then return end
+	local refKill, refXp = E.KillSecondsDefault(ref, rank), E.MobXP(ref, rank)
+	local overhead = ns.cfg.objectiveOverheadSeconds or 45
+	for _, a in ipairs(stop.points) do
+		if a.level and math.abs(a.level - ref) >= 0.5 then
+			local k = E.KillSecondsDefault(a.level, rank) / math.max(1, refKill)
+			a.workFactor = (killWork * k + overhead) / (killWork + overhead)
+			a.xpFactor = refXp > 0 and E.MobXP(a.level, rank) / refXp or 1
+		end
+	end
 end
 
 function S.NearestPoint(stop, from)
@@ -228,6 +299,7 @@ local function objectiveStop(quest, od, remaining)
 		for _, id in ipairs(ids) do stop.mobs[id] = true end
 		local key = od.Type == "monster" and ("monster:" .. tostring(od.Id)) or ("killcredit:" .. tostring(od.RootId))
 		stop.work = need * E.UnitSeconds(key, E.KillSeconds(lvl, rank, mobName))
+		stop.refLevel, stop.refRank = lvl, rank
 		stop.mobXp = need * E.MobXP(lvl, rank)
 		stop.mobLevel, stop.mobRank = lvl, rank -- (the planner re-prices the kills after a level-up)
 		stop.label = string.format("Kill %d %s", need, mobName or name)
@@ -280,6 +352,7 @@ local function objectiveStop(quest, od, remaining)
 			-- default: kills needed x kill time; learned: your real seconds per item
 			local perItem = kills * E.KillSeconds(lvl, rank, QS.Npc(hostile[1], "name")) / need
 			stop.work = need * E.UnitSeconds("item:" .. tostring(od.Id), perItem)
+			stop.refLevel, stop.refRank = lvl, rank
 			stop.mobXp = kills * E.MobXP(lvl, rank)
 			stop.mobLevel, stop.mobRank = lvl, rank -- (the planner re-prices the kills after a level-up)
 			stop.label = string.format("Collect %d %s (~%d kills)", need, itemName, kills)
@@ -324,7 +397,27 @@ local function objectiveStop(quest, od, remaining)
 	end
 
 	if not points or #points == 0 then return nil, "no location for objective" end
-	stop.points = clusterAreas(points)
+	stop.points = clusterAreas(points, ns.Geo.PlayerPoint and ns.Geo.PlayerPoint(), stop.refLevel ~= nil)
+	-- mobs of different levels in different areas (5 kinds of basilisk drop Singing Crystal Shards):
+	-- each area priced by its own mobs
+	if stop.refLevel then
+		-- time and XP were worked out at the first mob's level; re-base them on the area that suits
+		-- you best, so the quest is valued as you'd really do it
+		local bestA, bestS
+		for _, a in ipairs(stop.points) do
+			local s = a.level and levelSuit(a.level) * math.min(1, (a.count or 1) / 4)
+			if s and (not bestS or s > bestS) then bestA, bestS = a, s end
+		end
+		local E = ns.Estimate
+		if bestA and math.abs(bestA.level - stop.refLevel) >= 0.5 then
+			local k = E.KillSecondsDefault(bestA.level, stop.refRank) / math.max(1, E.KillSecondsDefault(stop.refLevel, stop.refRank))
+			local rx = E.MobXP(stop.refLevel, stop.refRank)
+			stop.work = stop.work * k
+			if rx > 0 then stop.mobXp = stop.mobXp * E.MobXP(bestA.level, stop.refRank) / rx end
+			stop.refLevel, stop.mobLevel = bestA.level, bestA.level
+		end
+		priceAreas(stop, stop.refLevel, stop.refRank, nil, stop.work)
+	end
 	stop.work = stop.work + (cfg.objectiveOverheadSeconds or 45)
 	return stop
 end

@@ -138,7 +138,10 @@ LevelPlannerConfig = {
 
 	-- Areas --------------------------------------------------------------------------
 	clusterRadius = 120,        -- yards: spawns this close count as one objective area
-	maxAreasPerObjective = 3,
+	maxAreasPerObjective = 4,
+	areaLevelAbovePenalty = 0.2, -- mob areas: each level the mobs are above you counts this much against the area
+	areaLevelBelowPenalty = 0.04, -- ...and each level below (less XP; grey mobs count very little)
+	hereAreaYards = 200,        -- spawns this close to you: the camp you're in is always one of the areas
 
 	-- Dungeons (phase 4) ---------------------------------------------------------------
 	-- A dungeon is planned only when its XP per minute beats questing, or when you are grouped.
