@@ -670,7 +670,7 @@ local function finalize(state, ctx)
 	local hearthLegs = {}
 	if hearth then
 		local cands = {}
-		local t, prev = 0, start
+		local t, prev = ctx.corpseSecs or 0, start
 		local later = cfg.hearthLaterDiscount or 0.5
 		for idx, e in ipairs(route) do
 			local normal = legSeconds(idx, prev, e.point)
@@ -698,6 +698,12 @@ local function finalize(state, ctx)
 	local xpAdj = 0
 	local arrived = (cfg.arrivedYards or 15) * 2
 	local t, prev, prevEntry, run = 0, start, nil, 0
+	-- a ghost runs back to the corpse first; the route itself starts there (ctx.start = the corpse)
+	if ctx.corpseSecs then
+		steps[1] = { kind = "travel", mode = "corpse", label = "Run back to your corpse", point = start,
+			work = ctx.corpseSecs, arrive = ctx.corpseSecs, mobXp = 0 }
+		t = ctx.corpseSecs
+	end
 	for idx, e in ipairs(route) do
 		local from = prev
 		if hearthLegs[idx] then
@@ -748,6 +754,7 @@ local function finalize(state, ctx)
 		rate = t > 0 and xp / (t / 60) or 0,                  -- real XP per minute, shown
 		score = t > 0 and (worth + bonus) / (t / 60) or 0,    -- what routes are compared on
 		endBonus = bonus,
+		corpseRun = ctx.corpseSecs ~= nil,
 		dingAt = ding,
 		hearthPlanned = next(hearthLegs) ~= nil,
 	}
@@ -784,6 +791,17 @@ function P.Plan(candidates, previous, opts)
 	-- the level-up reaches your mount level: legs after it are ridden
 	if ctx.toDing and cfg.mountLevel and ctx.level < cfg.mountLevel and ctx.level + 1 >= cfg.mountLevel then
 		ctx.mountSpeed = cfg.mountSpeed or 11.2
+	end
+	-- dead and released: the run back to the corpse comes first, and the route is planned from the
+	-- corpse (that's where you'll be once you're alive again)
+	if UnitIsGhost and UnitIsGhost("player") and ns.Waypoint and ns.Waypoint.CorpsePoint then
+		local ok, corpse = pcall(ns.Waypoint.CorpsePoint)
+		if ok and corpse and ctx.start then
+			local secs = ns.Travel.WalkSeconds and ns.Travel.WalkSeconds(ctx.start, corpse, cfg.runSpeed or 7)
+			if not secs or secs == math.huge then secs = ns.Travel.Seconds(ctx.start, corpse) end
+			ctx.corpseSecs = math.max(1, secs)
+			ctx.start, ctx.targetNpc = corpse, nil
+		end
 	end
 	-- the hearthstone counts in every route's time, not only in the final step list
 	if cfg.hearthInRoute ~= false then

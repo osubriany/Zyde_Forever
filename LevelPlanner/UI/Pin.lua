@@ -43,12 +43,16 @@ end
 -- The pinned step, added at the top of the plan's steps (call before the plan is shown).
 function Pin.Apply(plan)
 	if not plan or not plan.stops then return end
-	if plan.stops[1] and plan.stops[1].kind == "pin" then table.remove(plan.stops, 1) end
+	for i = math.min(2, #plan.stops), 1, -1 do
+		if plan.stops[i].kind == "pin" then table.remove(plan.stops, i) end
+	end
 	local p = current()
 	if not p then return end
 	local point = ns.Geo.PointOnMap(p.map, p.x, p.y)
 	if not point then return end
-	table.insert(plan.stops, 1, {
+	-- (a ghost's run back to the corpse stays first)
+	local at = (plan.stops[1] and plan.stops[1].mode == "corpse") and 2 or 1
+	table.insert(plan.stops, at, {
 		kind = "pin", label = "Go to " .. p.name, point = point, work = 0, mobXp = 0, xp = 0,
 		npcName = p.name, pinLabel = p.label, icon = p.icon,
 	})

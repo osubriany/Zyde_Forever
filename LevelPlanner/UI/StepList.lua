@@ -60,6 +60,7 @@ local ICON = {
 	trainer = "Interface\\Minimap\\Tracking\\Class",
 	vendor = "Interface\\GossipFrame\\VendorGossipIcon",
 	grind = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01",
+	corpse = "Interface\\Icons\\Spell_Holy_Resurrection",
 	default = "Interface\\Icons\\INV_Misc_QuestionMark",
 }
 
@@ -446,7 +447,8 @@ local function describe(step, plan)
 	elseif k == "travel" then
 		icon = ICON[step.mode] or ICON.pass
 		local what = { fly = "Flight", boat = "Boat", zeppelin = "Zeppelin", tram = "Deeprun Tram",
-			hearth = "Hearthstone", pass = "On the way", portal = "Portal", border = "On the way" }
+			hearth = "Hearthstone", pass = "On the way", portal = "Portal", border = "On the way",
+			corpse = "The rest of the route starts there" }
 		detail = what[step.mode] or "Travel"
 		if step.mode == "hearth" then detail = "Hearthstone  |cff999999· click to use|r" end
 	elseif k == "dungeon" then
@@ -564,7 +566,8 @@ function L.Update(plan)
 	local rate = plan.seconds > 0 and (plan.xp + restedBonus) / (plan.seconds / 60) or plan.rate or 0
 	-- a ghost has the run back to the corpse to do first
 	local corpseSecs = 0
-	if UnitIsGhost and UnitIsGhost("player") and ns.Waypoint and ns.Waypoint.CorpsePoint then
+	-- (a plan made while you're a ghost has the run as its first step already)
+	if not plan.corpseRun and UnitIsGhost and UnitIsGhost("player") and ns.Waypoint and ns.Waypoint.CorpsePoint then
 		local corpse, here = ns.Waypoint.CorpsePoint(), ns.Geo.PlayerPoint()
 		if corpse and here then corpseSecs = ns.Travel.Seconds(here, corpse) end
 	end

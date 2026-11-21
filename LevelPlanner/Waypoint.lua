@@ -139,10 +139,16 @@ deathFrame:SetScript("OnEvent", function(_, event)
 		lastKey = nil
 		W.Update(ns.plan)
 	end
+	-- released (a ghost now: run back first, plan from the corpse) or alive again (plan from here)
+	if (event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST") and ns.RequestReplan then ns.RequestReplan(false) end
 end)
 -- the corpse position can arrive a moment after you release; keep trying while you are a ghost
 C_Timer.NewTicker(2, function()
 	if ns.active and isGhost() and not (lastKey or ""):find("Your corpse$") then W.ShowCorpse() end
+	-- a plan made before the corpse position was known: plan again now that it is
+	if ns.active and isGhost() and ns.plan and not ns.plan.corpseRun and corpsePoint() and ns.RequestReplan then
+		ns.RequestReplan(false)
+	end
 	-- keep the level-up time current (it includes the run back) while you're a ghost
 	if ns.active and isGhost() and ns.StepList and ns.StepList.Refresh then ns.safe(ns.StepList.Refresh) end
 end)
