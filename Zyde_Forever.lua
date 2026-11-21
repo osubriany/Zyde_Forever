@@ -22,6 +22,7 @@
 --
 -- /zyde test     - toggle preview of both icons (to see where they sit)
 -- /zyde resetxp  - put the XP readout back at its default spot
+-- /zyde quest <id> - is that quest flagged complete, plus its Questie name
 
 local ADDON, ns = ...
 
@@ -93,14 +94,14 @@ end
 -- AHledger) is off when that addon isn't loaded.
 ---------------------------------------------------------------------------
 local FEATURES = {
-	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "Icons to the right of your character (Shift-drag one to move them). Warriors: Battle Shout missing or running out, Overpower / Execute / Revenge / Victory Rush ready, Thunder Clap missing on your target, wrong stance, Sunder stacks when tanking, target out of melee reach in a fight. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing (solo), target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Shamans: weapon imbue missing or running out, Lightning Shield missing or low, Earth Shock to interrupt, a totem out of range, no Ankh. Everyone: Well-Rested low, gear needs repair, low on food or water" },
+	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "Icons to the right of your character (Shift-drag one to move them). Warriors: in a fight, Battle Shout, Thunder Clap and being out of melee range pulse on your character. Also Overpower / Execute / Revenge / Victory Rush ready, wrong stance, and Sunder stacks when tanking. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing (solo), target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Shamans: weapon imbue missing or running out, Lightning Shield missing or low, Earth Shock to interrupt, a totem out of range, no Ankh. Everyone: Well-Rested low, gear needs repair, low on food or water" },
 	{ key = "ammo", class = "HUNTER", short = "count, refill, warning", label = "Hunter ammo", desc = "Arrows or bullets left and how long they last (in the XP readout), a warning when you leave town low, and a Fill quiver button at ammo vendors (hunters)" },
 	{ key = "petCare", class = "HUNTER", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast reminder: off in a group, on when solo (hunters)" },
 	{ key = "markerWheel", short = "marks on the target", label = "Target markers", desc = "Hold the marker key and two rows of four icons show just under your cursor. Top: skull, X, square, moon. Bottom: triangle, diamond, circle, star. The red button removes the mark on your target. The gold ALL button removes every mark. Clicking the icon already on your target removes that mark too. Click a different icon to change it. Letting go hides the icons. World markers stay a separate key: press it to show or hide the squares, drag the title to move them, click a square, then the ground. The last square clears those." },
 	{ key = "hideBars", short = "cleaner action bars", label = "Hide Blizzard bar art", desc = "Hides the action bar art and the bag bar", reload = true },
 	{ key = "hideMicroMenu", short = "game menu buttons", label = "Hide micro menu", desc = "Hides the row of small game menu buttons (character, spellbook, talents, quest log, social, game menu...). Their keybinds still work", reload = true },
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
-	{ key = "infoBar", short = "location, gold, bags", label = "Info bar", desc = "Three short lines you can drag. Collapsed: where you are, gold, bag space, and ammo for a bow, gun, or throwing weapon. Max opens steps, yards swum, yards mounted, and jumps. Min hides that line. The travel counts are kept for this character" },
+	{ key = "infoBar", short = "location, gold, bags", label = "Info bar", desc = "Three short lines you can drag. Collapsed: where you are, gold, bag space, and ammo for a bow, gun, or throwing weapon. Max opens steps, yards swum, yards mounted, and jumps. Min hides that line. Those counts are kept for this character. Ctrl+click that line to paste them into chat" },
 	{ key = "threatBox", short = "tank threat table", label = "Tank threat list", desc = "While you are set to the tank role in a party or raid: a draggable table of mobs you have threat on. Columns are the mob, your threat percent, then the two people closest behind you and their percent. Only mobs with a nameplate, bosses, and your target can be listed. Drag the title to move it" },
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames with buffs and debuffs, mana / rage / energy on party frames. Shift-drag a frame to move it", reload = true },
 	{ key = "targetTarget", short = "small frame by target", label = "Target of target", desc = "A small frame beside the target frame showing who your target is targeting (with the Zyde unit frames on). Shift-drag it to move it" },
@@ -260,6 +261,10 @@ local icons = {
 	{ key = "quest", frame = makeIcon("ZydeForeverQuestItem", "Interface\\GossipFrame\\AvailableQuestIcon") },
 	{ key = "rested", frame = makeIcon("ZydeForeverWellRested", "Interface\\Icons\\INV_Misc_Bag_08") },
 }
+-- Battle Shout sits on the character, large, until you put it on.
+icons[1].frame.prominent = true
+icons[1].frame.label = icons[1].frame:CreateFontString(nil, "OVERLAY")
+icons[1].frame.label:SetTextColor(1, 0.9, 0.45)
 
 -- Other files add their own reminder icons to this column:
 --   ns.AddReminder(key, frameName, texture, check)
@@ -310,7 +315,7 @@ local function setDraggable(on)
 				ZydeForeverDB.reminderPos = { point = point, rel = rel, x = x, y = y }
 			end)
 		end
-		f:EnableMouse(on)
+		f:EnableMouse(on and not f.prominent)
 	end
 end
 
@@ -333,13 +338,25 @@ end -- reminder dragging
 
 -- Stack the shown icons. Runs 10 times a second, so an icon is only moved
 -- when its place in the column changes.
+local BIG, BIG_GAP, BIG_Y = 38, 8, 86
+local BIG_EDGE = {
+	shout = { 0.95, 0.72, 0.15, 1 },
+	meleeRange = { 0.95, 0.15, 0.1, 1 },
+	thunderClap = { 0.25, 0.55, 1, 1 },
+}
 local function layout(states)
-	local n = 0
+	local n, big = 0, {}
 	for _, icon in ipairs(icons) do
 		local f = icon.frame
-		if states[icon.key] then
-			if f.zydeSlot ~= n or not f:IsShown() then
+		if states[icon.key] and f.prominent then
+			big[#big + 1] = f
+			f.pulseFast = icon.key == "meleeRange"
+			local edge = BIG_EDGE[icon.key]
+			if edge then f.border:SetColorTexture(edge[1], edge[2], edge[3], edge[4]) end
+		elseif states[icon.key] then
+			if f.zydeSlot ~= n or not f:IsShown() or f:GetWidth() ~= ICON_SIZE then
 				f.zydeSlot = n
+				f:SetSize(ICON_SIZE, ICON_SIZE)
 				f:ClearAllPoints()
 				f:SetPoint("TOP", anchor, "TOP", 0, -n * (ICON_SIZE + SPACING))
 				f:Show()
@@ -347,7 +364,23 @@ local function layout(states)
 			n = n + 1
 		elseif f:IsShown() then
 			f:Hide()
+			f:SetAlpha(1)
+			f:SetSize(ICON_SIZE, ICON_SIZE)
 		end
+	end
+	-- On the character, not in the side column: large, and centered as a row.
+	local total = #big * BIG + math.max(0, #big - 1) * BIG_GAP
+	local x = -total / 2 + BIG / 2
+	for i, f in ipairs(big) do
+		f:SetSize(BIG, BIG)
+		f:ClearAllPoints()
+		f:SetPoint("CENTER", UIParent, "CENTER", x + (i - 1) * (BIG + BIG_GAP), BIG_Y)
+		if f.label then
+			f.label:ClearAllPoints()
+			f.label:SetPoint("TOP", f, "BOTTOM", 0, -2)
+			if not f.label:SetFont("Fonts\\ARIALN.TTF", 10, "OUTLINE") then f.label:SetFontObject("GameFontNormal") end
+		end
+		f:Show()
 	end
 end
 
@@ -571,21 +604,21 @@ local function wellRestedReminder()
 end
 
 local function update()
-	icons[1].frame.blink = false -- (set again below while Battle Shout is running out)
 	if preview then
 		states.shout, states.overpower = true, true
+		icons[1].frame.label:SetText("Shout")
 	elseif not isWarrior or UnitIsDeadOrGhost("player") or UnitOnTaxi("player") then
 		states.shout, states.overpower = false, false
 	else
-		-- Always check (keeps the remembered expiry fresh), but only show in combat.
+		-- Always check (keeps the remembered expiry fresh). The icon itself
+		-- only shows during a fight.
 		local missing = shoutMissing()
-		-- Running out (under 10 seconds left): show it blinking so you can refresh it in time.
 		local left = shoutExpires - GetTime()
 		local low = not missing and shoutExpires ~= math.huge and left > 0 and left < 10
 		states.shout = F("shout") and (missing or low) and UnitAffectingCombat("player") or false
-		-- (the blink itself runs every frame on the icon, see below, so it stays smooth)
-		icons[1].frame.blink = low
-		if not low then icons[1].frame:SetAlpha(1) end
+		if states.shout then
+			icons[1].frame.label:SetText(low and ("Shout %ds"):format(math.max(1, math.ceil(left))) or "Shout")
+		end
 		states.overpower = F("overpower") and overpowerReady() or false
 	end
 	-- Well-Rested reminder: any class, any time.
@@ -607,10 +640,13 @@ local function update()
 end
 
 anchor:SetScript("OnUpdate", function(_, elapsed)
-	-- Battle Shout running out: blink smoothly, every frame
-	local shoutIcon = icons[1].frame
-	if shoutIcon.blink and shoutIcon:IsShown() then
-		shoutIcon:SetAlpha(0.35 + 0.65 * math.abs(math.sin(GetTime() * 4)))
+	-- The big icons on your character pulse every frame. The side column does not.
+	local now = GetTime()
+	for _, icon in ipairs(icons) do
+		local f = icon.frame
+		if f.prominent and f:IsShown() then
+			f:SetAlpha(0.35 + 0.65 * math.abs(math.sin(now * (f.pulseFast and 8 or 4))))
+		end
 	end
 	elapsedSince = elapsedSince + elapsed
 	if elapsedSince < POLL then return end
@@ -2695,6 +2731,45 @@ local function toggleOptions()
 end
 ns.ToggleOptions = toggleOptions
 
+-- Questie's name for a quest id, when its database is loaded. Nil if it has none.
+local function questieQuestName(id)
+	local name
+	if QuestieLoader and QuestieLoader.ImportModule then
+		local ok, DB = pcall(QuestieLoader.ImportModule, QuestieLoader, "QuestieDB")
+		if ok and DB and DB.QueryQuestSingle then
+			local okN, got = pcall(DB.QueryQuestSingle, id, "name")
+			if okN then name = got end
+		end
+	end
+	if (type(name) ~= "string" or name == "") and LibQuestieDB and LibQuestieDB.Quest and LibQuestieDB.Quest.Get then
+		name = safe(LibQuestieDB.Quest.Get, id, "name")
+	end
+	if type(name) ~= "string" or name == "" or isSecret(name) then return nil end
+	return name
+end
+
+-- Same check as /script print(C_QuestLog.IsQuestFlaggedCompleted(id)).
+local function printQuestFlag(id)
+	local p = "|cff66ccffZyde_Forever|r: "
+	local name = questieQuestName(id)
+	local label = "Quest " .. id .. (name and (" (" .. name .. ")") or "") .. " complete?"
+	if not (C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted) then
+		print(p .. label .. " nil")
+		return
+	end
+	local ok, done = pcall(C_QuestLog.IsQuestFlaggedCompleted, id)
+	if not ok then
+		print(p .. label .. " error: " .. tostring(done))
+		return
+	end
+	-- A hidden value still prints on its own, the way the /script line does.
+	if isSecret(done) then
+		print(p .. label, done)
+	else
+		print(p .. label .. " " .. tostring(done))
+	end
+end
+
 SLASH_ZYDEFOREVER1 = "/zyde"
 SlashCmdList.ZYDEFOREVER = function(msg)
 	msg = (msg or ""):lower():match("^%s*(.-)%s*$")
@@ -2710,6 +2785,13 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		print("|cff66ccffZyde_Forever|r: quest item alert " .. (questAlertOn() and "on" or "off"))
 	elseif msg == "questdebug" then
 		questDebug("|cff66ccffZyde_Forever|r: ")
+	elseif msg == "quest" or msg:match("^quest%s+") then
+		local id = tonumber(msg:match("^quest%s+(%d+)"))
+		if not id then
+			print("|cff66ccffZyde_Forever|r: use /zyde quest <id>, e.g. /zyde quest 867")
+		else
+			printQuestFlag(id)
+		end
 	elseif msg:match("^questheight") then
 		if ns.QuestTracker and ns.QuestTracker.SetMaxHeight then ns.QuestTracker.SetMaxHeight(tonumber(msg:match("^questheight%s+(%d+)"))) end
 	elseif msg:match("^questrange") then
@@ -2848,6 +2930,7 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "ammowarn <number>", "hunters: warn when leaving town with fewer arrows or bullets than this (default 600, 0 = off)" },
 			{ "questrange <yards>", "how far away quest objects are spotted (default 30)" },
 			{ "questheight <pixels>", "the tallest the quest tracker gets before it scrolls (0 = down to the bottom of the screen)" },
+			{ "quest <id>", "whether that quest is flagged complete (C_QuestLog.IsQuestFlaggedCompleted), and its name from Questie" },
 			{ "questdebug", "stand facing a quest object and run this to see why it is or isn't detected" },
 		}) do
 			print(("  |cffffd200/zyde %s|r - %s"):format(c[1], c[2]))

@@ -116,6 +116,7 @@ bar:SetScript("OnEnter", function(self)
 	GameTooltip:AddLine("Info bar", 1, 0.84, 0.35)
 	GameTooltip:AddLine("Where you are, gold, bag space, and ammo for a bow, gun, or throwing weapon.", 1, 1, 1, true)
 	GameTooltip:AddLine("Max opens steps, yards swum, yards mounted, and jumps. Min hides that line.", 1, 1, 1, true)
+	GameTooltip:AddLine("Ctrl+click the travel line to paste those counts into chat.", 1, 1, 1, true)
 	GameTooltip:AddLine("Drag to move.", 0.7, 0.7, 0.7)
 	GameTooltip:Show()
 end)
@@ -314,29 +315,66 @@ local function rangedText()
 end
 
 ---------------------------------------------------------------------------
--- Steps, yards swum, mounted yards, and jumps, kept per character so a
--- reload does not zero them. A step is about 2 yards walked. Swum yards are
--- horizontal distance while swimming. Mounted yards are the distance you ride
--- (ground or flying mount). Taxi flights are not riding. Jump counts each
--- press of the jump key.
+-- Steps, yards swum, mounted yards, and jumps, kept per character. The realm
+-- name is sometimes blank on this client, which used to start a second
+-- counter ("Name-" beside "Name-Realm") and look like a reset. One row per
+-- character name, and any older split rows are added in the first time.
+-- A step is about 2 yards walked. Swum yards are horizontal distance while
+-- swimming. Mounted yards are the distance you ride (ground or flying mount).
+-- Taxi flights are not riding. Jump counts each press of the jump key.
 ---------------------------------------------------------------------------
 local STEP_YARDS = 2
 
-local function charKey()
-	return (plain(UnitName("player")) or "?") .. "-" .. (plain(GetRealmName()) or "?")
+local function blankTally()
+	return { steps = 0, jumps = 0, partial = 0, mounted = 0, swum = 0 }
+end
+
+local function addTally(dst, src)
+	if type(src) ~= "table" then return end
+	dst.steps = dst.steps + (tonumber(src.steps) or 0)
+	dst.jumps = dst.jumps + (tonumber(src.jumps) or 0)
+	dst.partial = dst.partial + (tonumber(src.partial) or 0)
+	dst.mounted = dst.mounted + (tonumber(src.mounted) or 0)
+	dst.swum = dst.swum + (tonumber(src.swum) or 0)
+end
+
+-- Not known yet: counts land here, then move onto the character once the name is.
+local pending
+local active, activeName
+
+local function playerName()
+	local name = plain(UnitName("player"))
+	if type(name) ~= "string" or name == "" then return nil end
+	return name
 end
 
 local function tally()
-	ZydeForeverDB = ZydeForeverDB or {}
-	ZydeForeverDB.pedometer = ZydeForeverDB.pedometer or {}
-	local key = charKey()
-	local t = ZydeForeverDB.pedometer[key]
-	if type(t) ~= "table" then
-		t = { steps = 0, jumps = 0, partial = 0, mounted = 0, swum = 0 }
-		ZydeForeverDB.pedometer[key] = t
+	local name = playerName()
+	if not name then
+		pending = pending or blankTally()
+		return pending
 	end
-	t.steps, t.jumps, t.partial = t.steps or 0, t.jumps or 0, t.partial or 0
-	t.mounted, t.swum = t.mounted or 0, t.swum or 0
+	if active and activeName == name then return active end
+	ZydeForeverDB = ZydeForeverDB or {}
+	local ped = ZydeForeverDB.pedometer
+	if type(ped) ~= "table" then
+		ped = {}
+		ZydeForeverDB.pedometer = ped
+	end
+	local t = blankTally()
+	local drop = {}
+	local prefix = name .. "-"
+	for key, row in pairs(ped) do
+		if type(key) == "string" and (key == name or key:sub(1, #prefix) == prefix) then
+			addTally(t, row)
+			drop[#drop + 1] = key
+		end
+	end
+	for _, key in ipairs(drop) do ped[key] = nil end
+	addTally(t, pending)
+	pending = nil
+	ped[name] = t
+	active, activeName = t, name
 	return t
 end
 
@@ -430,7 +468,7 @@ if hooksecurefunc and JumpOrAscendStart then
 	hooksecurefunc("JumpOrAscendStart", function()
 		if not on() then return end
 		local t = tally()
-		t.jumps = t.jumps + 1
+		if t then t.jumps = t.jumps + 1 end
 	end)
 end
 
@@ -509,3 +547,41 @@ toggle:SetScript("OnEnter", function(self)
 	GameTooltip:Show()
 end)
 toggle:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+-- Ctrl+click the travel line: put the counts into the chat box you are typing
+-- in, or open chat with them ready to send.
+local function travelReport()
+	local t = tally()
+	if not t then return nil end
+	return ("Steps: %s. Swum: %s yd. Mounted: %s yd. Jumps: %s."):format(
+		commas(math.floor(t.steps)),
+		commas(math.floor(t.swum)),
+		commas(math.floor(t.mounted)),
+		commas(math.floor(t.jumps))
+	)
+end
+
+local function pasteTravel()
+	local text = travelReport()
+	if not text then return end
+	local box = ChatEdit_GetActiveWindow and ChatEdit_GetActiveWindow()
+	if box and box.IsShown and box:IsShown() and box.Insert then
+		box:Insert(text)
+		return
+	end
+	if ChatFrame_OpenChat then ChatFrame_OpenChat(text) end
+end
+
+local dragged = false
+bar:HookScript("OnDragStart", function() dragged = true end)
+bar:SetScript("OnMouseUp", function(self, button)
+	if dragged then dragged = false return end
+	if button ~= "LeftButton" or not IsControlKeyDown() or not expanded() then return end
+	local top = self:GetTop()
+	if not top then return end
+	local _, cy = GetCursorPosition()
+	cy = cy / self:GetEffectiveScale()
+	local row = math.floor((top - cy) / ROW_H) + 1
+	if row ~= 3 then return end
+	pasteTravel()
+end)

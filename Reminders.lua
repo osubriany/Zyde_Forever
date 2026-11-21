@@ -204,12 +204,13 @@ if WARRIOR then
 		print(p .. "~10 yd distance check: " .. (isSecret(raw) and "hidden" or tostring(raw)))
 		print(p .. "in reach verdict " .. tostring(inReach()))
 	end
-	ns.AddReminder("meleeRange", "ZydeForeverMeleeRange", "Interface\\Icons\\Ability_Warrior_Charge", function(preview)
-		if preview then return true, "|cffff4444Too far|r" end
+	local meleeTile = ns.AddReminder("meleeRange", "ZydeForeverMeleeRange", "Interface\\Icons\\Ability_Warrior_Charge", function(preview)
+		if preview then return true, "|cffff4444TOO FAR|r" end
 		if not on() or not inCombat() or not hostileTarget() or UnitOnTaxi("player") then return false end
 		if inReach() ~= false then return false end -- (in reach, or can't tell: quiet)
-		return true, "|cffff4444Too far|r"
+		return true, "|cffff4444TOO FAR|r"
 	end)
+	meleeTile.prominent = true
 
 	-- Victory Rush: usable for a short while after a kill that gives XP.
 	ns.AddReminder("victoryRush", "ZydeForeverVictoryRush", icon(VICTORY_RUSH, "Ability_Warrior_Devastate"), function(preview)
@@ -218,16 +219,33 @@ if WARRIOR then
 		return ready(VICTORY_RUSH)
 	end)
 
-	-- Thunder Clap missing on a target you're in melee with (from anyone: it's the
-	-- same slow), when you could cast it now.
-	ns.AddReminder("thunderClap", "ZydeForeverThunderClap", icon(THUNDER_CLAP, "Spell_Nature_ThunderClap"), function(preview)
-		if preview then return true end
+	-- Thunder Clap's slow lasts 30 seconds. In a fight the game often hides the
+	-- debuff, so a cast you just made keeps the icon down until that time is up.
+	local thunderExpires, THUNDER_TIME = 0, 30
+	local thunderEv = CreateFrame("Frame")
+	thunderEv:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	thunderEv:SetScript("OnEvent", function(_, _, _, _, spellID)
+		spellID = plain(spellID)
+		if spellID and THUNDER_SET[spellID] then thunderExpires = GetTime() + THUNDER_TIME end
+	end)
+	-- Missing on a target you're in melee with (from anyone: it's the same slow),
+	-- when you could cast it now.
+	local thunderTile = ns.AddReminder("thunderClap", "ZydeForeverThunderClap", icon(THUNDER_CLAP, "Spell_Nature_ThunderClap"), function(preview)
+		if preview then return true, "Thunder" end
 		if not on() or not inCombat() or not hostileTarget() or not ready(THUNDER_CLAP) then return false end
 		local rend = knownRank(REND)
 		if rend and inRange(rend) == false then return false end -- (out of reach: it wouldn't land)
-		local found, hidden = hasAura("target", "HARMFUL", THUNDER_SET)
-		return not found and not hidden
+		local found, hidden, a = hasAura("target", "HARMFUL", THUNDER_SET)
+		if found then
+			local dur, exp = a and plain(a.duration), a and plain(a.expirationTime)
+			if dur and dur > 0 then THUNDER_TIME = dur end
+			if exp and exp > 0 then thunderExpires = exp end
+			return false
+		end
+		if hidden and GetTime() < thunderExpires then return false end
+		return true, "Thunder"
 	end)
+	thunderTile.prominent = true
 end
 
 ---------------------------------------------------------------------------
