@@ -1,7 +1,7 @@
--- Zyde_Forever: a small draggable bar, three lines.
--- Collapsed: where you are, gold, bag space, and thrown durability or ammo.
--- Max opens the third line: steps, yards swum, yards ridden, and times you
--- press jump. Min puts that line away.
+-- Zyde_Forever: a small draggable bar.
+-- One line: where you are, gold, bag space, and thrown durability or ammo.
+-- Max opens a second line: steps, yards swum, yards ridden, and jumps.
+-- Min puts that line away. Ctrl+click the top line pastes where you are.
 -- Drag it with the left mouse button. Turn it off in /zyde.
 
 local ADDON, ns = ...
@@ -73,11 +73,10 @@ local ridden = piece("Interface\\Icons\\Ability_Mount_RidingHorse")
 local jumps = piece("Interface\\Icons\\Spell_Magic_FeatherFall")
 
 local ROW_H = 22
--- Line 1 where you are. Line 2 gold, bags, ammo. Line 3 is the travel counts,
--- hidden until Max is clicked.
+-- One line: where you are, gold, bags, ammo. The travel counts are a second
+-- line, hidden until Max is clicked.
 local rows = {
-	{ loc },
-	{ gold, bags, ranged },
+	{ loc, gold, bags, ranged },
 	{ steps, swum, ridden, jumps },
 }
 
@@ -115,8 +114,9 @@ bar:SetScript("OnEnter", function(self)
 	GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
 	GameTooltip:AddLine("Info bar", 1, 0.84, 0.35)
 	GameTooltip:AddLine("Where you are, gold, bag space, and ammo for a bow, gun, or throwing weapon.", 1, 1, 1, true)
-	GameTooltip:AddLine("Max opens steps, yards swum, yards mounted, and jumps. Min hides that line.", 1, 1, 1, true)
-	GameTooltip:AddLine("Ctrl+click the travel line to paste those counts into chat.", 1, 1, 1, true)
+	GameTooltip:AddLine("Max opens a second line: steps, yards swum, yards mounted, and jumps.", 1, 1, 1, true)
+	GameTooltip:AddLine("Ctrl+click this line to paste where you are into chat.", 1, 1, 1, true)
+	GameTooltip:AddLine("Ctrl+click the counter line to paste those counts into chat.", 1, 1, 1, true)
 	GameTooltip:AddLine("Drag to move.", 0.7, 0.7, 0.7)
 	GameTooltip:Show()
 end)
@@ -133,7 +133,7 @@ bar:SetScript("OnDragStop", function(self)
 end)
 
 local function layout()
-	local n = expanded() and #rows or 2
+	local n = expanded() and #rows or 1
 	local maxW = 120
 	for i = 1, #rows do
 		local x, y = 6, -((i - 1) * ROW_H)
@@ -192,12 +192,18 @@ local function coords()
 	end
 end
 
-local function location()
+local function locationReport()
 	local zone, sub = plain(GetZoneText()), plain(GetSubZoneText())
 	if not zone or zone == "" then return nil end
-	local where = (sub and sub ~= "" and sub ~= zone) and (zone .. " " .. sub) or zone
+	local where = (sub and sub ~= "" and sub ~= zone) and (zone .. ", " .. sub) or zone
 	local x, y = coords()
 	if x then where = ("%s (%d, %d)"):format(where, x, y) end
+	return where
+end
+
+local function location()
+	local where = locationReport()
+	if not where then return nil end
 	return "Loc: " .. where
 end
 
@@ -548,8 +554,8 @@ toggle:SetScript("OnEnter", function(self)
 end)
 toggle:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
--- Ctrl+click the travel line: put the counts into the chat box you are typing
--- in, or open chat with them ready to send.
+-- Ctrl+click a line: put that line's text into the chat box you are typing
+-- in, or open chat with it ready to send.
 local function travelReport()
 	local t = tally()
 	if not t then return nil end
@@ -561,9 +567,8 @@ local function travelReport()
 	)
 end
 
-local function pasteTravel()
-	local text = travelReport()
-	if not text then return end
+local function pasteChat(text)
+	if not text or text == "" then return end
 	local box = ChatEdit_GetActiveWindow and ChatEdit_GetActiveWindow()
 	if box and box.IsShown and box:IsShown() and box.Insert then
 		box:Insert(text)
@@ -576,12 +581,15 @@ local dragged = false
 bar:HookScript("OnDragStart", function() dragged = true end)
 bar:SetScript("OnMouseUp", function(self, button)
 	if dragged then dragged = false return end
-	if button ~= "LeftButton" or not IsControlKeyDown() or not expanded() then return end
+	if button ~= "LeftButton" or not IsControlKeyDown() then return end
 	local top = self:GetTop()
 	if not top then return end
 	local _, cy = GetCursorPosition()
 	cy = cy / self:GetEffectiveScale()
 	local row = math.floor((top - cy) / ROW_H) + 1
-	if row ~= 3 then return end
-	pasteTravel()
+	if row == 1 then
+		pasteChat(locationReport())
+	elseif row == 2 and expanded() then
+		pasteChat(travelReport())
+	end
 end)
