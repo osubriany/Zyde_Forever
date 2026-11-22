@@ -350,9 +350,13 @@ local function objectiveStop(quest, od, remaining)
 			stop.mobs = {}
 			for _, id in ipairs(hostile) do stop.mobs[id] = true end
 			-- default: kills needed x kill time; learned: your real seconds per item
-			local perItem = kills * E.KillSeconds(lvl, rank, QS.Npc(hostile[1], "name")) / need
-			stop.work = need * E.UnitSeconds("item:" .. tostring(od.Id), perItem)
+			local killSecs = E.KillSeconds(lvl, rank, QS.Npc(hostile[1], "name"))
+			local perItem = kills * killSecs / need
+			stop.work = need * E.UnitSeconds("item:" .. tostring(od.Id), perItem, true)
 			stop.refLevel, stop.refRank = lvl, rank
+			-- kill XP for the kills that fit in that time (a learned pace for this item may be quicker
+			-- than the drop rate says: then fewer kills, and less XP)
+			kills = math.max(need, math.min(kills, math.ceil(stop.work / math.max(1, killSecs))))
 			stop.mobXp = kills * E.MobXP(lvl, rank)
 			stop.mobLevel, stop.mobRank = lvl, rank -- (the planner re-prices the kills after a level-up)
 			stop.label = string.format("Collect %d %s (~%d kills)", need, itemName, kills)

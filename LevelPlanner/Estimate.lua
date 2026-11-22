@@ -97,8 +97,11 @@ function E.KillSeconds(mobLevel, rank, mobName)
 end
 
 -- Seconds per unit of objective progress, learned when available.
-function E.UnitSeconds(key, prior)
+-- ownOnly: only this objective's own pace - for item drops, whose pace depends on the drop rate (one
+-- in 1 kill or one in 12), so your average over other items says nothing about this one.
+function E.UnitSeconds(key, prior, ownOnly)
 	if not (ns.Learn and key) then return prior end
+	if ownOnly then return ns.Learn.UnitSeconds(key, prior) end
 	-- the objective's own pace, falling back to your pace for that kind of objective
 	local kind = key:match("^(%a+)")
 	return ns.Learn.UnitSeconds(key, ns.Learn.UnitSeconds("type:" .. kind, prior))
