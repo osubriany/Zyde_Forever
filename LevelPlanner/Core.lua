@@ -519,6 +519,10 @@ SlashCmdList.LEVELPLANNER = function(msg)
 	local raw = (msg or ""):match("^%s*(.-)%s*$")   -- original spelling, for quest names
 	msg = raw:lower()
 	if msg:match("^why") then
+		if not ns.ready then
+			ns.print("still starting up - Questie hasn't finished loading. Try again in a few seconds.")
+			return
+		end
 		ns.Why.Explain(raw:gsub("^[Ww][Hh][Yy]%s*", ""))
 		return
 	end
