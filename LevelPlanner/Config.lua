@@ -42,6 +42,12 @@ LevelPlannerConfig = {
 	                            -- and the quicker search is used for 10 minutes
 	timedPredictHours = 3,      -- now-and-then quests (Data/QuestFixes.lua: ns.TimedQuests): guess the next stop for this long after a yell
 	overHorizonSeconds = 300,   -- a full route still takes a quest that raises XP per minute, if it adds at most this
+	-- "/lp pickup loose" (or the step list's ... menu): also quick quests on the way that earn at least
+	-- this share of the route's XP per minute and add at most this many seconds. "tight" (default): no.
+	looseMinShare = 0.4,
+	looseMaxSeconds = 180,
+	looseDetourSeconds = 60,    -- ...with at most this much walking beyond the quest's own work
+	looseMaxTotalSeconds = 600, -- ...and at most this much added in all
 	regretStart = true,         -- also try a route built quests-that-fit-in-one-place-first (regret insertion)
 	regretWeight = 0.5,         -- how much "only fits well in one place" counts in that build
 	graspStarts = 1,            -- extra routes built picking at random among the best few (0 = off; more = slower)

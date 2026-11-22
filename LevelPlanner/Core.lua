@@ -102,6 +102,25 @@ function ns.SetEliteMode(mode)
 	if ns.RequestReplan then ns.RequestReplan(true) end
 end
 
+-- Pick-ups (per character: /lp pickup, or the step list's "..." menu):
+--   "tight" - only quests that raise the route's XP per minute (default)
+--   "loose" - also quick quests on the way that earn at least 40% of it (Config.looseMinShare)
+local PICKUP_MODES = { tight = true, loose = true }
+function ns.PickupMode()
+	local m = ns.char and ns.char.pickup
+	return PICKUP_MODES[m] and m or "tight"
+end
+
+function ns.SetPickupMode(mode)
+	if not PICKUP_MODES[mode] then return end
+	ns.char.pickup = mode
+	ns.print(mode == "loose"
+		and "pick-ups: loose - quick quests on the way are taken too, even when a bit slower than the route."
+		or "pick-ups: tight - only quests that make the route faster.")
+	ns.forceFresh = true
+	if ns.RequestReplan then ns.RequestReplan(true) end
+end
+
 function ns.AllowElite(level, rank)
 	local mode = ns.EliteMode()
 	if mode == "on" or ns.IsGrouped() then return true end
@@ -562,6 +581,13 @@ SlashCmdList.LEVELPLANNER = function(msg)
 			or ("group mark removed" .. (ns.IsGrouped() and " (you are still in a party, which counts as grouped)." or ".")))
 		ns.forceFresh = true
 		ns.RequestReplan(true)
+	elseif msg == "pickup" or msg == "pickup loose" or msg == "pickup tight" then
+		local mode = msg:match("^pickup (%a+)$")
+		if not mode then
+			ns.print("pick-ups: " .. ns.PickupMode() .. ". Use /lp pickup loose or tight.")
+			return
+		end
+		ns.SetPickupMode(mode)
 	elseif msg == "elites" or msg == "elites on" or msg == "elites off" or msg == "elites auto" then
 		local mode = msg:match("^elites (%a+)$")
 		if not mode then
@@ -627,6 +653,7 @@ SlashCmdList.LEVELPLANNER = function(msg)
 		ns.print("/lp group on|off - plan elite and red quests for a group")
 		ns.print("/lp steps - print the whole plan in chat (times and XP of every step)")
 		ns.print("/lp elites on|off|auto - elite quests solo: always, never, or by the usual rule")
+		ns.print("/lp pickup tight|loose - only quests that speed the route up, or quick ones on the way too")
 		ns.print("/lp arrow - show or hide the built-in arrow")
 		ns.print("/lp cleanup - quests in your log the plan doesn't use")
 		ns.print("/lp auto on|off - automatic accept / turn-in of planned quests")

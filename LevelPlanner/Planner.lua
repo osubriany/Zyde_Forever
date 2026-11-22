@@ -362,27 +362,49 @@ end
 -- turn-in you're standing on, a quest you just picked up next to the route. greedyFill stops at the
 -- horizon, so without this a kept route never takes them (and the 10% switch rule keeps it).
 -- At most Config.overHorizonSeconds extra per quest; best value per added second first.
+-- "Loose" pick-ups (ctx.loose, /lp pickup loose): also a quick quest on the way that earns at least
+-- Config.looseMinShare of the route's rate and adds at most Config.looseMaxSeconds - you're there
+-- anyway, and skipping it may cost a trip back later (as guides that take everything do).
 local function topUp(state, pool, ctx)
-	local maxExtra = ns.cfg.overHorizonSeconds or 300
+	local cfg = ns.cfg
+	local maxExtra = cfg.overHorizonSeconds or 300
+	local looseMax, looseShare = cfg.looseMaxSeconds or 180, cfg.looseMinShare or 0.4
+	local rate0 = worth(state, ctx) / math.max(60, state.total) -- (loose bar: the route as it was)
+	local looseLeft = cfg.looseMaxTotalSeconds or 600            -- (and loose picks add this much at most)
+	local looseDetour = cfg.looseDetourSeconds or 60
 	local changed = true
 	while changed do
 		changed = false
-		local best, bestR, bestT, bestRate
+		local best, bestR, bestT, bestRate, bestLoose
 		local rate = worth(state, ctx) / math.max(60, state.total)
 		for _, q in ipairs(pool) do
 			ns.Check()
 			if not state.used[q] then
-				local r, t = insertQuest(state.route, q, ctx)
-				if r and t - state.total <= maxExtra then
+				local r, t, firstPos = insertQuest(state.route, q, ctx)
+				local added = r and t - state.total
+				if r and added <= math.max(maxExtra, ctx.loose and looseMax or 0) then
+					local qWork = 0
+					for _, s in ipairs(q.stops) do qWork = qWork + (s.work or 0) end
 					local m = (state.mobXp or 0) + mobOf(q)
+					local gain = value(q) + restedWorth(m, ctx) - restedWorth(state.mobXp, ctx)
 					local newRate = ((state.value or 0) + value(q) + restedWorth(m, ctx)) / math.max(60, t)
-					if newRate > rate * 1.001 and (not bestRate or newRate > bestRate) then
-						best, bestR, bestT, bestRate = q, r, t, newRate
+					local ok = added <= maxExtra and newRate > rate * 1.001
+					local loose = false
+					-- (on the way: little walking beyond the quest's own work, and inside the route - one
+					-- tacked on after its end only makes the route longer)
+					if not ok and ctx.loose and added <= math.min(looseMax, looseLeft) and added - qWork <= looseDetour
+						and firstPos and firstPos <= #state.route then
+						ok = gain / math.max(1, added) >= rate0 * looseShare
+						loose = ok
+					end
+					if ok and (not bestRate or newRate > bestRate) then
+						best, bestR, bestT, bestRate, bestLoose = q, r, t, newRate, loose
 					end
 				end
 			end
 		end
 		if best then
+			if bestLoose then looseLeft = looseLeft - (bestT - state.total) end
 			state.used[best] = true
 			state.route, state.total, state.xp = bestR, bestT, state.xp + best.xp
 			state.value = (state.value or 0) + value(best)
@@ -935,6 +957,7 @@ function P.Plan(candidates, previous, opts)
 		bagFree = ns.QuestSource.FreeBagSlots() - (cfg.bagReserveSlots or 2),
 		level = ns.playerLevel and ns.playerLevel() or 1,
 		hearthSecs = cfg.hearthSeconds or 45,
+		loose = ns.PickupMode and ns.PickupMode() == "loose", -- (quick quests on the way too: topUp)
 		-- the current plan's XP per second: what XP counted twice is worth in time (addedWork)
 		xpRate = (ns.plan and (ns.plan.rate or 0) > 0) and ns.plan.rate / 60 or 0,
 		now = GetServerTime and GetServerTime() or nil, -- (for quests offered only now and then)
