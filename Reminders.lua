@@ -10,6 +10,7 @@
 --            on its last charge, Earth Shock to interrupt a cast, a totem out
 --            of range (its buff gone), no Ankh for Reincarnation.
 --   Rogue:   Eviscerate when your combo points will (nearly) kill, or you're at max.
+--   Paladin: Seal of Righteousness missing or running out.
 --   Everyone: gear badly damaged, running low on food (and water for hunters).
 -- Battle Shout running out (under 10 seconds) blinks in Zyde_Forever.lua.
 
@@ -717,6 +718,83 @@ if playerClass == "ROGUE" then
 			print(p .. ("  shown only while the target's health is under %.0f (the game decides)"):format((evisLow(points(), "target") or 0) + whiteLow("target")))
 		end
 	end
+end
+
+---------------------------------------------------------------------------
+-- Paladin: Seal of Righteousness missing (in a fight, or with an enemy targeted),
+-- or under 3 seconds left in a fight. Quiet while any other seal is up (you chose it).
+-- A seal lasts 30 seconds and Judgement uses it up. Forever can hide your buffs in a
+-- fight, so your own casts are tracked too: a seal cast starts the 30 seconds, a
+-- Judgement ends them.
+---------------------------------------------------------------------------
+if playerClass == "PALADIN" then
+	local SOR = { 21084, 20287, 20288, 20289, 20290, 20291, 20292, 20293 }
+	local JUDGEMENT = 20271
+	local SEAL_TIME, WARN = 30, 3
+	local sealExpires, sealIsSoR = 0, false
+
+	local function spellName(id)
+		local n = (C_Spell and C_Spell.GetSpellName and safe(C_Spell.GetSpellName, id)) or (GetSpellInfo and safe(GetSpellInfo, id))
+		return plain(n)
+	end
+	local function isSeal(name) return type(name) == "string" and name:find("^Seal of") ~= nil end
+	local sorName
+	local function isSoR(name)
+		sorName = sorName or spellName(SOR[1])
+		return type(name) == "string" and name == (sorName or "Seal of Righteousness")
+	end
+
+	local ev = CreateFrame("Frame")
+	ev:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	ev:SetScript("OnEvent", function(_, _, _, _, spellID)
+		spellID = plain(spellID)
+		if not spellID then return end
+		if spellID == JUDGEMENT then sealExpires = 0 return end
+		local name = spellName(spellID)
+		if isSeal(name) then
+			sealExpires = GetTime() + SEAL_TIME
+			sealIsSoR = isSoR(name)
+		end
+	end)
+
+	-- Your seal from your buffs: "sor" / "other" / nil (none), seconds left; unknown = hidden.
+	local function sealBuff()
+		if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return nil, nil, true end
+		local hidden = false
+		for i = 1, 40 do
+			local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
+			if not ok then return nil, nil, true end
+			if not a then break end
+			local name = plain(a.name)
+			if name == nil then hidden = true
+			elseif isSeal(name) then
+				local exp = plain(a.expirationTime)
+				local left = (exp and exp > 0) and (exp - GetTime()) or nil
+				if left then sealExpires = exp end
+				return isSoR(name) and "sor" or "other", left, false
+			end
+		end
+		return nil, nil, hidden
+	end
+
+	local sealTile = ns.AddReminder("sealRighteousness", "ZydeForeverSealRighteousness", icon(SOR, "Ability_ThunderBolt"), function(preview)
+		if preview then return true, "Seal" end
+		if not on() or UnitIsDeadOrGhost("player") or UnitOnTaxi("player") then return false end
+		if not knownRank(SOR) or not ready(SOR) then return false end
+		local fighting = inCombat()
+		if not (fighting or hostileTarget()) then return false end
+		local kind, left, hidden = sealBuff()
+		if hidden and not kind then
+			-- Buffs hidden: go by your own casts.
+			left = sealExpires - GetTime()
+			if left > 0 then kind = sealIsSoR and "sor" or "other" else kind, left = nil, nil end
+		end
+		if kind == "other" then return false end
+		if not kind then return true, "Seal" end
+		if fighting and left and left < WARN then return true, ("Seal %.0f"):format(math.max(0, left)) end
+		return false
+	end)
+	sealTile.prominent = true
 end
 
 ---------------------------------------------------------------------------

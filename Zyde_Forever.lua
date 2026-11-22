@@ -346,6 +346,7 @@ local BIG_EDGE = {
 	meleeRange = { 0.95, 0.15, 0.1, 1 },
 	thunderClap = { 0.25, 0.55, 1, 1 },
 	eviscerate = { 0.85, 0.1, 0.25, 1 },
+	sealRighteousness = { 1, 0.85, 0.35, 1 },
 }
 local function layout(states)
 	local n, big = 0, {}
