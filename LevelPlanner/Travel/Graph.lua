@@ -406,6 +406,11 @@ function T.PrintInfo()
 	else
 		ns.print("hearthstone: location not learned yet - use it once, or set it at an innkeeper")
 	end
+	if ns.QuestSource and ns.QuestSource.FreeBagSlots then
+		local free = ns.QuestSource.FreeBagSlots()
+		ns.print(string.format("bags: %d free slots (%d kept free for loot)%s", free, ns.cfg.bagReserveSlots or 2,
+			free <= (ns.cfg.bagReserveSlots or 2) and " - quests that loot items wait until you make room" or ""))
+	end
 end
 
 ----------------------------------------------------------------------------------------

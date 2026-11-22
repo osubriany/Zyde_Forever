@@ -204,7 +204,11 @@ local function feasible(route, ctx)
 		end
 		n = n + (s.logDelta or 0)
 		bag = bag + (s.bagDelta or 0)
-		if n > ctx.logCap or bag > ctx.bagFree then return false end
+		-- (only a step that adds a quest or loot can break the limit: with full bags or a full log,
+		-- turn-ins, kills and grinding are still plannable)
+		if ((s.logDelta or 0) > 0 and n > ctx.logCap) or ((s.bagDelta or 0) > 0 and bag > ctx.bagFree) then
+			return false
+		end
 	end
 	return true
 end
