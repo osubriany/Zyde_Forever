@@ -609,9 +609,20 @@ if playerClass == "ROGUE" then
 		return lvl * 4
 	end
 
-	-- What your white swings will still do: at least one main-hand swing, or SWING_TIME
+	-- After Eviscerate your energy restarts near empty and comes back at 10 a second, so
+	-- until you can afford a Sinister Strike (45) only your white swings add damage: that's
+	-- the time a "nearly dead" target has to be finished in. From your energy now, if the
+	-- game shows it (4 seconds if not).
+	local SS_COST, EVIS_COST, REGEN = 45, 35, 10
+	local function swingTime()
+		local e = plain(UnitPower("player", Enum and Enum.PowerType and Enum.PowerType.Energy or 3))
+		if type(e) ~= "number" then return 4 end
+		local after = math.max(0, e - EVIS_COST)
+		return math.max(1.5, math.min(4.5, (SS_COST - after) / REGEN))
+	end
+
+	-- What your white swings will still do: at least one main-hand swing, or swingTime()
 	-- seconds of both hands (off-hand at half damage), whichever is more. Average hits.
-	local SWING_TIME = 2.5
 	local function whiteLow(unit)
 		local ap = attackPower()
 		local mh, oh = weapon(16), weapon(17)
@@ -622,7 +633,7 @@ if playerClass == "ROGUE" then
 		local mhHit = (mh.lo + mh.hi) / 2 + ap / 14 * mh.speed
 		local dps = mhHit / mh.speed
 		if oh then dps = dps + ((oh.lo + oh.hi) / 2 + ap / 14 * oh.speed) * 0.5 / oh.speed end
-		return math.max(mhHit, dps * SWING_TIME) * armorLeft(unit)
+		return math.max(mhHit, dps * swingTime()) * armorLeft(unit)
 	end
 
 	-- Forever hides your target's health from addons (in and out of combat), so the "Kill"
@@ -691,7 +702,7 @@ if playerClass == "ROGUE" then
 			if r[n] then print(p .. ("  %d: %d-%d, counted as %.0f"):format(n, r[n][1], r[n][2], evisLow(n, "target") or 0)) end
 		end
 		local rawHp = UnitHealth("target")
-		print(p .. ("target health %s, white damage counted %.0f (AP %.0f)"):format(isSecret(rawHp) and "HIDDEN by the game" or tostring(rawHp), whiteLow("target"), attackPower()))
+		print(p .. ("target health %s, white damage counted %.0f (AP %.0f, %.1f s of swings)"):format(isSecret(rawHp) and "HIDDEN by the game" or tostring(rawHp), whiteLow("target"), attackPower(), swingTime()))
 		-- Each gate the tile goes through, and what the tile decides right now.
 		local usable
 		if id and C_Spell and C_Spell.IsSpellUsable then usable = safe(C_Spell.IsSpellUsable, id)
