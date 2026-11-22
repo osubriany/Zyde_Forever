@@ -501,12 +501,11 @@ end
 --     it (more points would only be wasted)
 -- Quiet when one white swing alone would kill it (save the energy).
 -- Damage: Eviscerate's own tooltip (your rank's range per point), the low end,
--- less the target's armor (estimated from its level). Every Eviscerate that
--- lands (no crit) tunes this to what you really hit for: talents, gear, armor.
+-- less the target's armor (estimated from its level). (Forever blocks addons from
+-- the combat log, so it can't learn from your real hits.)
 ---------------------------------------------------------------------------
 if playerClass == "ROGUE" then
 	local EVISCERATE = { 2098, 6760, 6761, 6762, 8623, 8624, 11299, 11300, 31016 }
-	local EVIS_SET = set(EVISCERATE)
 	local CP = Enum and Enum.PowerType and Enum.PowerType.ComboPoints or 4
 	-- If the tooltip can't be read: Classic ranks, damage = a + b * (points - 1) .. that + spread.
 	local RANKS = {
@@ -558,18 +557,12 @@ if playerClass == "ROGUE" then
 		return 1 - armor / (armor + 400 + 85 * me)
 	end
 
-	-- How your real Eviscerates compare with the estimate (1 = as estimated). Saved.
-	local function calib()
-		local c = ZydeForeverDB and ZydeForeverDB.evisCalib
-		return type(c) == "number" and c or 1
-	end
-
 	-- Eviscerate with n points on `unit`, at the low end of its range.
 	local function evisLow(n, unit)
 		local id = knownRank(EVISCERATE)
 		local r = id and ranges(id)[n]
 		if not r then return nil end
-		return r[1] * armorLeft(unit) * calib()
+		return r[1] * armorLeft(unit)
 	end
 	-- One main-hand white swing, at the low end.
 	local function whiteLow(unit)
@@ -577,43 +570,6 @@ if playerClass == "ROGUE" then
 		if type(lo) ~= "number" then return 0 end
 		return lo * armorLeft(unit)
 	end
-
-	-- Learning: points spent and the target's armor share when each Eviscerate goes off,
-	-- then the hit from the combat log (the hit comes after the points are gone).
-	local lastPoints, pending = 0, nil
-	local myGUID
-	local ev = CreateFrame("Frame")
-	ev:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
-	ev:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-	pcall(ev.RegisterEvent, ev, "COMBAT_LOG_EVENT_UNFILTERED")
-	ev:SetScript("OnEvent", function(_, event, _, _, spellID)
-		if event == "UNIT_POWER_UPDATE" then
-			local n = points()
-			if n > 0 then lastPoints = n end
-			return
-		end
-		if event == "UNIT_SPELLCAST_SUCCEEDED" then
-			spellID = plain(spellID)
-			if spellID and EVIS_SET[spellID] and lastPoints > 0 then
-				local r = ranges(spellID)[lastPoints]
-				if r then pending = { mid = (r[1] + r[2]) / 2 * armorLeft("target"), t = GetTime() } end
-			end
-			return
-		end
-		-- COMBAT_LOG_EVENT_UNFILTERED
-		if not pending or not CombatLogGetCurrentEventInfo then return end
-		local ok, _, sub, _, src, _, _, _, _, _, _, _, id, _, _, amount, _, _, _, _, _, crit = pcall(CombatLogGetCurrentEventInfo)
-		if not ok or plain(sub) ~= "SPELL_DAMAGE" then return end
-		myGUID = myGUID or UnitGUID("player")
-		id, src, amount, crit = plain(id), plain(src), plain(amount), plain(crit)
-		if src ~= myGUID or not (id and EVIS_SET[id]) then return end
-		local p = pending
-		pending = nil
-		if crit or type(amount) ~= "number" or GetTime() - p.t > 2 or p.mid <= 0 then return end
-		local ratio = math.max(0.5, math.min(1.6, amount / p.mid))
-		ZydeForeverDB = ZydeForeverDB or {}
-		ZydeForeverDB.evisCalib = calib() * 0.8 + ratio * 0.2 -- (eases toward your real hits)
-	end)
 
 	local evisTile
 	evisTile = ns.AddReminder("eviscerate", "ZydeForeverEviscerate", icon(EVISCERATE, "Ability_Rogue_Eviscerate"), function(preview)
@@ -638,7 +594,7 @@ if playerClass == "ROGUE" then
 		local p = "|cff66ccffZyde_Forever|r eviscerate: "
 		local id = knownRank(EVISCERATE)
 		print(p .. "rank " .. tostring(id) .. ", points " .. points() .. "/" .. maxPoints()
-			.. (", armor left %.0f%%, tuned x%.2f"):format(armorLeft("target") * 100, calib()))
+			.. (", armor left %.0f%%"):format(armorLeft("target") * 100))
 		local r = id and ranges(id) or {}
 		for n = 1, maxPoints() do
 			if r[n] then print(p .. ("  %d: %d-%d, counted as %.0f"):format(n, r[n][1], r[n][2], evisLow(n, "target") or 0)) end
