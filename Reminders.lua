@@ -10,7 +10,7 @@
 --            on its last charge, Earth Shock to interrupt a cast, a totem out
 --            of range (its buff gone), no Ankh for Reincarnation.
 --   Rogue:   Eviscerate when your combo points will (nearly) kill, or you're at max.
---   Paladin: Seal of Righteousness missing or running out, no aura, no blessing on you.
+--   Paladin: Seal of Righteousness missing or running out, no aura, no blessing on you, Judgement ready.
 --   Everyone: gear badly damaged, running low on food (and water for hunters).
 -- Battle Shout running out (under 10 seconds) blinks in Zyde_Forever.lua.
 
@@ -935,6 +935,17 @@ if playerClass == "PALADIN" then
 		if has then return false end
 		blessTile.tex:SetTexture(ns.spellTexture(blessId or knownRank(MIGHT), blessTile.fallback))
 		return true, "No blessing"
+	end)
+
+	-- Judgement ready: in a fight with an enemy targeted, off cooldown, castable (the game
+	-- says it isn't without a seal up or the mana), and your target within its reach.
+	local JUDGEMENT_IDS = { JUDGEMENT }
+	ns.AddReminder("judgement", "ZydeForeverJudgement", icon(JUDGEMENT_IDS, "Spell_Holy_RighteousFury"), function(preview)
+		if preview then return true, "Judgement" end
+		if not on() or not inCombat() or not hostileTarget() then return false end
+		if not ready(JUDGEMENT_IDS) then return false end
+		if inRange(JUDGEMENT) == false then return false end -- (out of reach; can't tell: still show)
+		return true, "Judgement"
 	end)
 end
 
