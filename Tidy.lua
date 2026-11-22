@@ -88,6 +88,24 @@ local function fixDividers()
 		for k, v in pairs(bar) do
 			if type(k) == "string" and k:find("Divider") and type(v) == "table" then setDividerAlpha(v, a) end
 		end
+		-- Whatever frame draws them, the divider art is named "...divider...": find every such
+		-- texture under the main bar and fade it.
+		local function isDivider(r)
+			local name = r.GetAtlas and r:GetAtlas()
+			if type(name) ~= "string" or ns.isSecret(name) then
+				name = r.GetTexture and r:GetTexture()
+				if type(name) ~= "string" or ns.isSecret(name) then return false end
+			end
+			return name:lower():find("divider") ~= nil
+		end
+		local function walk(f, depth)
+			if depth > 4 then return end
+			for _, r in ipairs({ f:GetRegions() }) do
+				if isDivider(r) then setDividerAlpha(r, a) end
+			end
+			for _, c in ipairs({ f:GetChildren() }) do walk(c, depth + 1) end
+		end
+		walk(bar, 0)
 	end
 end
 
