@@ -75,6 +75,7 @@ LevelPlannerConfig = {
 	hereFirstSlackSeconds = 90, -- ... at most this many seconds more on the route
 	hereTurninYards = 400,      -- turn-ins this close to you (the town you're in) go first, same rule
 	hereTurninAtYards = 40,     -- ...and one you're standing at goes before everything
+	amongYards = 80,            -- an objective whose mobs are this close to you comes next, whatever it costs
 	escortFirst = true,         -- an escort you have started goes first in the route (leave it and it fails)
 	escortMinutes = 30,         -- ... counted as started for this long after you accept it
 	overlapYards = 60,          -- two objectives this close that need the same mobs are done together (kills count once)

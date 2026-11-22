@@ -104,6 +104,11 @@ local function explainOne(id)
 			say(string.format("  Planned as part of %s (step %d).", dungeon.name, idx))
 		else
 			say(string.format("  In the plan: step %d - %s.", idx, KIND_WORDS[s.kind] or s.kind))
+			-- not first: how far its objective is from you, and what doing it now would cost
+			if idx > 1 and ns.Planner.WhyNotFirst then
+				local ok, lines = pcall(ns.Planner.WhyNotFirst, id)
+				if ok then for _, l in ipairs(lines or {}) do say(l) end end
+			end
 		end
 		return
 	end

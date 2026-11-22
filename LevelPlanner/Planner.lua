@@ -651,8 +651,11 @@ function hereFirstInner(state, ctx)
 		table.insert(r, 1, { stop = e.stop, point = bestP })
 		if feasible(r, ctx) then
 			local t = routeSeconds(r, ctx)
-			-- (mid-fight with its mob, finishing here comes first whatever the sums say)
-			if fighting or t <= state.total + slack then state.route, state.total = r, t end
+			-- (mid-fight with its mob, or standing among its mobs - Config.amongYards: finishing here
+			-- comes first whatever the sums say)
+			if fighting or bestD <= (ns.cfg.amongYards or 80) or t <= state.total + slack then
+				state.route, state.total = r, t
+			end
 		end
 	end
 	-- the other objectives in this same camp (Rattlecage Skeletons among the scavengers and bats you're
@@ -670,6 +673,9 @@ function hereFirstInner(state, ctx)
 			end
 		end
 		table.sort(others, function(a, b) return a.d < b.d end)
+		-- (standing among its mobs - Config.amongYards: it comes next whatever the sums say; the
+		-- route's own order put Rattlecage Skeletons you stood in at minute 27, next to the Scarlet camp)
+		local among = ns.cfg.amongYards or 80
 		local pos, budget = 2, state.total + slack
 		for _, o in ipairs(others) do
 			local r = copy(state.route)
@@ -680,7 +686,12 @@ function hereFirstInner(state, ctx)
 				table.insert(r, pos, { stop = o.e.stop, point = o.p })
 				if feasible(r, ctx) then
 					local t = routeSeconds(r, ctx)
-					if t <= budget then state.route, state.total, pos = r, t, pos + 1 end
+					if o.d <= among then
+						budget = budget + math.max(0, t - state.total) -- (its cost doesn't count against the others)
+						state.route, state.total, pos = r, t, pos + 1
+					elseif t <= budget then
+						state.route, state.total, pos = r, t, pos + 1
+					end
 				end
 			elseif from == pos then
 				pos = pos + 1
@@ -1219,6 +1230,43 @@ function P.Plan(candidates, previous, opts)
 	plan.logCap = ctx.logCap
 	P.last = { state = chosen, ctx = ctx, pool = pool }
 	return plan
+end
+
+-- /lp why, for a planned quest that isn't first: how far its first objective is from you, and what
+-- moving it to the front of the route would cost (or the rule that stops it). Returns lines.
+function P.WhyNotFirst(questId)
+	local last = P.last
+	if not last then return nil end
+	local state, ctx = last.state, last.ctx
+	local fromI, e
+	for i, x in ipairs(state.route) do
+		if x.stop.quest.id == questId and x.stop.kind == "objective" then fromI, e = i, x break end
+	end
+	if not e then return nil end
+	local bestP, bestD
+	for _, p in ipairs(e.stop.points) do
+		local d = ctx.start and ns.Geo.Distance(ctx.start, p)
+		if d and (not bestD or d < bestD) then bestP, bestD = p, d end
+	end
+	local out = {}
+	out[#out + 1] = bestD and string.format("  Its objective (%s): nearest of %d area(s) is %d yd from you; the route uses one %d yd away.",
+		e.stop.label or "?", #e.stop.points, math.floor(bestD), math.floor(ns.Geo.Distance(ctx.start, e.point) or -1))
+		or "  Its objective's areas aren't on your map."
+	if fromI > 1 and bestP then
+		local r = copy(state.route)
+		table.remove(r, fromI)
+		table.insert(r, 1, { stop = e.stop, point = bestP })
+		failWhy = nil
+		if not feasible(r, ctx) then
+			out[#out + 1] = "  It can't go first: " .. (failWhy or "?") .. "."
+		else
+			out[#out + 1] = string.format("  Doing it first would make the route %+ds (%s).", math.floor(routeSeconds(r, ctx) - state.total),
+				bestD <= (ns.cfg.amongYards or 80) and "you're among its mobs, so it should be first"
+				or bestD <= (ns.cfg.sameCampYards or 200) and "in your camp: first if that costs under 90 s"
+				or "too far to count as your camp")
+		end
+	end
+	return out
 end
 
 -- /lp why: what the planner makes of a quest it didn't plan - the rule that keeps it out, or what
