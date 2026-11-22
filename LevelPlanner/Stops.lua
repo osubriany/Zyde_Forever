@@ -666,6 +666,7 @@ function S.BuildQuest(questId, logEntry, opts)
 		if od.Type == "item" and od.Id ~= qo.sourceItemId then bagHold = bagHold + 1 end
 	end
 	quest.bagHold = bagHold
+	local firstObj = #quest.stops + 1 -- (where the objectives start: an item they need goes before them)
 	if not complete and not (opts and opts.dungeon) then
 		-- The game says an objective isn't done, but Questie's data doesn't list it (common on Forever's
 		-- own quests): there's no telling where to go, and planning only the turn-in would send you to
@@ -726,6 +727,29 @@ function S.BuildQuest(questId, logEntry, opts)
 		end
 	end
 
+	-- An item the objectives need that the quest doesn't give you (Marla's Last Wish: Samuel's Remains
+	-- drop from Samuel Fipps, then you bury them at the grave): get it first, unless it's in your bags.
+	if #quest.stops >= firstObj and type(qo.requiredSourceItems) == "table" then
+		local count = (C_Item and C_Item.GetItemCount) or GetItemCount
+		local at = firstObj
+		for _, itemId in ipairs(qo.requiredSourceItems) do
+			local listed = itemId == qo.sourceItemId
+			for _, od in ipairs(qo.ObjectiveData or {}) do
+				if od.Type == "item" and od.Id == itemId then listed = true end
+			end
+			if not listed and count and (count(itemId) or 0) == 0 then
+				local stop = objectiveStop(quest, { Type = "item", Id = itemId }, 1)
+				if type(stop) == "table" then
+					stop.srcItem, stop.bagDelta = itemId, 1
+					bagHold = bagHold + 1 -- (counted until the turn-in: it may not be used up)
+					table.insert(quest.stops, at, stop)
+					at = at + 1
+				end
+			end
+		end
+		quest.bagHold = bagHold
+	end
+
 	-- turn in
 	local fin = qo.finishedBy or {}
 	local tpts = npcPoints(fin[1], true)
@@ -754,7 +778,7 @@ function S.BuildQuest(questId, logEntry, opts)
 			s.logDelta = -1
 			s.bagDelta = -bagHold
 		else
-			s.key = "o:" .. questId .. ":" .. tostring(s.objIndex)
+			s.key = "o:" .. questId .. ":" .. tostring(s.objIndex or (s.srcItem and ("item" .. s.srcItem)))
 			s.logDelta = 0
 			s.bagDelta = s.bagDelta or 0
 		end

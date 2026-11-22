@@ -460,6 +460,14 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2)
 			ns.lastVendorNeed = need
 			ns.RequestReplan(false)
 		end
+		-- you looted an item a quest needed (Stops.lua: stop.srcItem): its "get it" step is done
+		local count = (C_Item and C_Item.GetItemCount) or GetItemCount
+		for _, s in ipairs(ns.plan and ns.plan.stops or {}) do
+			if s.srcItem and count and (count(s.srcItem) or 0) > 0 then
+				ns.RequestReplan(true)
+				break
+			end
+		end
 	elseif event == "PLAYER_XP_UPDATE" or event == "UPDATE_EXHAUSTION" then
 		if ns.StepList and ns.plan then ns.StepList.Update(ns.plan) end -- refresh the level-up ETA
 		-- the plan counted rested XP: plan again once it runs out (kill-heavy picks lose their edge),
