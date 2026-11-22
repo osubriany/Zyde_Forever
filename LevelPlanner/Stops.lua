@@ -10,7 +10,7 @@ ns.Stops = S
 
 local MAX_POINTS = 150   -- spawn points looked at per objective (more are sampled)
 local fixStop            -- (below) an objective stop from Data/QuestFixes.lua
-local objectiveVerb, individualTargets -- (below) named-NPC objectives: the verb, and which NPCs to visit
+local objectiveVerb, individualTargets, ourSideOnly -- (below) named-NPC objectives: the verb, and which NPCs to visit
 
 ----------------------------------------------------------------------------------------
 -- Points and areas
@@ -291,6 +291,15 @@ local function buyInstead(quest, itemId, itemName, need, farmWork, mobXp)
 	return nil
 end
 
+-- An NPC of your own side only (Questie's friendlyToFaction "H" or "A"): a Deathguard to punish or
+-- heal, not a mob. Questie marks plenty of ordinary mobs "AH" (friendly to both - Rattlecage
+-- Skeletons, Night Web Spiders), so "friendly" alone would take their kill XP away.
+ourSideOnly = function(id)
+	local f = ns.QuestSource.Npc(id, "friendlyToFaction")
+	if f ~= "H" and f ~= "A" then return false end
+	return ns.QuestSource.IsFriendly(id)
+end
+
 -- The verb of the quest's objective text ("Punish 5 Deathguards..." -> "Punish"), else the fallback.
 objectiveVerb = function(quest, fallback)
 	local t = type(quest.texts) == "table" and quest.texts[1] or quest.texts
@@ -345,8 +354,7 @@ local function objectiveStop(quest, od, remaining)
 		if (rank == 1 or rank == 2 or rank == 3) and not ns.AllowElite(lvl, rank) then return nil, "elite mobs (held back)" end
 		points = npcPoints(ids, false)
 		local nearGiver
-		if #points == 0 and quest.giverPoints and #quest.giverPoints > 0 and ids[1]
-			and QS.IsFriendly(ids[1]) and QS.Npc(ids[1], "friendlyToFaction") ~= nil then
+		if #points == 0 and quest.giverPoints and #quest.giverPoints > 0 and ids[1] and ourSideOnly(ids[1]) then
 			-- friendly NPCs nobody knows the spot of: the quest giver's surroundings (class quests send
 			-- you to NPCs right by the trainer) until you've seen them - then their real spots
 			points, nearGiver = quest.giverPoints, true
@@ -358,7 +366,7 @@ local function objectiveStop(quest, od, remaining)
 		-- friendly NPCs you use an item on or talk to (Discipline: punish 5 Deathguards): no kill, no XP
 		local friendly = true
 		for _, id in ipairs(ids) do
-			if not QS.IsFriendly(id) or QS.Npc(id, "friendlyToFaction") == nil then friendly = false break end
+			if not ourSideOnly(id) then friendly = false break end
 		end
 		if friendly then
 			stop.work = need * E.UnitSeconds(key, cfg.npcTalkSeconds and cfg.npcTalkSeconds + 5 or 15, true)
