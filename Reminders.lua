@@ -571,23 +571,58 @@ if playerClass == "ROGUE" then
 		return lo * armorLeft(unit)
 	end
 
-	local evisTile
-	evisTile = ns.AddReminder("eviscerate", "ZydeForeverEviscerate", icon(EVISCERATE, "Ability_Rogue_Eviscerate"), function(preview)
-		if preview then return true, "Kill" end
+	-- Forever hides your target's health from addons (in and out of combat), so the "Kill"
+	-- test can't be done in Lua. The game will still fill a status bar from the hidden
+	-- number, so the tile is cut out by a mask tied to an invisible bar over it: the bar runs
+	-- from (kill damage - 1) to (kill damage) and is filled by the target's health. Health
+	-- at or above the kill damage fills it and the mask (the unfilled part) shrinks to
+	-- nothing: tile hidden. Below it the bar is empty, the mask covers the whole tile: shown.
+	local evisTile, gate
+	local function gateOpen() -- tile fully visible (Max, preview)
+		if gate then gate:SetMinMaxValues(0, 1) gate:SetValue(0) end
+	end
+
+	local function evisCheck(preview)
+		if preview then gateOpen() return true, "Kill" end
 		if not on() or not inCombat() or not hostileTarget() then return false end
 		local n = points()
 		if n <= 0 or not ready(EVISCERATE) then return false end
-		local hp = plain(UnitHealth("target"))
-		local white = whiteLow("target")
-		if type(hp) == "number" then
-			if white > 0 and hp <= white then return false end -- (a swing will do it: keep the energy)
-			local dmg = evisLow(n, "target")
-			if dmg and dmg + white >= hp then return true, "|cffff5555Kill|r" end
+		if n >= maxPoints() then gateOpen() return true, "Max" end
+		local dmg = evisLow(n, "target")
+		if not dmg then return false end
+		local kill = dmg + whiteLow("target")
+		local hp = UnitHealth("target")
+		if not isSecret(hp) then
+			gateOpen()
+			if type(hp) == "number" and hp <= kill then return true, "|cffff5555Kill|r" end
+			return false
 		end
-		if n >= maxPoints() then return true, "Max" end
-		return false
-	end)
+		if not gate then return false end
+		gate:SetMinMaxValues(kill - 1, kill)
+		if not pcall(gate.SetValue, gate, hp) then return false end
+		return true, "" -- (shown only where the game says health < kill; no label: text can't be masked)
+	end
+	evisTile = ns.AddReminder("eviscerate", "ZydeForeverEviscerate", icon(EVISCERATE, "Ability_Rogue_Eviscerate"), evisCheck)
 	evisTile.prominent = true
+	do
+		local ok = pcall(function()
+			local g = CreateFrame("StatusBar", nil, evisTile)
+			g:SetPoint("TOPLEFT", evisTile, "TOPLEFT", -2, 2)
+			g:SetPoint("BOTTOMRIGHT", evisTile, "BOTTOMRIGHT", 2, -2)
+			g:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+			g:SetStatusBarColor(0, 0, 0, 0) -- (never drawn: only its fill's edge is used)
+			g:SetMinMaxValues(0, 1)
+			g:SetValue(0)
+			local m = evisTile:CreateMaskTexture()
+			m:SetTexture("Interface\\Buttons\\WHITE8X8", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+			m:SetPoint("TOPLEFT", g:GetStatusBarTexture(), "TOPRIGHT")
+			m:SetPoint("BOTTOMRIGHT", g, "BOTTOMRIGHT")
+			evisTile.tex:AddMaskTexture(m)
+			evisTile.border:AddMaskTexture(m)
+			gate = g
+		end)
+		if not ok then gate = nil end
+	end
 
 	-- /zyde evisdebug: the numbers behind the Eviscerate tile for your target.
 	ns.EvisDebug = function()
@@ -599,7 +634,21 @@ if playerClass == "ROGUE" then
 		for n = 1, maxPoints() do
 			if r[n] then print(p .. ("  %d: %d-%d, counted as %.0f"):format(n, r[n][1], r[n][2], evisLow(n, "target") or 0)) end
 		end
-		print(p .. ("target health %s, one white swing %.0f"):format(tostring(plain(UnitHealth("target"))), whiteLow("target")))
+		local rawHp = UnitHealth("target")
+		print(p .. ("target health %s, one white swing %.0f"):format(isSecret(rawHp) and "HIDDEN by the game" or tostring(rawHp), whiteLow("target")))
+		-- Each gate the tile goes through, and what the tile decides right now.
+		local usable
+		if id and C_Spell and C_Spell.IsSpellUsable then usable = safe(C_Spell.IsSpellUsable, id)
+		elseif id and IsUsableSpell then usable = safe(IsUsableSpell, id) end
+		print(p .. ("reminders on %s, in combat %s, enemy target %s, usable %s, ready %s"):format(
+			tostring(on()), tostring(inCombat()), tostring(hostileTarget()),
+			isSecret(usable) and "hidden" or tostring(usable), tostring(ready(EVISCERATE))))
+		local ok, show, label = pcall(evisCheck, false)
+		print(p .. "tile: " .. (ok and (tostring(show) .. " " .. tostring(label or "")) or ("ERROR " .. tostring(show)))
+			.. (gate and "" or " (no health gate: hidden health can't be checked)"))
+		if ok and show and label == "" then
+			print(p .. ("  shown only while the target's health is under %.0f (the game decides)"):format((evisLow(points(), "target") or 0) + whiteLow("target")))
+		end
 	end
 end
 
