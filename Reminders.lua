@@ -557,13 +557,13 @@ if playerClass == "ROGUE" then
 		return 1 - armor / (armor + 400 + 85 * me)
 	end
 
-	-- Eviscerate with n points on `unit`: the middle of its range (an unlucky roll
+	-- Eviscerate with n points on `unit`: three quarters up its range (an unlucky roll
 	-- leaves a sliver, which the white swing counted below finishes).
 	local function evisLow(n, unit)
 		local id = knownRank(EVISCERATE)
 		local r = id and ranges(id)[n]
 		if not r then return nil end
-		return (r[1] + r[2]) / 2 * armorLeft(unit)
+		return (r[1] + (r[2] - r[1]) * 0.75) * armorLeft(unit)
 	end
 
 	-- A weapon's damage and speed from its tooltip ("11 - 21 Damage", "Speed 1.80"):
@@ -612,13 +612,13 @@ if playerClass == "ROGUE" then
 	-- After Eviscerate your energy restarts near empty and comes back at 10 a second, so
 	-- until you can afford a Sinister Strike (45) only your white swings add damage: that's
 	-- the time a "nearly dead" target has to be finished in. From your energy now, if the
-	-- game shows it (4 seconds if not).
+	-- game shows it (5 seconds if not), plus a second of slack.
 	local SS_COST, EVIS_COST, REGEN = 45, 35, 10
 	local function swingTime()
 		local e = plain(UnitPower("player", Enum and Enum.PowerType and Enum.PowerType.Energy or 3))
-		if type(e) ~= "number" then return 4 end
+		if type(e) ~= "number" then return 5 end
 		local after = math.max(0, e - EVIS_COST)
-		return math.max(1.5, math.min(4.5, (SS_COST - after) / REGEN))
+		return math.max(2.5, math.min(5.5, (SS_COST - after) / REGEN + 1)) -- (+1 s: a swing or two of slack)
 	end
 
 	-- What your white swings will still do: at least one main-hand swing, or swingTime()
