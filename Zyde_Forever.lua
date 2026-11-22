@@ -158,6 +158,7 @@ local FEATURES = {
 	{ key = "rares", short = "flash + sound", label = "Rare announcer", desc = "When a rare or rare elite shows up (on a nameplate, as your target or mouseover, or on the minimap), its name flashes on screen, a line goes to chat and a sound plays. Each rare is announced once per 5 minutes. Rares you've just seen are also first for the \"Target nearest quest mob\" key" },
 	{ key = "questAlert", short = "glow on quest objects", label = "Quest object alert", desc = "Glow, ! and ping on nearby quest objects you pick up (not the loot of mobs you kill for a quest)" },
 	{ key = "questIcons", short = "icons over nodes", label = "Icons over nearby objects", desc = "The game's interact icons over herbs, ore and chests" },
+	{ key = "nodeGlow", short = "herbs, ore, chests", label = "Herb, ore and chest glow", desc = "A colored glow and icon on herbs (green) and ore (copper) you can gather with your professions, and on chests (gold), within 30 yards. Brighter on the one you face" },
 	{ key = "guildRoster", short = "class colors, levels, zones", label = "Guild member list", desc = "In the Guild & Communities window: online members' names in class colors, each member's level at the right (colored by how near your level), and their zone when you hover them" },
 	{ key = "lfg", short = "groups that fit you", label = "Group finder helper", desc = "Beside Looking For Group: groups with room for your role first, one-click whisper to the leader" },
 	{ key = "scrap", short ="what to delete", label = "Scrap list (bags full)", desc = "The 3 cheapest items to throw away when your bags are full" },
@@ -800,17 +801,20 @@ local function applyQuestIcons()
 	C_Timer.After(1, applyQuestRange)
 	if InCombatLockdown() then return end
 	local on = questIconsOn()
-	if on then
+	-- Objects only get a nameplate (which the glows sit on) with the interact settings on:
+	-- the game's icons and the herb / ore / chest glows both need them.
+	local objects = on or F("nodeGlow")
+	if objects then
 		if not gamepadUI() and (tonumber(GetCVar("SoftTargetInteract")) or 0) < 3 then
 			pcall(SetCVar, "SoftTargetInteract", 3)
 		end
 		pcall(SetCVar, "SoftTargetInteractArc", 2)    -- objects all around you, not only in front
 		pcall(SetCVar, "SoftTargetInteractRange", 30) -- yards (default 10)
+		-- No nameplate popping up on friendly NPCs you face.
+		pcall(SetCVar, "SoftTargetNameplateInteract", 0)
 	end
 	pcall(SetCVar, "SoftTargetIconGameObject", on and 1 or 0)
 	pcall(SetCVar, "SoftTargetIconInteract", on and 1 or 0)
-	-- No nameplate popping up on friendly NPCs you face.
-	pcall(SetCVar, "SoftTargetNameplateInteract", 0)
 end
 
 local questFrame = icons[3].frame
@@ -1043,7 +1047,70 @@ function hiddenObjectHint()
 end
 end -- hidden object hint
 
--- Object plates in range: list of { unit, guid, name, picked, reason, guess }.
+-- Herbs, ore and chests ("nodeGlow"): what kind of thing an object is, or nil.
+-- First the game's own interact icon on the object's plate (its art is named for
+-- the kind: "herb", "mine", "loot"), then the object's name: "... Vein" / "...
+-- Deposit" is ore, a Classic herb's name is a herb, "... Chest" / "Footlocker" /
+-- "Strongbox" / "Coffer" / "Trunk" is a chest. Herbs only with Herbalism, ore only
+-- with Mining. Kept per object (GUID).
+local nodeKind
+do -- own scope (200-local limit)
+	local HERBS = {}
+	for _, n in ipairs({ "Peacebloom", "Silverleaf", "Earthroot", "Mageroyal", "Briarthorn", "Stranglekelp",
+		"Bruiseweed", "Wild Steelbloom", "Grave Moss", "Kingsblood", "Liferoot", "Fadeleaf", "Goldthorn",
+		"Khadgar's Whisker", "Wintersbite", "Firebloom", "Purple Lotus", "Arthas' Tears", "Sungrass",
+		"Blindweed", "Ghost Mushroom", "Gromsblood", "Golden Sansam", "Dreamfoil", "Mountain Silversage",
+		"Plaguebloom", "Icecap", "Black Lotus", "Bloodvine" }) do HERBS[n:lower()] = true end
+	local CHEST_ENDS = { "chest", "footlocker", "strongbox", "coffer", "trunk" }
+	local HERBALISM = { 2366, 2368, 3570, 11993 }
+	local MINING = { 2575, 2576, 3564, 10248 }
+	local kinds = {} -- guid -> kind or false
+
+	local function byArt(art)
+		art = plainStr(art)
+		if type(art) ~= "string" then return nil end
+		art = art:lower()
+		if art:find("herb", 1, true) then return "herb" end
+		if art:find("mine", 1, true) or art:find("mining", 1, true) then return "ore" end
+		if art:find("loot", 1, true) then return "chest" end
+		return nil
+	end
+	local function byName(name)
+		if type(name) ~= "string" then return nil end
+		local n = name:lower()
+		if n:find("vein$") or n:find("deposit$") then return "ore" end
+		if HERBS[n] then return "herb" end
+		for _, e in ipairs(CHEST_ENDS) do
+			if n:sub(-#e) == e then return "chest" end
+		end
+		return nil
+	end
+	local function find(unit, name)
+		local plate = C_NamePlate and C_NamePlate.GetNamePlateForUnit(unit)
+		local uf = plate and plate.UnitFrame
+		local icon = uf and uf.SoftTargetFrame and uf.SoftTargetFrame.Icon
+		if icon and icon:IsShown() then
+			local k = byArt(icon.GetAtlas and icon:GetAtlas()) or byArt(icon:GetTexture())
+			if k then return k end
+		end
+		return byName(name)
+	end
+
+	function nodeKind(unit, guid, name)
+		local k
+		if guid and kinds[guid] ~= nil then
+			k = kinds[guid] or nil
+		else
+			k = find(unit, name)
+			if guid and (k or name) then kinds[guid] = k or false end -- (no name yet: try again)
+		end
+		if k == "herb" and not knownRank(HERBALISM) then return nil end
+		if k == "ore" and not knownRank(MINING) then return nil end
+		return k
+	end
+end
+
+-- Object plates in range: list of { unit, guid, name, picked, reason, guess, kind }.
 local verdicts = {} -- guid -> reason or false (cleared when quests change)
 local function scanObjects()
 	local found = {}
@@ -1064,7 +1131,8 @@ local function scanObjects()
 				if guid then verdicts[guid] = reason or false end
 			end
 			local picked = safe(UnitIsUnit, unit, "softinteract")
-			found[#found + 1] = { unit = unit, guid = guid, name = name, reason = reason, guess = guess,
+			local kind = not (reason and questAlertOn()) and (guid or name) and F("nodeGlow") and nodeKind(unit, guid, name) or nil
+			found[#found + 1] = { unit = unit, guid = guid, name = name, reason = reason, guess = guess, kind = kind,
 				picked = not isSecret(picked) and picked == true }
 		end
 	end
@@ -1118,19 +1186,43 @@ local function getMarker(plate)
 	return m
 end
 
-local wantedPlates = {} -- reused by updateMarkers (no new table per scan)
+-- The marker's look: a quest object (gold glow, quest "!"), or a herb (green), ore
+-- (copper) or chest (gold) with a small icon of its kind.
+local MARK_LOOK = {
+	quest = { 1, 0.85, 0.25, "Interface\\GossipFrame\\AvailableQuestIcon", 26 },
+	herb = { 0.35, 1, 0.35, "Interface\\Icons\\INV_Misc_Flower_02", 18 },
+	ore = { 1, 0.55, 0.2, "Interface\\Icons\\INV_Ore_Copper_01", 18 },
+	chest = { 1, 0.8, 0.3, "Interface\\Icons\\INV_Box_02", 18 },
+}
+local wantedPlates, wantedLook = {}, {} -- reused by updateMarkers (no new table per scan)
 local function updateMarkers(objects) -- objects nil: hide them all
-	local wanted = wantedPlates
+	local wanted, look = wantedPlates, wantedLook
 	wipe(wanted)
+	wipe(look)
+	local quests = questAlertOn()
 	for _, o in ipairs(objects or wanted) do
-		if o.reason then
+		local kind = (o.reason and quests) and "quest" or o.kind
+		if kind then
 			local plate = C_NamePlate and C_NamePlate.GetNamePlateForUnit(o.unit)
-			-- (value: 1 for a sure match, a dimmer 0.5 for a dungeon guess)
-			if plate then wanted[plate] = o.guess and 0.5 or 1 end
+			-- (value: 1 for a sure match or the object you face, dimmer for a dungeon
+			-- guess or a node a little way off)
+			if plate then
+				wanted[plate] = (kind == "quest" and (o.guess and 0.5 or 1)) or (o.picked and 1 or 0.7)
+				look[plate] = kind
+			end
 		end
 	end
 	for plate, alpha in pairs(wanted) do
 		local m = getMarker(plate)
+		local kind = look[plate]
+		if m.kind ~= kind then
+			m.kind = kind
+			local l = MARK_LOOK[kind]
+			m.glow:SetVertexColor(l[1], l[2], l[3])
+			m.bang:SetTexture(l[4])
+			m.bang:SetSize(l[5], l[5])
+			if kind == "quest" then m.bang:SetTexCoord(0, 1, 0, 1) else m.bang:SetTexCoord(0.07, 0.93, 0.07, 0.93) end
+		end
 		m:SetAlpha(alpha)
 		if not m:IsShown() or not m.pulse:IsPlaying() then
 			m:Show()
@@ -1148,11 +1240,13 @@ end
 local lastQuestGUID
 local function checkQuestObject()
 	local best
-	local objects -- stays nil (no scan) while the alert is off or you're dead
-	if questAlertOn() and not UnitIsDeadOrGhost("player") then
+	local objects -- stays nil (no scan) while both the alert and node glows are off, or you're dead
+	if (questAlertOn() or F("nodeGlow")) and not UnitIsDeadOrGhost("player") then
 		objects = scanObjects()
-		for _, o in ipairs(objects) do
-			if o.reason and o.name and (not best or (o.picked and not best.picked)) then best = o end
+		if questAlertOn() then
+			for _, o in ipairs(objects) do
+				if o.reason and o.name and (not best or (o.picked and not best.picked)) then best = o end
+			end
 		end
 	end
 	updateMarkers(objects)
@@ -1225,6 +1319,7 @@ end -- quest object events
 C_Timer.After(0, function() ns.Plates.Every(1, checkQuestObject) end)
 ns.OnFeatureChanged(function(key)
 	if key == "questIcons" then applyQuestIcons() end
+	if key == "nodeGlow" then applyQuestIcons() checkQuestObject() end
 	if key == "questAlert" then checkQuestObject() end
 end)
 
@@ -1686,7 +1781,7 @@ local CATEGORIES = {
 		{ "Questing & leveling", {
 			{ "questTracker", children = { "questFont" } },
 			"autoQuests",
-			{ group = "Quest objects", children = { "questAlert", "questIcons" } },
+			{ group = "Objects nearby", children = { "questAlert", "nodeGlow", "questIcons" } },
 			{ group = "Questie", children = { "questMobs", "questieDrops" } },
 			"rares",
 		} },
@@ -1699,7 +1794,7 @@ local CATEGORIES = {
 local CHILD_LABEL = {
 	unitAuras = "Buffs / debuffs", targetTarget = "Target of target", comboPoints = "Combo points",
 	hideBars = "Hide bar art", hideMicroMenu = "Hide micro menu", barTidy = "Tidy keys & slots",
-	questAlert = "Glow alert", questIcons = "Icons over nodes",
+	questAlert = "Quest glow", questIcons = "Game icons", nodeGlow = "Herb, ore, chest glow",
 	questMobs = "Quest mobs", questieDrops = "Drop chances",
 }
 
