@@ -416,9 +416,11 @@ local function topUp(state, pool, ctx)
 					local loose = false
 					-- (on the way: little walking beyond the quest's own work, and inside the route - one
 					-- tacked on after its end only makes the route longer)
-					if not ok and looseHere and added <= math.min(looseCap, looseLeft) and added - qWork <= looseDetour
+					-- (at the giver, walking out to its objective is part of the quest: Config.giverDetourSeconds)
+					local detourCap = atGiver and math.max(looseDetour, cfg.giverDetourSeconds or 120) or looseDetour
+					if not ok and looseHere and added <= math.min(looseCap, looseLeft) and added - qWork <= detourCap
 						and (atGiver or (firstPos and firstPos <= #state.route)) then
-						ok = gain / math.max(1, added) >= rate0 * looseShare
+						ok = gain / math.max(1, added) >= rate0 * (atGiver and (cfg.giverMinShare or 0.3) or looseShare)
 						loose = ok
 					end
 					if ok and (not bestRate or newRate > bestRate) then
@@ -1329,8 +1331,8 @@ function P.Diagnose(questId)
 		out[#out + 1] = string.format("  At-the-giver rule: giver %s from you (needs %d); adds %ds (max %d), %ds beyond its own work (max %d); %d%% of the route's rate (needs %d%%).",
 			gd and (math.floor(gd) .. " yd") or "not on your map", cfg.hereTurninAtYards or 40,
 			math.floor(added), math.max(cfg.looseMaxSeconds or 180, cfg.overHorizonSeconds or 300),
-			math.floor(added - qWork), cfg.looseDetourSeconds or 60,
-			math.floor(qRate / math.max(1, planRate) * 100), math.floor((cfg.looseMinShare or 0.4) * 100))
+			math.floor(added - qWork), math.max(cfg.looseDetourSeconds or 60, cfg.giverDetourSeconds or 120),
+			math.floor(qRate / math.max(1, planRate) * 100), math.floor((cfg.giverMinShare or 0.3) * 100))
 	end
 	return out
 end

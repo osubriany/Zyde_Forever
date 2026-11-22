@@ -49,6 +49,8 @@ LevelPlannerConfig = {
 	looseMaxSeconds = 180,
 	looseDetourSeconds = 60,    -- ...with at most this much walking beyond the quest's own work
 	looseMaxTotalSeconds = 600, -- ...and at most this much added in all
+	giverDetourSeconds = 120,   -- a quest whose giver you stand at gets the loose rule in tight mode too, with this much walking
+	giverMinShare = 0.3,        -- ...and this share of the route's XP per minute
 	regretStart = true,         -- also try a route built quests-that-fit-in-one-place-first (regret insertion)
 	regretWeight = 0.5,         -- how much "only fits well in one place" counts in that build
 	graspStarts = 1,            -- extra routes built picking at random among the best few (0 = off; more = slower)
