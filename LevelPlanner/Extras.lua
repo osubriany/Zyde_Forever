@@ -108,10 +108,24 @@ local function hubScore(point, stops, radius)
 	return score, count
 end
 
+-- Pick-ups and turn-ins in the route ahead - where you'll really be (all known quests reach as far as
+-- Mulgore's: Bloodhoof Village won the hub for a character in Brill).
+local function routeStops(route)
+	local out = {}
+	for _, e in ipairs(route or {}) do
+		local s = e.stop
+		if (s.kind == "pickup" or s.kind == "turnin") and e.point and not s.quest.isExtra then
+			out[#out + 1] = { point = e.point, weight = math.max(0.25, (s.quest.xp or 0) / 1000) }
+		end
+	end
+	return out
+end
+
 local function hubInn(route)
 	local cfg = ns.cfg
 	local radius = cfg.hubRadiusYards or 250
-	local stops = questStops()
+	local stops = routeStops(route)
+	if #stops < (cfg.hubMinStops or 3) then stops = questStops() end
 	if #stops == 0 then X.bindWhy = "no quest stops ahead" return nil end
 	-- inns near any upcoming pick-up or turn-in (same lookup the route uses)
 	local inns = ns.Places.NearRoute("Innkeeper", stops, radius, 12)
