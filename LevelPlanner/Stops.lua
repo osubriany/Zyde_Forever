@@ -39,7 +39,18 @@ local function npcPoints(npcIds, friendlyOnly, out)
 	out = out or {}
 	for _, id in ipairs(npcIds or {}) do
 		if (not friendlyOnly) or ns.QuestSource.IsFriendly(id) then
+			local n = #out
 			pointsFromSpawns(ns.QuestSource.Npc(id, "spawns"), out, id)
+			-- Questie has no spot for it (Forever's own NPCs, e.g. the Injured Deathguards of the undead
+			-- paladin quest): where you've seen it yourself (Learn.lua notes NPCs you target)
+			local seen = #out == n and ns.db and ns.db.npcSeen and ns.db.npcSeen[id]
+			for _, s in ipairs(seen or {}) do
+				local p = ns.Geo.PointOnMap(s[1], s[2], s[3])
+				if p then
+					p.npc = id
+					out[#out + 1] = p
+				end
+			end
 		end
 	end
 	return out
@@ -333,6 +344,13 @@ local function objectiveStop(quest, od, remaining)
 		local rank = QS.Npc(ids[1] or 0, "rank")
 		if (rank == 1 or rank == 2 or rank == 3) and not ns.AllowElite(lvl, rank) then return nil, "elite mobs (held back)" end
 		points = npcPoints(ids, false)
+		local nearGiver
+		if #points == 0 and quest.giverPoints and #quest.giverPoints > 0 and ids[1]
+			and QS.IsFriendly(ids[1]) and QS.Npc(ids[1], "friendlyToFaction") ~= nil then
+			-- friendly NPCs nobody knows the spot of: the quest giver's surroundings (class quests send
+			-- you to NPCs right by the trainer) until you've seen them - then their real spots
+			points, nearGiver = quest.giverPoints, true
+		end
 		local mobName = QS.Npc(ids[1] or 0, "name")
 		stop.mobs = {}
 		for _, id in ipairs(ids) do stop.mobs[id] = true end
@@ -357,6 +375,7 @@ local function objectiveStop(quest, od, remaining)
 			stop.unitWork, stop.unitXp = stop.work / need, stop.mobXp / need
 		end
 		stop.need = need
+		if nearGiver then stop.label = stop.label .. " (around the quest giver)" end
 		-- several named friendly NPCs that each stand at their own spot: one step per NPC still needed
 		-- (BuildQuest). Not hostile ones: named enemies like Pyrewood Ambush's councilmen appear together
 		-- in an event, not at their map spots.
@@ -631,6 +650,8 @@ function S.BuildQuest(questId, logEntry, opts)
 		stops = {},
 	}
 	quest.escort = S.IsEscort(qo)
+	-- (where to look for an objective's NPCs nobody has a spot for: see objectiveStop)
+	quest.giverPoints = npcPoints(qo.startedBy and qo.startedBy[1], true)
 	quest.questXp, quest.xpEstimated = ns.Estimate.QuestXP(questId, level)
 	-- grey for you: reduced quest XP, and its mobs give none (Estimate.MobXP already returns 0)
 	local QDB = ns.Q.QuestieDB

@@ -277,16 +277,45 @@ end
 ----------------------------------------------------------------------------------------
 -- Events
 ----------------------------------------------------------------------------------------
+-- An NPC you target that Questie has no spot for: where you are now (you're close to it), kept for
+-- every character (LevelPlannerDB.npcSeen[npcId] = { {uiMap, x, y}, ... }, a few spots 20+ yd apart).
+local function noteNpcSpot()
+	local guid = UnitGUID and UnitGUID("target")
+	if not guid or ns.isSecret(guid) or type(guid) ~= "string" then return end
+	local kind, _, _, _, _, npc = strsplit("-", guid)
+	npc = tonumber(npc)
+	if not npc or kind ~= "Creature" then return end
+	local spawns = ns.QuestSource.Npc(npc, "spawns")
+	if type(spawns) == "table" and next(spawns) then return end
+	local p = ns.Geo.PlayerPoint()
+	if not (p and p.map and p.x) then return end
+	ns.db.npcSeen = ns.db.npcSeen or {}
+	local list = ns.db.npcSeen[npc] or {}
+	for _, s in ipairs(list) do
+		local q = ns.Geo.PointOnMap(s[1], s[2], s[3])
+		local d = q and ns.Geo.Distance(p, q)
+		if d and d < 20 then return end
+	end
+	if #list >= 12 then return end
+	list[#list + 1] = { p.map, math.floor(p.x * 10 + 0.5) / 10, math.floor(p.y * 10 + 0.5) / 10 }
+	ns.db.npcSeen[npc] = list
+	-- the first spot of an NPC a quest of yours needs: plan it there
+	if #list == 1 and ns.RequestReplan then ns.RequestReplan(true) end
+end
+
 function L.Init()
 	data()
 	local f = CreateFrame("Frame")
 	f:RegisterEvent("CHAT_MSG_COMBAT_XP_GAIN")
 	f:RegisterEvent("PLAYER_ENTERING_WORLD")
+	f:RegisterEvent("PLAYER_TARGET_CHANGED")
 	f:SetScript("OnEvent", function(_, event, a1)
 		if event == "CHAT_MSG_COMBAT_XP_GAIN" then
 			onXpMessage(a1)
 		elseif event == "PLAYER_ENTERING_WORLD" then
 			onEnteringWorld()
+		elseif event == "PLAYER_TARGET_CHANGED" then
+			if ns.ready then ns.safe(noteNpcSpot) end
 		end
 	end)
 	-- a run you left more than 15 minutes ago is over
