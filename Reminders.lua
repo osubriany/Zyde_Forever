@@ -728,7 +728,8 @@ end
 -- Judgement ends them.
 ---------------------------------------------------------------------------
 if playerClass == "PALADIN" then
-	local SOR = { 21084, 20287, 20288, 20289, 20290, 20291, 20292, 20293 }
+	-- (Rank 1 is 20154 on Classic clients, 21084 on some others: both listed)
+	local SOR = { 20154, 21084, 20287, 20288, 20289, 20290, 20291, 20292, 20293 }
 	local JUDGEMENT = 20271
 	local SEAL_TIME, WARN = 30, 3
 	local sealExpires, sealIsSoR = 0, false
@@ -777,24 +778,55 @@ if playerClass == "PALADIN" then
 		return nil, nil, hidden
 	end
 
-	local sealTile = ns.AddReminder("sealRighteousness", "ZydeForeverSealRighteousness", icon(SOR, "Ability_ThunderBolt"), function(preview)
+	-- Your Seal of Righteousness: by the ID list, else by name from your spellbook
+	-- (in case Forever uses IDs not in the list). Kept as a one-ID list for ready().
+	local sorIds
+	local function mySoR()
+		if knownRank(SOR) then return SOR end
+		if sorIds then return sorIds end
+		local info = C_Spell and C_Spell.GetSpellInfo and safe(C_Spell.GetSpellInfo, "Seal of Righteousness")
+		local id = type(info) == "table" and plain(info.spellID)
+		if id then sorIds = { id } return sorIds end
+		return nil
+	end
+
+	local function sealCheck(preview, why)
+		why = why or function() end
 		if preview then return true, "Seal" end
-		if not on() or UnitIsDeadOrGhost("player") or UnitOnTaxi("player") then return false end
-		if not knownRank(SOR) or not ready(SOR) then return false end
+		if not on() or UnitIsDeadOrGhost("player") or UnitOnTaxi("player") then return why("reminders off, dead or flying") end
+		local ids = mySoR()
+		if not ids then return why("Seal of Righteousness not found in your spells") end
+		if not ready(ids) then return why("can't cast it right now (mana?)") end
 		local fighting = inCombat()
-		if not (fighting or hostileTarget()) then return false end
+		if not (fighting or hostileTarget()) then return why("not in a fight and no enemy targeted") end
 		local kind, left, hidden = sealBuff()
 		if hidden and not kind then
 			-- Buffs hidden: go by your own casts.
 			left = sealExpires - GetTime()
 			if left > 0 then kind = sealIsSoR and "sor" or "other" else kind, left = nil, nil end
+			why("your buffs are hidden: going by your casts")
 		end
-		if kind == "other" then return false end
+		if kind == "other" then return why("another seal is up") end
 		if not kind then return true, "Seal" end
 		if fighting and left and left < WARN then return true, ("Seal %.0f"):format(math.max(0, left)) end
-		return false
+		return why(("Seal of Righteousness up, %s left"):format(left and ("%.0f s"):format(left) or "unknown time"))
+	end
+	local sealTile = ns.AddReminder("sealRighteousness", "ZydeForeverSealRighteousness", icon(SOR, "Ability_ThunderBolt"), function(preview)
+		return sealCheck(preview)
 	end)
 	sealTile.prominent = true
+
+	-- /zyde sealdebug: why the Seal of Righteousness tile is or isn't showing.
+	ns.SealDebug = function()
+		local p = "|cff66ccffZyde_Forever|r seal: "
+		local ids = mySoR()
+		print(p .. "spell " .. (ids and tostring(ids[1]) .. (ids == SOR and (" (rank " .. tostring(knownRank(SOR)) .. ")") or " (found by name)") or "not found"))
+		local kind, left, hidden = sealBuff()
+		print(p .. ("buff: %s, %s left, buffs hidden %s; last seal cast %.0f s left"):format(
+			tostring(kind), left and ("%.0f s"):format(left) or "?", tostring(hidden), math.max(0, sealExpires - GetTime())))
+		local ok, show, label = pcall(sealCheck, false, function(msg) print(p .. "  " .. msg) end)
+		print(p .. "tile: " .. (ok and (tostring(show) .. " " .. tostring(label or "")) or ("ERROR " .. tostring(show))))
+	end
 end
 
 ---------------------------------------------------------------------------

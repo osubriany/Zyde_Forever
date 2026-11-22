@@ -2941,6 +2941,8 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		ns.MarkerWheel.ToggleDebug()
 	elseif msg == "rangedebug" then
 		if ns.RangeDebug then ns.RangeDebug() else print("|cff66ccffZyde_Forever|r: the range check is for hunters and warriors") end
+	elseif msg == "sealdebug" then
+		if ns.SealDebug then ns.SealDebug() else print("|cff66ccffZyde_Forever|r: the seal tile is for paladins") end
 	elseif msg == "evisdebug" then
 		if ns.EvisDebug then ns.EvisDebug() else print("|cff66ccffZyde_Forever|r: the Eviscerate tile is for rogues") end
 	elseif msg == "mapnotes" or msg == "mapnotes clear" then
@@ -3019,6 +3021,7 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "errors", "show the last Lua errors (from any addon), even with error pop-ups turned off" },
 			{ "petdebug", "hunters: show what the game reports about your pet's mood, buffs and food" },
 			{ "rangedebug", "hunters and warriors: show what the game says about your target's range" },
+			{ "sealdebug", "paladins: why the Seal of Righteousness tile is or isn't showing" },
 			{ "evisdebug", "rogues: the damage numbers behind the Eviscerate tile for your target" },
 			{ "mapnotes", "how many map markers you have (alt-click the map to add one); /zyde mapnotes clear empties the open map" },
 			{ "auradebug", "list your target's debuffs as the game reports them (for the Sunder and Thunder Clap tiles)" },
