@@ -653,29 +653,49 @@ function hereFirstInner(state, ctx)
 	-- while you're already among them)
 	local campD
 	for _, e in ipairs(state.route) do
-		if e.stop.kind == "objective" then
+		-- (a camp of mobs to kill - not NPCs you visit, like Discipline's Deathguards around Brill's inn)
+		if e.stop.kind == "objective" and (e.stop.mobXp or 0) > 0 then
 			for _, p in ipairs(e.stop.points) do
 				local d = ns.Geo.Distance(ctx.start, p)
 				if d and (not campD or d < campD) then campD = d end
 			end
 		end
 	end
+	-- (standing at the NPC: hand it in now, before anything - Config.hereTurninAtYards)
+	local atYards = ns.cfg.hereTurninAtYards or 40
 	local list = {}
 	for i, e in ipairs(state.route) do
 		if e.stop.kind == "turnin" then
 			local d = ns.Geo.Distance(ctx.start, e.point)
-			if d and d <= turnNear and not (campD and campD < d) then list[#list + 1] = { stop = e.stop, d = d } end
+			if d and (d <= atYards or (d <= turnNear and not (campD and campD < d))) then
+				list[#list + 1] = { stop = e.stop, d = d, at = d <= atYards }
+			end
 		end
 	end
 	table.sort(list, function(a, b) return a.d < b.d end)
 	-- the camp you're standing in stays first: finish the kills here, then walk to the turn-ins
 	local campFirst = campStop ~= nil and state.route[1] ~= nil and state.route[1].stop == campStop
 	local pos = campFirst and 2 or 1
+	local atPos = 1
 	for _, c in ipairs(list) do
 		local r = copy(state.route)
 		local from
 		for i, e in ipairs(r) do if e.stop == c.stop then from = i break end end
-		if from and from > pos then
+		if c.at then
+			-- right here: to the very front (after any other one you're standing at)
+			if from and from > atPos then
+				local e = table.remove(r, from)
+				table.insert(r, atPos, e)
+				if feasible(r, ctx) then
+					state.route, state.total = r, routeSeconds(r, ctx)
+					atPos = atPos + 1
+				end
+			elseif from == atPos then
+				atPos = atPos + 1
+			end
+			-- (the rest go after these - and after the camp you're in, which moved back by one)
+			pos = atPos + (campFirst and 1 or 0)
+		elseif from and from > pos then
 			local e = table.remove(r, from)
 			table.insert(r, pos, e)
 			if feasible(r, ctx) then
