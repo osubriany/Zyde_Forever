@@ -78,6 +78,15 @@ end
 local function hasAura(unit, filter, idSet)
 	if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return false, true end
 	local names = spellNames(idSet)
+	-- Your own buffs: the list every tile shares (Zyde_Forever.lua).
+	if unit == "player" and filter == "HELPFUL" and ns.PlayerBuffs then
+		local buffs = ns.PlayerBuffs()
+		if not buffs then return false, true end
+		for _, a in ipairs(buffs.list) do
+			if (a.spellId and idSet[a.spellId]) or (a.name and names[a.name]) then return true, false, a end
+		end
+		return false, buffs.hidden
+	end
 	local hidden = false
 	for i = 1, 40 do
 		local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, filter)
@@ -460,13 +469,11 @@ if SHAMAN then
 		if preview then return true, "Totem out of range" end
 		if not on() or not GetTotemInfo or UnitIsDeadOrGhost("player") or UnitOnTaxi("player") then return false end
 		-- your buffs by name (nil: the game hid them, so we can't tell)
-		local names, hidden = {}, false
-		if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return false end
-		for i = 1, 40 do
-			local aura = safe(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
-			if not aura then break end
-			local n = plain(aura.name)
-			if n then names[n] = true else hidden = true end
+		local buffs = ns.PlayerBuffs()
+		if not buffs then return false end
+		local names, hidden = {}, buffs.hidden
+		for _, aura in ipairs(buffs.list) do
+			if aura.name then names[aura.name] = true else hidden = true end
 		end
 		local now = GetTime()
 		for slot = 1, 4 do
@@ -760,22 +767,18 @@ if playerClass == "PALADIN" then
 
 	-- Your seal from your buffs: "sor" / "other" / nil (none), seconds left; unknown = hidden.
 	local function sealBuff()
-		if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return nil, nil, true end
-		local hidden = false
-		for i = 1, 40 do
-			local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
-			if not ok then return nil, nil, true end
-			if not a then break end
-			local name = plain(a.name)
-			if name == nil then hidden = true
-			elseif isSeal(name) then
-				local exp = plain(a.expirationTime)
+		local buffs = ns.PlayerBuffs()
+		if not buffs then return nil, nil, true end
+		for _, a in ipairs(buffs.list) do
+			local name = a.name
+			if isSeal(name) then
+				local exp = a.expirationTime
 				local left = (exp and exp > 0) and (exp - GetTime()) or nil
 				if left then sealExpires = exp end
 				return isSoR(name) and "sor" or "other", left, false
 			end
 		end
-		return nil, nil, hidden
+		return nil, nil, buffs.hidden
 	end
 
 	-- Your Seal of Righteousness: by the ID list, else by name from your spellbook
@@ -848,20 +851,15 @@ if playerClass == "PALADIN" then
 
 	-- true (an aura is on you), false (none), nil (buffs hidden)
 	local function hasPaladinAura()
-		if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return nil end
-		local hidden = false
-		for i = 1, 40 do
-			local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
-			if not ok then return nil end
-			if not a then break end
-			local name = plain(a.name)
-			if name == nil then hidden = true
-			elseif AURAS[name] then
-				auraCastId = plain(a.spellId) or auraCastId -- (remembered for when buffs are hidden)
+		local buffs = ns.PlayerBuffs()
+		if not buffs then return nil end
+		for _, a in ipairs(buffs.list) do
+			if a.name and AURAS[a.name] then
+				auraCastId = a.spellId or auraCastId -- (remembered for when buffs are hidden)
 				return true
 			end
 		end
-		if hidden then return nil end
+		if buffs.hidden then return nil end
 		return false
 	end
 
@@ -915,21 +913,16 @@ if playerClass == "PALADIN" then
 
 	-- true (a blessing is on you), false (none), nil (buffs hidden)
 	local function hasBlessing()
-		if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return nil end
-		local hidden = false
-		for i = 1, 40 do
-			local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
-			if not ok then return nil end
-			if not a then break end
-			local name = plain(a.name)
-			if name == nil then hidden = true
-			elseif isBlessing(name) then
-				local exp = plain(a.expirationTime)
+		local buffs = ns.PlayerBuffs()
+		if not buffs then return nil end
+		for _, a in ipairs(buffs.list) do
+			if isBlessing(a.name) then
+				local exp = a.expirationTime
 				if exp and exp > 0 then blessExpires = exp end
 				return true
 			end
 		end
-		if hidden then return nil end
+		if buffs.hidden then return nil end
 		return false
 	end
 

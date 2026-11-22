@@ -88,6 +88,46 @@ local function spellTexture(id, fallback)
 	return tex
 end
 
+-- Your buffs, read once and shared by every reminder tile (several tiles each
+-- re-reading up to 40 buffs five times a second added up). Read again when your
+-- buffs change, a fight starts or ends, or after a second at most.
+--   ns.PlayerBuffs() -> { list = { aura... }, hidden = bool } or nil
+-- Each aura has the game's field names (name, spellId, expirationTime, duration,
+-- applications), nil where the game hides them; hidden is true when
+-- any buff came back hidden or the game refused the read (Forever, in a fight).
+do
+	local snap, readAt, dirty = nil, 0, true
+	local MAX_AGE = 1
+	local function plainOf(v) if isSecret(v) then return nil end return v end
+	local function read()
+		if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return nil end
+		local s = { list = {}, hidden = false }
+		for i = 1, 40 do
+			local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
+			if not ok then s.hidden = true break end
+			if not a then break end
+			local b = { name = plainOf(a.name), spellId = plainOf(a.spellId), expirationTime = plainOf(a.expirationTime),
+				duration = plainOf(a.duration), applications = plainOf(a.applications) }
+			if b.name == nil and b.spellId == nil then s.hidden = true end
+			s.list[#s.list + 1] = b
+		end
+		return s
+	end
+	function ns.PlayerBuffs()
+		local now = GetTime()
+		if dirty or now - readAt > MAX_AGE then
+			snap, readAt, dirty = read(), now, false
+		end
+		return snap
+	end
+	local ev = CreateFrame("Frame")
+	ev:RegisterUnitEvent("UNIT_AURA", "player")
+	for _, e in ipairs({ "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_ENTERING_WORLD", "ENCOUNTER_START", "ENCOUNTER_END" }) do
+		pcall(ev.RegisterEvent, ev, e)
+	end
+	ev:SetScript("OnEvent", function() dirty = true end)
+end
+
 ---------------------------------------------------------------------------
 -- Features: each can be turned on or off in the /zyde window, saved in
 -- ZydeForeverDB.features. A feature that needs another addon (Questie,
@@ -681,17 +721,14 @@ local function aspectUp()
 		end
 	end
 	-- By name too ("Aspect of the ..."), for ranks or IDs not listed above.
-	local hidden, seen = false, 0
-	for i = 1, 40 do
-		local a = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex and safe(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
-		if not a then break end
-		seen = i
-		local id, name = a.spellId, a.name
-		if not isSecret(id) and isAspect[id] then return true end
-		if type(name) == "string" and not isSecret(name) and name:find("^Aspect of the ") then return true end
-		if isSecret(id) and isSecret(name) then hidden = true end
+	local buffs = ns.PlayerBuffs()
+	if not buffs then return nil end
+	local seen = #buffs.list
+	for _, b in ipairs(buffs.list) do
+		if b.spellId and isAspect[b.spellId] then return true end
+		if type(b.name) == "string" and b.name:find("^Aspect of the ") then return true end
 	end
-	if hidden then return nil end
+	if buffs.hidden then return nil end
 	-- Boss fights: the game can hand back no buffs at all instead of hidden ones.
 	local boss = IsEncounterInProgress and safe(IsEncounterInProgress)
 	if (not isSecret(boss) and boss) or (seen == 0 and InCombatLockdown()) then return nil end
