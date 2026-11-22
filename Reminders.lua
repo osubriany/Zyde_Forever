@@ -808,7 +808,7 @@ if playerClass == "PALADIN" then
 		end
 		if kind == "other" then return why("another seal is up") end
 		if not kind then return true, "Seal" end
-		if fighting and left and left < WARN then return true, ("Seal %.0f"):format(math.max(0, left)) end
+		if fighting and left and left < WARN then return true, "Seal" end
 		return why(("Seal of Righteousness up, %s left"):format(left and ("%.0f s"):format(left) or "unknown time"))
 	end
 	local sealTile = ns.AddReminder("sealRighteousness", "ZydeForeverSealRighteousness", icon(SOR, "Ability_ThunderBolt"), function(preview)
