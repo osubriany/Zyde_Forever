@@ -88,15 +88,17 @@ Seeds.transports = {
 	-- west coast). Menethil end approximate: next to Harold Riggs.
 	{ kind = "boat", faction = nil, a = { name = "Menethil Old Dinghy", map = WETLANDS, x = 8.0, y = 58.4 },
 		b = { name = "Newman's Landing", map = DUNMOROGH, x = 18.0, y = 74.5 } },
+	-- (zeppelin masters as Questie places them: Frezza and Snurk Bucksquick on the Orgrimmar tower,
+	-- Zapetta and Hin Denburg on the Undercity tower, Nez'raz at Grom'gol)
 	{ kind = "zeppelin", faction = "Horde",
-		a = { name = "Orgrimmar zeppelins", map = DUROTAR, x = 50.9, y = 13.8, npc = 9564, npcName = "Zapetta" },
-		b = { name = "Undercity zeppelins", map = TIRISFAL, x = 60.7, y = 58.8, npc = 9566, npcName = "Frezza" } },
+		a = { name = "Orgrimmar zeppelins", map = DUROTAR, x = 50.8, y = 13.5, npc = 9564, npcName = "Frezza" },
+		b = { name = "Undercity zeppelins", map = TIRISFAL, x = 60.7, y = 58.9, npc = 9566, npcName = "Zapetta" } },
 	{ kind = "zeppelin", faction = "Horde",
-		a = { name = "Orgrimmar zeppelins", map = DUROTAR, x = 50.6, y = 12.6, npc = 3149, npcName = "Nez'raz" },
-		b = { name = "Grom'gol", map = STV, x = 31.6, y = 29.1, npc = 12136, npcName = "Snurk Bucksquick" } },
+		a = { name = "Orgrimmar zeppelins", map = DUROTAR, x = 50.7, y = 12.9, npc = 12136, npcName = "Snurk Bucksquick" },
+		b = { name = "Grom'gol", map = STV, x = 31.4, y = 29.9, npc = 3149, npcName = "Nez'raz" } },
 	{ kind = "zeppelin", faction = "Horde",
-		a = { name = "Undercity zeppelins", map = TIRISFAL, x = 61.9, y = 59.1, npc = 3150, npcName = "Hin Denburg" },
-		b = { name = "Grom'gol", map = STV, x = 31.6, y = 29.1, npc = 12136, npcName = "Snurk Bucksquick" } },
+		a = { name = "Undercity zeppelins", map = TIRISFAL, x = 61.8, y = 59.2, npc = 3150, npcName = "Hin Denburg" },
+		b = { name = "Grom'gol", map = STV, x = 31.4, y = 29.9, npc = 3149, npcName = "Nez'raz" } },
 	-- The Deeprun Tram ends come from Questie's dungeon entrances at run time (see Graph.lua).
 }
 
