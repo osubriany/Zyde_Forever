@@ -496,10 +496,10 @@ end
 ---------------------------------------------------------------------------
 -- Rogue: Eviscerate when it's worth it
 --   * "Kill": your combo points now will kill your target, or leave so little
---     that one white swing finishes it
+--     that a couple of seconds of white swings finish it (your combo points die with the
 --   * "Max": you're at the most combo points you can hold and they won't kill
 --     it (more points would only be wasted)
--- Quiet when one white swing alone would kill it (save the energy).
+--     mob, and energy refills while you loot: ending the fight sooner wins)
 -- Damage: Eviscerate's own tooltip (your rank's range per point), the low end,
 -- less the target's armor (estimated from its level). (Forever blocks addons from
 -- the combat log, so it can't learn from your real hits.)
@@ -566,34 +566,63 @@ if playerClass == "ROGUE" then
 		return (r[1] + r[2]) / 2 * armorLeft(unit)
 	end
 
-	-- Your main-hand weapon's low damage, from its tooltip ("11 - 21 Damage"): Forever
-	-- hides UnitDamage from addons. Read again when you change gear.
-	local weaponLo
-	local function weaponLow()
-		if weaponLo ~= nil then return weaponLo end
-		weaponLo = false
-		local info = C_TooltipInfo and C_TooltipInfo.GetInventoryItem and safe(C_TooltipInfo.GetInventoryItem, "player", 16)
+	-- A weapon's damage and speed from its tooltip ("11 - 21 Damage", "Speed 1.80"):
+	-- Forever hides UnitDamage / UnitAttackSpeed from addons. Read again when you change gear.
+	local weapons = {}
+	local function weapon(slot)
+		local w = weapons[slot]
+		if w ~= nil then return w end
+		w = false
+		local info = C_TooltipInfo and C_TooltipInfo.GetInventoryItem and safe(C_TooltipInfo.GetInventoryItem, "player", slot)
 		if type(info) == "table" and type(info.lines) == "table" then
+			local lo, hi, speed
 			for _, line in ipairs(info.lines) do
-				local t = plain(line.leftText)
-				local lo = type(t) == "string" and t:match("^(%d+)%s*%-%s*%d+%s+[Dd]amage")
-				if lo then weaponLo = tonumber(lo) break end
+				for _, t in ipairs({ plain(line.leftText), plain(line.rightText) }) do
+					if type(t) == "string" then
+						local a, b = t:match("^(%d+)%s*%-%s*(%d+)%s+[Dd]amage")
+						if a and not lo then lo, hi = tonumber(a), tonumber(b) end
+						local s = t:match("^[Ss]peed%s+([%d%.]+)")
+						if s then speed = tonumber(s) end
+					end
+				end
 			end
+			if lo and speed and speed > 0 then w = { lo = lo, hi = hi, speed = speed } end
 		end
-		return weaponLo
+		weapons[slot] = w
+		return w
 	end
 	do
 		local gearEv = CreateFrame("Frame")
 		gearEv:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
-		gearEv:SetScript("OnEvent", function() weaponLo = nil end)
+		gearEv:SetScript("OnEvent", function() wipe(weapons) end)
 	end
 
-	-- One main-hand white swing, at the low end.
+	-- Your attack power: the game's number if it shows it, else Classic's rogue formula
+	-- (level x 2 + Strength + Agility - 20), else a guess from your level.
+	local function attackPower()
+		local base, pos, neg = UnitAttackPower("player")
+		base, pos, neg = plain(base), plain(pos), plain(neg)
+		if type(base) == "number" then return base + (pos or 0) + (neg or 0) end
+		local lvl = plain(UnitLevel("player")) or 1
+		local str, agi = plain(select(2, UnitStat("player", 1))), plain(select(2, UnitStat("player", 2)))
+		if type(str) == "number" and type(agi) == "number" then return lvl * 2 + str + agi - 20 end
+		return lvl * 4
+	end
+
+	-- What your white swings will still do: at least one main-hand swing, or SWING_TIME
+	-- seconds of both hands (off-hand at half damage), whichever is more. Average hits.
+	local SWING_TIME = 2.5
 	local function whiteLow(unit)
-		local lo = plain(UnitDamage and UnitDamage("player"))
-		if type(lo) ~= "number" or lo <= 0 then lo = weaponLow() end
-		if type(lo) ~= "number" then return 0 end
-		return lo * armorLeft(unit)
+		local ap = attackPower()
+		local mh, oh = weapon(16), weapon(17)
+		if not mh then
+			local lo = plain(UnitDamage and UnitDamage("player"))
+			return type(lo) == "number" and lo * armorLeft(unit) or 0
+		end
+		local mhHit = (mh.lo + mh.hi) / 2 + ap / 14 * mh.speed
+		local dps = mhHit / mh.speed
+		if oh then dps = dps + ((oh.lo + oh.hi) / 2 + ap / 14 * oh.speed) * 0.5 / oh.speed end
+		return math.max(mhHit, dps * SWING_TIME) * armorLeft(unit)
 	end
 
 	-- Forever hides your target's health from addons (in and out of combat), so the "Kill"
@@ -662,7 +691,7 @@ if playerClass == "ROGUE" then
 			if r[n] then print(p .. ("  %d: %d-%d, counted as %.0f"):format(n, r[n][1], r[n][2], evisLow(n, "target") or 0)) end
 		end
 		local rawHp = UnitHealth("target")
-		print(p .. ("target health %s, one white swing %.0f"):format(isSecret(rawHp) and "HIDDEN by the game" or tostring(rawHp), whiteLow("target")))
+		print(p .. ("target health %s, white damage counted %.0f (AP %.0f)"):format(isSecret(rawHp) and "HIDDEN by the game" or tostring(rawHp), whiteLow("target"), attackPower()))
 		-- Each gate the tile goes through, and what the tile decides right now.
 		local usable
 		if id and C_Spell and C_Spell.IsSpellUsable then usable = safe(C_Spell.IsSpellUsable, id)
