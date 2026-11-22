@@ -3,7 +3,7 @@
 --   2. Local improvement: move whole quests, move single stops, swap a quest for an unused one.
 --   3. Stability: keep the current route unless the new one is better by Config.switchThreshold.
 -- Rules everywhere: pick-up -> objectives -> turn-in order, follow-ups after the quests that open
--- them, at most 20 quests in the log, and enough free bag slots for quest items.
+-- them, at most 20 quests in the log (bag room never holds a quest back).
 -- Travel times come from the travel graph (phase 2). Everything runs inside a frame-spread job.
 local ADDON, zyde = ...
 -- Part of Zyde_Forever since 2026-11-14: LevelPlanner keeps its own private table (zyde.LP) so its
@@ -218,11 +218,11 @@ local function feasible(route, ctx)
 		end
 		n = n + (s.logDelta or 0)
 		bag = bag + (s.bagDelta or 0)
-		-- (only a step that adds a quest or loot can break the limit: with full bags or a full log,
-		-- turn-ins, kills and grinding are still plannable)
-		if ((s.logDelta or 0) > 0 and n > ctx.logCap) or ((s.bagDelta or 0) > 0 and bag > ctx.bagFree) then
-			failWhy = (n > ctx.logCap) and string.format("quest log full at %s (%d/%d)", s.label or s.key, n, ctx.logCap)
-				or string.format("no bag room at %s (needs %d, %d free past the loot reserve)", s.label or s.key, bag, ctx.bagFree)
+		-- (only a step that adds a quest can break the log limit: with a full log, turn-ins, kills and
+		-- grinding are still plannable. Bag room never holds a quest back - you can always make room;
+		-- a vendor stop is suggested when the route fills your bags, Extras.lua)
+		if (s.logDelta or 0) > 0 and n > ctx.logCap then
+			failWhy = string.format("quest log full at %s (%d/%d)", s.label or s.key, n, ctx.logCap)
 			return false
 		end
 	end

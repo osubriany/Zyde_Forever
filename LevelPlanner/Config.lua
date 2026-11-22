@@ -209,6 +209,7 @@ LevelPlannerConfig = {
 	repairBelowPercent = 30,       -- ...or when an item's durability drops below this
 	vendorValueMinutes = 10,       -- (tripled when gear is about to break)
 	vendorMaxDetourMinutes = 5,
+	vendorBagDetourMinutes = 2,    -- when the route fills your bags: a junk-selling stop only this close to it
 	hearthSuggestions = true,
 	hubMinStops = 3,               -- this many pick-ups / turn-ins near one inn makes it a hub
 	hubRadiusYards = 250,

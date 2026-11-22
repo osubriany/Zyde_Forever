@@ -181,15 +181,30 @@ function X.OptionalStops(route, ctx)
 
 	-- vendor / repair
 	local need, urgent, why = X.VendorNeed()
+	local bagsOnly = false
+	if not need and ctx.bagFree then
+		-- the route's quest items would fill your bags (it's planned anyway - you can make room): a
+		-- quick stop to sell junk, only when a vendor is close to the route (short detour)
+		local bag, peak = 0, 0
+		for _, e in ipairs(route) do
+			bag = bag + (e.stop.bagDelta or 0)
+			if bag > peak then peak = bag end
+		end
+		if peak > ctx.bagFree and X.JunkSlots() > 0 then
+			need, bagsOnly, why = true, true, "bags fill up on the way"
+		end
+	end
 	if need then
 		local places = ns.Places.NearRoute("Repair", route, 3000, 8)
 		if #places > 0 then
 			local pts, ids = {}, {}
 			for _, pl in ipairs(places) do pts[#pts + 1] = pl.point ids[#ids + 1] = pl.id end
 			local q = oneStopQuest("vendor", "vendor", "Vendor",
-				string.format("Sell junk and repair (%s)", why), pts, 60, { bagDelta = -X.JunkSlots(), npcIds = ids })
+				string.format(bagsOnly and "Sell junk to make bag room (%s)" or "Sell junk and repair (%s)", why), pts, 60,
+				{ bagDelta = -X.JunkSlots(), npcIds = ids })
 			local worth = (cfg.vendorValueMinutes or 10) * (urgent and 3 or 1)
-			out[#out + 1] = { quest = q, worth = worth, maxDetour = (cfg.vendorMaxDetourMinutes or 5) * (urgent and 2 or 1) }
+			local detour = bagsOnly and (cfg.vendorBagDetourMinutes or 2) or (cfg.vendorMaxDetourMinutes or 5) * (urgent and 2 or 1)
+			out[#out + 1] = { quest = q, worth = worth, maxDetour = detour }
 		end
 	end
 
