@@ -248,8 +248,8 @@ f:SetScript("OnEvent", function(_, event, token)
 			"QUEST_LOG_UPDATE" }) do
 			pcall(f.RegisterEvent, f, e)
 		end
-		C_Timer.NewTicker(1, refreshAll) -- catches objective progress and reused frames
-		C_Timer.NewTicker(5, function() wipe(dropCache) end)
+		ns.Plates.Every(1, refreshAll) -- catches objective progress and reused frames
+		ns.Plates.OnQuestChange(function() wipe(dropCache) end)
 	elseif event == "QUEST_LOG_UPDATE" then
 		wipe(dropCache)
 	elseif event == "LOOT_READY" or event == "LOOT_OPENED" then

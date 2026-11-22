@@ -1220,7 +1220,9 @@ questEvents:SetScript("OnEvent", function(_, event)
 	checkSoon()
 end)
 end -- quest object events
-C_Timer.NewTicker(1, checkQuestObject) -- backup for plates that change without an event
+-- Backup for plates that change without an event, on the shared nameplate driver
+-- (Plates.lua loads after this file: set it up once everything has loaded).
+C_Timer.After(0, function() ns.Plates.Every(1, checkQuestObject) end)
 ns.OnFeatureChanged(function(key)
 	if key == "questIcons" then applyQuestIcons() end
 	if key == "questAlert" then checkQuestObject() end

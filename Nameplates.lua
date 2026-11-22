@@ -1008,9 +1008,10 @@ ev:SetScript("OnEvent", function(_, event, unit)
 			pcall(ev.RegisterEvent, ev, e)
 		end
 		for e in pairs(CAST) do pcall(ev.RegisterEvent, ev, e) end
-		-- Quest counts change without an event for each kill: re-read them every 2 s.
-		C_Timer.NewTicker(2, function()
-			wipe(questCache)
+		-- Quest counts change without an event for each kill: re-read them every 2 s
+		-- (the saved Questie answers are dropped on the shared quest-change signal).
+		ns.Plates.OnQuestChange(function() wipe(questCache) end)
+		ns.Plates.Every(2, function()
 			for _, f in pairs(skinned) do updateQuest(f) updateAuras(f) end
 		end)
 		skinAll()

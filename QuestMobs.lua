@@ -499,10 +499,10 @@ ev:SetScript("OnEvent", function(_, event, unit)
 			"UNIT_QUEST_LOG_CHANGED", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_TARGET_CHANGED" }) do
 			pcall(ev.RegisterEvent, ev, e)
 		end
-		C_Timer.NewTicker(1, refresh) -- deaths, tags and progress between events
+		ns.Plates.Every(1, refresh) -- deaths, tags and progress between events
 		-- Questie fills in its data some seconds after login: don't trust
-		-- "not a quest mob" answers for long.
-		C_Timer.NewTicker(5, forgetQuests)
+		-- "not a quest mob" answers for long (the shared signal has a backstop timer).
+		ns.Plates.OnQuestChange(forgetQuests)
 		refreshSoon()
 		return
 	end
