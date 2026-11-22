@@ -172,6 +172,7 @@ end
 -- Order, follow-up, quest-log and bag rules.
 -- A quest that opens at your next level (q.unlockLevel) can only start after the stop where the
 -- route's XP gets you there.
+local failWhy -- why the last insertQuest / feasible check said no (for /lp why, P.Diagnose)
 local function feasible(route, ctx)
 	local n, bag = ctx.logCount, 0
 	local turnedIn, lastOrder = {}, {}
@@ -183,21 +184,22 @@ local function feasible(route, ctx)
 		local first = lastOrder[q] == nil
 		-- an escort starts the moment you take it: its objective comes right after its pick-up
 		if q.escort and s.kind == "objective" and lastOrder[q] and not (prevStop and prevStop.quest == q) then
+			failWhy = "escort order"
 			return false
 		end
 		prevStop = s
 		-- equal order is allowed: a dungeon's pick-ups (and its turn-ins) can come in any order
-		if s.order < (lastOrder[q] or 0) then return false end
+		if s.order < (lastOrder[q] or 0) then failWhy = "step order" return false end
 		lastOrder[q] = s.order
 		if first and q.unlockLevel and q.unlockLevel > level then
-			if not need or q.unlockLevel > level + 1 or xp < need then return false end
+			if not need or q.unlockLevel > level + 1 or xp < need then failWhy = "opens at a level the route doesn't reach" return false end
 		end
 		local g
 		g, pool = stopXp(s, pool)
 		xp = xp + g
 		if s.kind == "pickup" and q.requires then
 			for _, req in ipairs(q.requires) do
-				if not turnedIn[req] then return false end
+				if not turnedIn[req] then failWhy = "needs quest " .. tostring(req) .. " turned in first" return false end
 			end
 		elseif s.kind == "turnin" then
 			turnedIn[q.id] = true
@@ -207,6 +209,8 @@ local function feasible(route, ctx)
 		-- (only a step that adds a quest or loot can break the limit: with full bags or a full log,
 		-- turn-ins, kills and grinding are still plannable)
 		if ((s.logDelta or 0) > 0 and n > ctx.logCap) or ((s.bagDelta or 0) > 0 and bag > ctx.bagFree) then
+			failWhy = (n > ctx.logCap) and string.format("quest log full at %s (%d/%d)", s.label or s.key, n, ctx.logCap)
+				or string.format("no bag room at %s (needs %d, %d free past the loot reserve)", s.label or s.key, bag, ctx.bagFree)
 			return false
 		end
 	end
@@ -222,7 +226,7 @@ local function insertQuest(route, quest, ctx, skipFirst)
 	local minPos = 1
 	if quest.unlockLevel and quest.unlockLevel > (ctx.level or 0) then
 		local d = quest.unlockLevel == (ctx.level or 0) + 1 and dingIndex(r, ctx)
-		if not d then return nil end
+		if not d then failWhy = "opens at your next level, which the route doesn't reach" return nil end
 		minPos = d + 1
 	end
 	if quest.requires then
@@ -231,7 +235,7 @@ local function insertQuest(route, quest, ctx, skipFirst)
 			for i, e in ipairs(r) do
 				if e.stop.kind == "turnin" and e.stop.quest.id == req then found = i end
 			end
-			if not found then return nil end
+			if not found then failWhy = "needs quest " .. tostring(req) .. " turned in first" return nil end
 			minPos = math.max(minPos, found + 1)
 		end
 	end
@@ -254,14 +258,14 @@ local function insertQuest(route, quest, ctx, skipFirst)
 				end
 			end
 		end
-		if not bestPos then return nil end
+		if not bestPos then failWhy = "no place for " .. tostring(stop.label or stop.key) .. " (no location?)" return nil end
 		table.insert(r, bestPos, { stop = stop, point = bestPoint })
 		minPos = bestPos + 1
 		firstPos = firstPos or bestPos
 	end
 	if not feasible(r, ctx) then return nil end
 	local t = routeSeconds(r, ctx)
-	if t >= MISSED then return nil end -- (a now-and-then quest's giver would be gone)
+	if t >= MISSED then failWhy = "its giver won't be there in time" return nil end -- (a now-and-then quest's giver would be gone)
 	return r, t, firstPos
 end
 
@@ -1001,6 +1005,7 @@ function P.Plan(candidates, previous, opts)
 
 	local fresh = addExtras(hereFirst(fillWithGrind(search(pool)), ctx), ctx)
 	local plan = finalize(fresh, ctx)
+	local chosen = fresh -- (the route behind the plan, for P.Diagnose)
 
 	-- dungeons: considered only when a run beats questing XP per minute, or when you're grouped
 	local grouped = ns.IsGrouped()
@@ -1022,7 +1027,7 @@ function P.Plan(candidates, previous, opts)
 		local alt = improve(greedyFill({ route = {}, total = 0, xp = 0, value = 0, used = {} }, withDungeons, ctx), withDungeons, ctx)
 		local altPlan = finalize(addExtras(hereFirst(fillWithGrind(alt), ctx), ctx), ctx)
 		-- when grouped a run is wanted even if questing is slightly faster
-		if altPlan.score > plan.score or (grouped and altPlan.score > plan.score * 0.9) then plan = altPlan end
+		if altPlan.score > plan.score or (grouped and altPlan.score > plan.score * 0.9) then plan, chosen = altPlan, alt end
 		pool = withDungeons
 		ctx.pool = pool
 	end
@@ -1035,7 +1040,7 @@ function P.Plan(candidates, previous, opts)
 		if keep.score > 0 and plan.score < keep.score * (1 + threshold) then
 			keep.note = string.format("kept the current route (new route only %+.0f%% better)",
 				(plan.score / keep.score - 1) * 100)
-			plan = keep
+			plan, chosen = keep, carried
 		else
 			plan.switchGain = keep.score > 0 and (plan.score / keep.score - 1) * 100 or 100
 			plan.note = string.format("switched route (%+.0f%% better)", plan.switchGain)
@@ -1050,5 +1055,35 @@ function P.Plan(candidates, previous, opts)
 	plan.bagFree = ctx.bagFree
 	plan.logCount = ctx.logCount
 	plan.logCap = ctx.logCap
+	P.last = { state = chosen, ctx = ctx, pool = pool }
 	return plan
+end
+
+-- /lp why: what the planner makes of a quest it didn't plan - the rule that keeps it out, or what
+-- it would add to the current route against the route's own XP per minute. Returns lines.
+function P.Diagnose(questId)
+	local last = P.last
+	if not last then return nil end
+	local q
+	for _, c in ipairs(last.pool) do if c.id == questId then q = c break end end
+	if not q then return { "  The planner didn't get it as a candidate (/lp debug lists why quests drop out)." } end
+	local state, ctx = last.state, last.ctx
+	if state.used[q] then return { "  It's in the route." } end
+	local out = {}
+	for _, s in ipairs(q.stops) do
+		out[#out + 1] = string.format("  step: %s - %ds work, %d place(s)%s", s.label or s.key, math.floor(s.work or 0),
+			#(s.points or {}), (s.bagDelta or 0) ~= 0 and string.format(", bags %+d", s.bagDelta) or "")
+	end
+	failWhy = nil
+	local r, t = insertQuest(state.route, q, ctx)
+	if not r then
+		out[#out + 1] = "  Can't fit in the route: " .. (failWhy or "unknown reason") .. "."
+		return out
+	end
+	local added = math.max(1, t - state.total)
+	local qRate = value(q) / added * 60
+	local planRate = worth(state, ctx) / math.max(60, state.total) * 60
+	out[#out + 1] = string.format("  Adding it: +%s for %s XP (~%d XP/min); the route makes ~%d XP/min over %s.",
+		ns.minutes(added), ns.short(value(q)), math.floor(qRate), math.floor(planRate), ns.minutes(state.total))
+	return out
 end

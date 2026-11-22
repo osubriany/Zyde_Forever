@@ -164,6 +164,10 @@ local function explainOne(id)
 			end
 		elseif inLog then
 			say("  It's in your log but not in this hour's plan - it's further away or slower than the planned quests.")
+			-- what exactly: the rule that keeps it out, or what it would add against the route
+			local ok, lines = pcall(ns.Planner.Diagnose, id)
+			if not ok then say("  (couldn't check: " .. tostring(lines) .. ")")
+			else for _, l in ipairs(lines or {}) do say(l) end end
 		else
 			say("  Not seen in the last scan: hidden in Questie, or the NPC didn't offer it when you talked to them.")
 		end
