@@ -18,12 +18,25 @@ local function resolve(input)
 	local QDB = _G.LibQuestieDB and _G.LibQuestieDB.Quest
 	if not (QDB and QDB.IdsByName) then return {} end
 	local ids = ns.safe(QDB.IdsByName, input)
-	if not ids then
-		-- try with the first letter of each word capitalised
-		local fixed = input:gsub("(%a)([%w']*)", function(a, b) return a:upper() .. b end)
-		ids = ns.safe(QDB.IdsByName, fixed)
+	if ids then return ids end
+	-- the name typed in another case: each word capitalised ("Rattling The Rattlecages"), then the
+	-- same with small words in lower case after the first ("Fields of Grief")
+	local MINOR = { a = 1, an = 1, ["and"] = 1, at = 1, by = 1, ["for"] = 1, from = 1, ["in"] = 1, of = 1,
+		on = 1, ["or"] = 1, the = 1, to = 1, with = 1 }
+	local caps = input:lower():gsub("(%a)([%w']*)", function(a, b) return a:upper() .. b end)
+	local first = true
+	local title = input:lower():gsub("(%a)([%w']*)", function(a, b)
+		local w = a .. b
+		if not first and MINOR[w] then return w end
+		first = false
+		return a:upper() .. b
+	end)
+	local sentence = input:lower():gsub("^%a", string.upper)
+	for _, name in ipairs({ caps, title, sentence }) do
+		ids = ns.safe(QDB.IdsByName, name)
+		if ids then return ids end
 	end
-	return ids or {}
+	return {}
 end
 
 local function stepOf(id)
