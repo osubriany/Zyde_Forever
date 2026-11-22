@@ -939,10 +939,27 @@ if playerClass == "PALADIN" then
 
 	-- Judgement ready: in a fight with an enemy targeted, off cooldown, castable (the game
 	-- says it isn't without a seal up or the mana), and your target within its reach.
+	-- Forever can hide spell cooldowns from addons in a fight, so your own Judgement casts
+	-- are tracked too: the tile stays down for the cooldown after each one (the game's base
+	-- cooldown if it says, else 10 seconds).
 	local JUDGEMENT_IDS = { JUDGEMENT }
+	local judgedAt, judgeName = -math.huge, nil
+	local function judgeCooldown()
+		local ms = GetSpellBaseCooldown and plain(safe(GetSpellBaseCooldown, JUDGEMENT))
+		return (type(ms) == "number" and ms > 0) and ms / 1000 or 10
+	end
+	local judgeEv = CreateFrame("Frame")
+	judgeEv:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	judgeEv:SetScript("OnEvent", function(_, _, _, _, spellID)
+		spellID = plain(spellID)
+		if not spellID then return end
+		judgeName = judgeName or spellName(JUDGEMENT) or "Judgement"
+		if spellID == JUDGEMENT or spellName(spellID) == judgeName then judgedAt = GetTime() end
+	end)
 	ns.AddReminder("judgement", "ZydeForeverJudgement", icon(JUDGEMENT_IDS, "Spell_Holy_RighteousFury"), function(preview)
 		if preview then return true, "Judgement" end
 		if not on() or not inCombat() or not hostileTarget() then return false end
+		if GetTime() - judgedAt < judgeCooldown() then return false end
 		if not ready(JUDGEMENT_IDS) then return false end
 		if inRange(JUDGEMENT) == false then return false end -- (out of reach; can't tell: still show)
 		return true, "Judgement"
