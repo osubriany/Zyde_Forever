@@ -345,6 +345,7 @@ local BIG_EDGE = {
 	shout = { 0.95, 0.72, 0.15, 1 },
 	meleeRange = { 0.95, 0.15, 0.1, 1 },
 	thunderClap = { 0.25, 0.55, 1, 1 },
+	eviscerate = { 0.85, 0.1, 0.25, 1 },
 }
 local function layout(states)
 	local n, big = 0, {}
@@ -2939,6 +2940,8 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		ns.MarkerWheel.ToggleDebug()
 	elseif msg == "rangedebug" then
 		if ns.RangeDebug then ns.RangeDebug() else print("|cff66ccffZyde_Forever|r: the range check is for hunters and warriors") end
+	elseif msg == "evisdebug" then
+		if ns.EvisDebug then ns.EvisDebug() else print("|cff66ccffZyde_Forever|r: the Eviscerate tile is for rogues") end
 	elseif msg == "mapnotes" or msg == "mapnotes clear" then
 		if ns.MapNotesCommand then ns.MapNotesCommand(msg:match("^mapnotes%s+(%S+)")) end
 	elseif msg == "markdebug" then
@@ -3015,6 +3018,7 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "errors", "show the last Lua errors (from any addon), even with error pop-ups turned off" },
 			{ "petdebug", "hunters: show what the game reports about your pet's mood, buffs and food" },
 			{ "rangedebug", "hunters and warriors: show what the game says about your target's range" },
+			{ "evisdebug", "rogues: the damage numbers behind the Eviscerate tile for your target" },
 			{ "mapnotes", "how many map markers you have (alt-click the map to add one); /zyde mapnotes clear empties the open map" },
 			{ "auradebug", "list your target's debuffs as the game reports them (for the Sunder and Thunder Clap tiles)" },
 			{ "bossdebug", "target a mob: what the game tells addons about it (for the boss nameplates)" },

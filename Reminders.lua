@@ -9,6 +9,7 @@
 --   Shaman:  weapon imbue missing or running out, Lightning Shield missing or
 --            on its last charge, Earth Shock to interrupt a cast, a totem out
 --            of range (its buff gone), no Ankh for Reincarnation.
+--   Rogue:   Eviscerate when your combo points will (nearly) kill, or you're at max.
 --   Everyone: gear badly damaged, running low on food (and water for hunters).
 -- Battle Shout running out (under 10 seconds) blinks in Zyde_Forever.lua.
 
@@ -490,6 +491,160 @@ if SHAMAN then
 		count = plain(count)
 		return count ~= nil and count == 0, "No Ankh"
 	end)
+end
+
+---------------------------------------------------------------------------
+-- Rogue: Eviscerate when it's worth it
+--   * "Kill": your combo points now will kill your target, or leave so little
+--     that one white swing finishes it
+--   * "Max": you're at the most combo points you can hold and they won't kill
+--     it (more points would only be wasted)
+-- Quiet when one white swing alone would kill it (save the energy).
+-- Damage: Eviscerate's own tooltip (your rank's range per point), the low end,
+-- less the target's armor (estimated from its level). Every Eviscerate that
+-- lands (no crit) tunes this to what you really hit for: talents, gear, armor.
+---------------------------------------------------------------------------
+if playerClass == "ROGUE" then
+	local EVISCERATE = { 2098, 6760, 6761, 6762, 8623, 8624, 11299, 11300, 31016 }
+	local EVIS_SET = set(EVISCERATE)
+	local CP = Enum and Enum.PowerType and Enum.PowerType.ComboPoints or 4
+	-- If the tooltip can't be read: Classic ranks, damage = a + b * (points - 1) .. that + spread.
+	local RANKS = {
+		[2098] = { 6, 6, 4 }, [6760] = { 14, 11, 8 }, [6761] = { 25, 18, 12 }, [6762] = { 41, 31, 20 },
+		[8623] = { 60, 44, 28 }, [8624] = { 93, 69, 44 }, [11299] = { 144, 108, 68 },
+		[11300] = { 199, 147, 96 }, [31016] = { 224, 170, 108 },
+	}
+
+	-- { [points] = { low, high } } for a rank, from its tooltip ("3 points: 61-73 damage").
+	local rangeCache = {}
+	local function ranges(id)
+		local r = rangeCache[id]
+		if r then return r end
+		r = {}
+		local desc = (C_Spell and C_Spell.GetSpellDescription and safe(C_Spell.GetSpellDescription, id))
+			or (GetSpellDescription and safe(GetSpellDescription, id))
+		desc = plain(desc)
+		if type(desc) == "string" then
+			for n, lo, hi in desc:gmatch("(%d+)%s*points?%s*:%s*(%d+)%s*%-%s*(%d+)") do
+				r[tonumber(n)] = { tonumber(lo), tonumber(hi) }
+			end
+		end
+		if not r[1] and RANKS[id] then
+			local a, b, s = RANKS[id][1], RANKS[id][2], RANKS[id][3]
+			for n = 1, 5 do r[n] = { a + b * (n - 1), a + b * (n - 1) + s } end
+		end
+		if r[1] then rangeCache[id] = r end -- (spell data can be late: read again next time)
+		return r
+	end
+
+	local function points()
+		local n = plain(UnitPower("player", CP))
+		if n == nil and GetComboPoints then n = plain(GetComboPoints("player", "target")) end
+		return n or 0
+	end
+	local function maxPoints()
+		local n = plain(UnitPowerMax("player", CP))
+		return (type(n) == "number" and n > 0) and n or 5
+	end
+
+	-- Share of physical damage left after the target's armor. Addons can't read a mob's
+	-- armor: estimated from its level (about Classic's mob armor), then the usual formula.
+	local function armorLeft(unit)
+		local lvl = plain(UnitLevel(unit))
+		local me = plain(UnitLevel("player")) or 1
+		if type(lvl) ~= "number" or lvl <= 0 then lvl = me + 3 end -- (skull level)
+		if plain(UnitIsPlayer(unit)) then return 0.75 end
+		local armor = 15 * lvl + 0.8 * lvl * lvl
+		return 1 - armor / (armor + 400 + 85 * me)
+	end
+
+	-- How your real Eviscerates compare with the estimate (1 = as estimated). Saved.
+	local function calib()
+		local c = ZydeForeverDB and ZydeForeverDB.evisCalib
+		return type(c) == "number" and c or 1
+	end
+
+	-- Eviscerate with n points on `unit`, at the low end of its range.
+	local function evisLow(n, unit)
+		local id = knownRank(EVISCERATE)
+		local r = id and ranges(id)[n]
+		if not r then return nil end
+		return r[1] * armorLeft(unit) * calib()
+	end
+	-- One main-hand white swing, at the low end.
+	local function whiteLow(unit)
+		local lo = plain(UnitDamage and UnitDamage("player"))
+		if type(lo) ~= "number" then return 0 end
+		return lo * armorLeft(unit)
+	end
+
+	-- Learning: points spent and the target's armor share when each Eviscerate goes off,
+	-- then the hit from the combat log (the hit comes after the points are gone).
+	local lastPoints, pending = 0, nil
+	local myGUID
+	local ev = CreateFrame("Frame")
+	ev:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
+	ev:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	pcall(ev.RegisterEvent, ev, "COMBAT_LOG_EVENT_UNFILTERED")
+	ev:SetScript("OnEvent", function(_, event, _, _, spellID)
+		if event == "UNIT_POWER_UPDATE" then
+			local n = points()
+			if n > 0 then lastPoints = n end
+			return
+		end
+		if event == "UNIT_SPELLCAST_SUCCEEDED" then
+			spellID = plain(spellID)
+			if spellID and EVIS_SET[spellID] and lastPoints > 0 then
+				local r = ranges(spellID)[lastPoints]
+				if r then pending = { mid = (r[1] + r[2]) / 2 * armorLeft("target"), t = GetTime() } end
+			end
+			return
+		end
+		-- COMBAT_LOG_EVENT_UNFILTERED
+		if not pending or not CombatLogGetCurrentEventInfo then return end
+		local ok, _, sub, _, src, _, _, _, _, _, _, _, id, _, _, amount, _, _, _, _, _, crit = pcall(CombatLogGetCurrentEventInfo)
+		if not ok or plain(sub) ~= "SPELL_DAMAGE" then return end
+		myGUID = myGUID or UnitGUID("player")
+		id, src, amount, crit = plain(id), plain(src), plain(amount), plain(crit)
+		if src ~= myGUID or not (id and EVIS_SET[id]) then return end
+		local p = pending
+		pending = nil
+		if crit or type(amount) ~= "number" or GetTime() - p.t > 2 or p.mid <= 0 then return end
+		local ratio = math.max(0.5, math.min(1.6, amount / p.mid))
+		ZydeForeverDB = ZydeForeverDB or {}
+		ZydeForeverDB.evisCalib = calib() * 0.8 + ratio * 0.2 -- (eases toward your real hits)
+	end)
+
+	local evisTile
+	evisTile = ns.AddReminder("eviscerate", "ZydeForeverEviscerate", icon(EVISCERATE, "Ability_Rogue_Eviscerate"), function(preview)
+		if preview then return true, "Kill" end
+		if not on() or not inCombat() or not hostileTarget() then return false end
+		local n = points()
+		if n <= 0 or not ready(EVISCERATE) then return false end
+		local hp = plain(UnitHealth("target"))
+		local white = whiteLow("target")
+		if type(hp) == "number" then
+			if white > 0 and hp <= white then return false end -- (a swing will do it: keep the energy)
+			local dmg = evisLow(n, "target")
+			if dmg and dmg + white >= hp then return true, "|cffff5555Kill|r" end
+		end
+		if n >= maxPoints() then return true, "Max" end
+		return false
+	end)
+	evisTile.prominent = true
+
+	-- /zyde evisdebug: the numbers behind the Eviscerate tile for your target.
+	ns.EvisDebug = function()
+		local p = "|cff66ccffZyde_Forever|r eviscerate: "
+		local id = knownRank(EVISCERATE)
+		print(p .. "rank " .. tostring(id) .. ", points " .. points() .. "/" .. maxPoints()
+			.. (", armor left %.0f%%, tuned x%.2f"):format(armorLeft("target") * 100, calib()))
+		local r = id and ranges(id) or {}
+		for n = 1, maxPoints() do
+			if r[n] then print(p .. ("  %d: %d-%d, counted as %.0f"):format(n, r[n][1], r[n][2], evisLow(n, "target") or 0)) end
+		end
+		print(p .. ("target health %s, one white swing %.0f"):format(tostring(plain(UnitHealth("target"))), whiteLow("target")))
+	end
 end
 
 ---------------------------------------------------------------------------
