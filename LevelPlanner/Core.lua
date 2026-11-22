@@ -569,6 +569,25 @@ SlashCmdList.LEVELPLANNER = function(msg)
 			return
 		end
 		ns.SetEliteMode(mode)
+	elseif msg == "steps" then
+		-- the whole plan in chat: when each step starts, its XP, and what the planner valued its quest at
+		local plan = ns.plan
+		if not plan then ns.print("no plan yet.") return end
+		ns.print(string.format("plan: %d steps, %s XP in %s", #plan.stops, ns.fmt(plan.xp or 0), ns.minutes(plan.seconds or 0)))
+		local seen = {}
+		for i, s in ipairs(plan.stops) do
+			local q = s.quest
+			local extra = ""
+			if q and not seen[q] and q.id then
+				seen[q] = true
+				extra = string.format("  |cff999999[quest %s: %s XP%s%s]|r", tostring(q.id), ns.short(q.xp or 0),
+					(q.chainValue or 0) > 0 and (", +" .. ns.short(q.chainValue) .. " follow-ups") or "",
+					q.xpEstimated and ", estimated" or "")
+			end
+			ns.print(string.format("%d. %s %s%s%s", i, ns.minutes(s.arrive or 0), s.label or s.kind or "?",
+				(s.xp or 0) > 0 and (" +" .. ns.short(s.xp)) or "",
+				(s.mobXp or 0) > 0 and (" (kills +" .. ns.short(s.mobXp) .. ")") or "") .. extra)
+		end
 	elseif msg == "debug" then
 		ns.debug = not ns.debug
 		ns.char.debug = ns.debug
@@ -606,6 +625,7 @@ SlashCmdList.LEVELPLANNER = function(msg)
 		ns.print("/lp reset - stop skipping quests")
 		ns.print("/lp replan - plan again from scratch now")
 		ns.print("/lp group on|off - plan elite and red quests for a group")
+		ns.print("/lp steps - print the whole plan in chat (times and XP of every step)")
 		ns.print("/lp elites on|off|auto - elite quests solo: always, never, or by the usual rule")
 		ns.print("/lp arrow - show or hide the built-in arrow")
 		ns.print("/lp cleanup - quests in your log the plan doesn't use")
