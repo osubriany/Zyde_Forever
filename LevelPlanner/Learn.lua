@@ -133,9 +133,31 @@ local function snapshot(questId)
 end
 
 -- Called from Questie's quest-update callback.
+-- An objective met at named NPCs (Stops.lua individualTargets): when its count goes up, the NPC you
+-- have targeted is the one you just did - noted per character, so the plan sends you to the others.
+local function noteTarget(questId, index)
+	local guid = UnitGUID and UnitGUID("target")
+	if not guid or ns.isSecret(guid) or type(guid) ~= "string" then return end
+	local kind, _, _, _, _, npc = strsplit("-", guid)
+	npc = tonumber(npc)
+	if not npc or (kind ~= "Creature" and kind ~= "Vehicle") then return end
+	local qo = ns.QuestSource.GetQuest(questId)
+	local od = qo and qo.ObjectiveData and qo.ObjectiveData[index]
+	if not od then return end
+	for _, id in ipairs(od.IdList or { od.Id }) do
+		if id == npc then
+			ns.char.objDone = ns.char.objDone or {}
+			ns.char.objDone[questId] = ns.char.objDone[questId] or {}
+			ns.char.objDone[questId][npc] = true
+			return
+		end
+	end
+end
+
 function L.OnQuestUpdate(questId, index, reason)
 	local R = Questie and Questie.API and Questie.API.Enums and Questie.API.Enums.QuestUpdateTriggerReason
 	if R and reason == R.QUEST_ACCEPTED then
+		if ns.char.objDone then ns.char.objDone[questId] = nil end -- (taken again: nobody done yet)
 		snapshot(questId)
 		-- an escort usually starts walking the moment you accept it (Planner escortFirst)
 		-- (kept per character: GetTime counts from computer start, so it survives a /reload)
@@ -153,6 +175,7 @@ function L.OnQuestUpdate(questId, index, reason)
 	local now = GetTime()
 	local count = o.numFulfilled or 0
 	progress[k] = { count = count, t = now }
+	if not prev or count > (prev.count or 0) then noteTarget(questId, index) end
 	-- the first tick after accepting includes the walk there, so only ticks after it are timed
 	if not (prev and prev.t) or count <= (prev.count or 0) then return end
 	local delta = count - prev.count

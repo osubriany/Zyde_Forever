@@ -10,6 +10,7 @@ ns.Stops = S
 
 local MAX_POINTS = 150   -- spawn points looked at per objective (more are sampled)
 local fixStop            -- (below) an objective stop from Data/QuestFixes.lua
+local objectiveVerb, individualTargets -- (below) named-NPC objectives: the verb, and which NPCs to visit
 
 ----------------------------------------------------------------------------------------
 -- Points and areas
@@ -279,6 +280,44 @@ local function buyInstead(quest, itemId, itemName, need, farmWork, mobXp)
 	return nil
 end
 
+-- The verb of the quest's objective text ("Punish 5 Deathguards..." -> "Punish"), else the fallback.
+objectiveVerb = function(quest, fallback)
+	local t = type(quest.texts) == "table" and quest.texts[1] or quest.texts
+	local verb = type(t) == "string" and t:match("^(%a+)%s+%d")
+	return verb or fallback
+end
+
+-- An objective met at any N of a list of named NPCs, each standing at one spot (22 of Discipline's
+-- 23 Deathguards): the N to visit, as a short tour from where you are - nearest first, then nearest
+-- to that. NPCs you've already done (Learn.lua notes who you targeted when the count went up) are
+-- left out. nil when the NPCs aren't like that (a camp of the same mob, or too few known spots).
+individualTargets = function(quest, ids, need, friendly)
+	local QS = ns.QuestSource
+	local done = ns.char and ns.char.objDone and ns.char.objDone[quest.id] or {}
+	local fixed, open = 0, {}
+	for _, id in ipairs(ids) do
+		local pts = pointsFromSpawns(QS.Npc(id, "spawns"), nil, id)
+		if #pts == 1 then
+			fixed = fixed + 1
+			if not done[id] then open[#open + 1] = { npc = id, point = pts[1], name = QS.Npc(id, "name") } end
+		end
+	end
+	if fixed < math.max(3, #ids * 0.6) or #open < need then return nil end
+	local cur = ns.Geo.PlayerPoint and ns.Geo.PlayerPoint()
+	local out = {}
+	for _ = 1, need do
+		local bestI, bestD = 1, nil
+		for i, t in ipairs(open) do
+			local d = cur and ns.Geo.Distance(cur, t.point)
+			if d and (not bestD or d < bestD) then bestI, bestD = i, d end
+		end
+		local t = table.remove(open, bestI)
+		out[#out + 1] = t
+		cur = t.point
+	end
+	return out
+end
+
 -- Builds one objective stop. `remaining` is how many are still needed (nil = unknown, use text/defaults).
 -- Returns stop, or nil plus a reason when the objective can't be planned.
 local function objectiveStop(quest, od, remaining)
@@ -298,14 +337,30 @@ local function objectiveStop(quest, od, remaining)
 		stop.mobs = {}
 		for _, id in ipairs(ids) do stop.mobs[id] = true end
 		local key = od.Type == "monster" and ("monster:" .. tostring(od.Id)) or ("killcredit:" .. tostring(od.RootId))
-		-- (only this mob's own learned pace: KillSeconds already has your general pace, scaled by the
-		-- mob's level - your average over other mobs would drop that)
-		stop.work = need * E.UnitSeconds(key, E.KillSeconds(lvl, rank, mobName), true)
-		stop.refLevel, stop.refRank = lvl, rank
-		stop.mobXp = need * E.MobXP(lvl, rank)
-		stop.mobLevel, stop.mobRank = lvl, rank -- (the planner re-prices the kills after a level-up)
-		stop.label = string.format("Kill %d %s", need, mobName or name)
+		-- friendly NPCs you use an item on or talk to (Discipline: punish 5 Deathguards): no kill, no XP
+		local friendly = true
+		for _, id in ipairs(ids) do
+			if not QS.IsFriendly(id) or QS.Npc(id, "friendlyToFaction") == nil then friendly = false break end
+		end
+		if friendly then
+			stop.work = need * E.UnitSeconds(key, cfg.npcTalkSeconds and cfg.npcTalkSeconds + 5 or 15, true)
+			stop.label = string.format("%s %d %s", objectiveVerb(quest, "Visit"), need, mobName or name)
+			stop.unitWork, stop.unitXp = stop.work / need, 0
+		else
+			-- (only this mob's own learned pace: KillSeconds already has your general pace, scaled by the
+			-- mob's level - your average over other mobs would drop that)
+			stop.work = need * E.UnitSeconds(key, E.KillSeconds(lvl, rank, mobName), true)
+			stop.refLevel, stop.refRank = lvl, rank
+			stop.mobXp = need * E.MobXP(lvl, rank)
+			stop.mobLevel, stop.mobRank = lvl, rank -- (the planner re-prices the kills after a level-up)
+			stop.label = string.format("Kill %d %s", need, mobName or name)
+			stop.unitWork, stop.unitXp = stop.work / need, stop.mobXp / need
+		end
 		stop.need = need
+		-- several named friendly NPCs that each stand at their own spot: one step per NPC still needed
+		-- (BuildQuest). Not hostile ones: named enemies like Pyrewood Ambush's councilmen appear together
+		-- in an event, not at their map spots.
+		if friendly and #ids >= 3 then stop.targets = individualTargets(quest, ids, need, friendly) end
 
 	elseif od.Type == "object" then
 		local name = od.Text or QS.Object(od.Id, "name") or "objects"
@@ -726,6 +781,18 @@ function S.BuildQuest(questId, logEntry, opts)
 					-- nothing to do for this objective
 				elseif not stop then
 					return nil, why
+				elseif stop.targets then
+					-- one step per named NPC, at its own spot (any order is fine: same step order)
+					local verb = objectiveVerb(quest, stop.unitXp > 0 and "Kill" or "Visit")
+					for k, t in ipairs(stop.targets) do
+						quest.stops[#quest.stops + 1] = {
+							kind = "objective", questId = quest.id, questName = quest.name, objIndex = i,
+							points = { t.point }, npcIds = { t.npc }, npcName = t.name, mobs = { [t.npc] = true },
+							work = stop.unitWork + (k == 1 and (cfg.objectiveOverheadSeconds or 45) * 0.3 or 0),
+							mobXp = stop.unitXp, mobLevel = stop.mobLevel, mobRank = stop.mobRank,
+							label = verb .. " " .. (t.name or "them"), need = 1, target = t.npc, sameOrder = k > 1,
+						}
+					end
 				else
 					stop.objIndex = i
 					-- a new stack of quest items needs a free bag slot
@@ -776,7 +843,9 @@ function S.BuildQuest(questId, logEntry, opts)
 
 	-- identity, order and what each stop does to the quest log and bags
 	local mobXp, work = 0, 0
-	for order, s in ipairs(quest.stops) do
+	local order = 0
+	for _, s in ipairs(quest.stops) do
+		if not s.sameOrder then order = order + 1 end -- (a named-NPC tour: any order)
 		s.quest, s.order = quest, order
 		if s.kind == "pickup" then
 			s.key = "p:" .. questId
@@ -788,6 +857,7 @@ function S.BuildQuest(questId, logEntry, opts)
 			s.bagDelta = -bagHold
 		else
 			s.key = "o:" .. questId .. ":" .. tostring(s.objIndex or (s.srcItem and ("item" .. s.srcItem)))
+				.. (s.target and (":" .. s.target) or "")
 			s.logDelta = 0
 			s.bagDelta = s.bagDelta or 0
 		end
