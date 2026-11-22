@@ -10,7 +10,7 @@
 --            on its last charge, Earth Shock to interrupt a cast, a totem out
 --            of range (its buff gone), no Ankh for Reincarnation.
 --   Rogue:   Eviscerate when your combo points will (nearly) kill, or you're at max.
---   Paladin: Seal of Righteousness missing or running out.
+--   Paladin: Seal of Righteousness missing or running out, no aura on you.
 --   Everyone: gear badly damaged, running low on food (and water for hunters).
 -- Battle Shout running out (under 10 seconds) blinks in Zyde_Forever.lua.
 
@@ -827,6 +827,54 @@ if playerClass == "PALADIN" then
 		local ok, show, label = pcall(sealCheck, false, function(msg) print(p .. "  " .. msg) end)
 		print(p .. "tile: " .. (ok and (tostring(show) .. " " .. tostring(label or "")) or ("ERROR " .. tostring(show))))
 	end
+
+	-- No aura on you (any paladin aura, yours or another paladin's). Auras last until you
+	-- change them or die. When Forever hides your buffs: an aura cast since you last died counts.
+	local AURAS = {
+		["Devotion Aura"] = true, ["Retribution Aura"] = true, ["Concentration Aura"] = true,
+		["Shadow Resistance Aura"] = true, ["Frost Resistance Aura"] = true,
+		["Fire Resistance Aura"] = true, ["Sanctity Aura"] = true, ["Crusader Aura"] = true,
+	}
+	local DEVOTION = { 465, 10290, 643, 10291, 1032, 10292, 10293 }
+	local auraCastId -- your last aura cast (its icon on the tile), nil after you die
+	local auraEv = CreateFrame("Frame")
+	auraEv:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	auraEv:RegisterEvent("PLAYER_DEAD")
+	auraEv:SetScript("OnEvent", function(_, event, _, _, spellID)
+		if event == "PLAYER_DEAD" then auraCastId = nil return end
+		spellID = plain(spellID)
+		if spellID and AURAS[spellName(spellID) or ""] then auraCastId = spellID end
+	end)
+
+	-- true (an aura is on you), false (none), nil (buffs hidden)
+	local function hasPaladinAura()
+		if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return nil end
+		local hidden = false
+		for i = 1, 40 do
+			local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
+			if not ok then return nil end
+			if not a then break end
+			local name = plain(a.name)
+			if name == nil then hidden = true
+			elseif AURAS[name] then
+				auraCastId = plain(a.spellId) or auraCastId -- (remembered for when buffs are hidden)
+				return true
+			end
+		end
+		if hidden then return nil end
+		return false
+	end
+
+	local auraTile
+	auraTile = ns.AddReminder("paladinAura", "ZydeForeverPaladinAura", icon(DEVOTION, "Spell_Holy_DevotionAura"), function(preview)
+		if preview then return true, "No aura" end
+		if not on() or UnitIsDeadOrGhost("player") or UnitOnTaxi("player") or not knownRank(DEVOTION) then return false end
+		local has = hasPaladinAura()
+		if has == nil then has = auraCastId ~= nil end
+		if has then return false end
+		auraTile.tex:SetTexture(ns.spellTexture(auraCastId or knownRank(DEVOTION), auraTile.fallback))
+		return true, "No aura"
+	end)
 end
 
 ---------------------------------------------------------------------------
