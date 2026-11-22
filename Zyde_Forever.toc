@@ -10,6 +10,8 @@
 ## X-Website: https://github.com/osubriany/Zyde_Forever
 
 Zyde_Forever.lua
+Gear.lua
+XP.lua
 Plates.lua
 Bags.lua
 UnitFrames.lua
