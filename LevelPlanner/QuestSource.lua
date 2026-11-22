@@ -375,6 +375,9 @@ function QS.ScanCandidates()
 			for _, u in ipairs(unlocks[id] or {}) do
 				if not complete[u] and not inRoute[u] and not seen[u] and QS.RaceClassOk(u) then
 					seen[u] = true
+					-- you can only do one of a set of exclusive quests (Forever's "The Great Outdoors"
+					-- comes in 6 variants): count the set once
+					for _, ex in ipairs(QS.Quest(u, "exclusiveTo") or {}) do seen[ex] = true end
 					local lvl, req = QS.Levels(u)
 					if req <= player + 3 and not isTrivial(lvl) then
 						total = total + ns.Estimate.QuestXP(u, lvl) * factor ^ depth + future(u, depth + 1, seen)
@@ -386,7 +389,9 @@ function QS.ScanCandidates()
 		for _, list in ipairs({ result.log, result.available, result.locked }) do
 			for _, q in ipairs(list) do
 				ns.Check()
-				q.chainValue = future(q.id, 1, {})
+				-- (capped: a hub of follow-ups mustn't outweigh XP you get now - that pulled routes
+				-- away from quests next to you, Config.chainValueMaxShare)
+				q.chainValue = math.min(future(q.id, 1, {}), (cfg.chainValueMaxShare or 0.5) * q.xp)
 				q.value = q.xp + q.chainValue
 			end
 		end

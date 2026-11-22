@@ -1082,6 +1082,13 @@ function P.Diagnose(questId)
 	end
 	local added = math.max(1, t - state.total)
 	local qRate = value(q) / added * 60
+	-- (the planner's figures count follow-ups a quest opens: say how much of the route that is)
+	local chain = 0
+	for _, c in ipairs(questsIn(state.route)) do chain = chain + (c.chainValue or 0) end
+	if chain > 0 then
+		out[#out + 1] = string.format("  The route's value includes %s for follow-ups its quests open (%s XP itself).",
+			ns.short(chain), ns.short(state.xp or 0))
+	end
 	local planRate = worth(state, ctx) / math.max(60, state.total) * 60
 	out[#out + 1] = string.format("  Adding it: +%s for %s XP (~%d XP/min); the route makes ~%d XP/min over %s.",
 		ns.minutes(added), ns.short(value(q)), math.floor(qRate), math.floor(planRate), ns.minutes(state.total))
