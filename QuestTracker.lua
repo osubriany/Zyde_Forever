@@ -701,10 +701,29 @@ end)
 ---------------------------------------------------------------------------
 -- The game's own tracker steps aside while this one is on
 ---------------------------------------------------------------------------
-local function hideBlizzard()
+local hideBlizzard
+local hooked = {}
+-- The game can put its tracker back after we hid it (its UI loads late, or gets moved back to the
+-- screen on a /reload): hide it again whenever it's moved back or shown.
+local function watch(f)
+	if hooked[f] then return end
+	hooked[f] = true
+	local function again() C_Timer.After(0, hideBlizzard) end
+	if f.SetParent then hooksecurefunc(f, "SetParent", function(_, parent)
+		if parent ~= _G.ZydeForeverHidden then again() end
+	end) end
+	if f.HookScript then f:HookScript("OnShow", function(self)
+		if self:GetParent() ~= _G.ZydeForeverHidden then again() end
+	end) end
+end
+
+hideBlizzard = function()
 	if InCombatLockdown() or not on() then return end
 	for _, f in ipairs({ _G.ObjectiveTrackerFrame, _G.QuestWatchFrame, _G.WatchFrame }) do
-		if f then ns.stash(f) end
+		if f then
+			ns.stash(f)
+			watch(f)
+		end
 	end
 end
 
@@ -740,7 +759,15 @@ end
 
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_LOGIN")
-ev:SetScript("OnEvent", function(_, event)
+ev:RegisterEvent("ADDON_LOADED")
+ev:SetScript("OnEvent", function(_, event, name)
+	if event == "ADDON_LOADED" then
+		-- the game's tracker loading after login: hide it as it arrives
+		if type(name) == "string" and name:find("^Blizzard_") and (name:find("Tracker") or name:find("Watch")) then
+			C_Timer.After(0, hideBlizzard)
+		end
+		return
+	end
 	if event == "PLAYER_LOGIN" then
 		if QuestieLoader then
 			-- before Questie starts its tracker (it does so after login)
