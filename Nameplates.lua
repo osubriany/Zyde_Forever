@@ -76,6 +76,85 @@ local function setEdge(b, c)
 end
 
 ---------------------------------------------------------------------------
+-- Combo points (rogues, druids in cat form): a row of pips on your target's
+-- plate, just above the bar (the name moves up to make room). The pips fill
+-- gold -> orange -> red, and glow all red once you're at the most you can hold.
+-- Each pip is a tiny status bar (pip i fills when points >= i), so it still
+-- works if the game ever hides the number from addons.
+---------------------------------------------------------------------------
+local makeCombo, updateCombo
+do
+	local CP = Enum and Enum.PowerType and Enum.PowerType.ComboPoints or 4
+	local PIP_H, GAP, MAXPIPS = 5, 3, 7
+	local FULL = { 1, 0.15, 0.1 }
+	local function ramp(i, n)
+		local t = n > 1 and (i - 1) / (n - 1) or 1
+		return 1, 0.85 - 0.55 * t, 0.2 - 0.1 * t -- gold to orange-red
+	end
+	local function usesCombo()
+		if playerClass == "ROGUE" then return true end
+		if playerClass ~= "DRUID" then return false end
+		return plain(UnitPowerType("player")) == (Enum and Enum.PowerType and Enum.PowerType.Energy or 3) -- cat form
+	end
+
+	makeCombo = function(f)
+		local row = CreateFrame("Frame", nil, f)
+		row:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 3)
+		row:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, 3)
+		row:SetHeight(PIP_H)
+		row.pips = {}
+		for i = 1, MAXPIPS do
+			local p = bar(row, PIP_H)
+			p:SetMinMaxValues(i - 1, i)
+			p:SetValue(0)
+			p:Hide()
+			row.pips[i] = p
+		end
+		row:Hide()
+		f.combo = row
+	end
+
+	local function layout(row, n)
+		if row.n == n then return end
+		row.n = n
+		local w = (W - GAP * (n - 1)) / n
+		for i, p in ipairs(row.pips) do
+			p:ClearAllPoints()
+			if i <= n then
+				p:SetWidth(w)
+				p:SetPoint("LEFT", row, "LEFT", (i - 1) * (w + GAP), 0)
+				p:SetStatusBarColor(ramp(i, n))
+				p:Show()
+			else
+				p:Hide()
+			end
+		end
+	end
+
+	updateCombo = function(f)
+		local row = f.combo
+		if not row then return end
+		local show = ns.F("comboPoints") and usesCombo() and plain(UnitIsUnit(f.unit, "target")) == true
+		if show then
+			local n = plain(UnitPowerMax("player", CP))
+			if type(n) ~= "number" or n < 1 then n = 5 end
+			layout(row, math.min(n, MAXPIPS))
+			local pts = UnitPower("player", CP)
+			if pts == nil and GetComboPoints then pts = GetComboPoints("player", "target") end
+			local full = plain(pts) == row.n
+			for i = 1, row.n do
+				local p = row.pips[i]
+				p:SetValue(pts or 0)
+				if full then p:SetStatusBarColor(FULL[1], FULL[2], FULL[3]) else p:SetStatusBarColor(ramp(i, row.n)) end
+			end
+		end
+		row:SetShown(show)
+		f.name:ClearAllPoints()
+		f.name:SetPoint("BOTTOM", f, "TOP", 0, show and (PIP_H + 6) or 3)
+	end
+end
+
+---------------------------------------------------------------------------
 -- Building one plate's frame
 ---------------------------------------------------------------------------
 ---------------------------------------------------------------------------
@@ -197,6 +276,7 @@ local function build(plate)
 	f.name:SetWidth(W + 60)
 	f.name:SetWordWrap(false)
 	f.name:SetTextColor(1, 1, 1)
+	makeCombo(f)
 
 	f.level = text(f, 10)
 	f.level:SetPoint("RIGHT", f, "LEFT", -4, 0)
@@ -845,6 +925,7 @@ local function updateTarget(f)
 	f:SetScale((isTarget and 1.15 or 1) * (f.boss and 1.15 or 1)) -- (bosses a little bigger too)
 	f:SetAlpha((isTarget or not UnitExists("target")) and 1 or 0.75)
 	if isTarget then f:SetFrameLevel(f.plate:GetFrameLevel() + 20) else f:SetFrameLevel(f.plate:GetFrameLevel() + 5) end
+	updateCombo(f)
 end
 
 local function updateAll(f)
@@ -994,7 +1075,25 @@ ev:SetScript("OnEvent", function(_, event, unit)
 	end
 end)
 
+-- Combo points: redraw your target's pips when they change (or you shift in / out of cat form).
+do
+	local cp = CreateFrame("Frame")
+	for _, e in ipairs({ "UNIT_POWER_UPDATE", "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER" }) do
+		pcall(cp.RegisterUnitEvent, cp, e, "player")
+	end
+	pcall(cp.RegisterEvent, cp, "UPDATE_SHAPESHIFT_FORM")
+	cp:SetScript("OnEvent", function(_, event, _, powerType)
+		if (event == "UNIT_POWER_UPDATE" or event == "UNIT_POWER_FREQUENT")
+			and not isSecret(powerType) and powerType ~= "COMBO_POINTS" then return end
+		for _, f in pairs(skinned) do updateCombo(f) end
+	end)
+end
+
 ns.OnFeatureChanged(function(key)
+	if key == "comboPoints" then
+		for _, f in pairs(skinned) do updateCombo(f) end
+		return
+	end
 	if key ~= "plates" then return end
 	if on() then skinAll() else unskinAll() end
 end)
