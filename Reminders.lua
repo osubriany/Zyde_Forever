@@ -557,16 +557,41 @@ if playerClass == "ROGUE" then
 		return 1 - armor / (armor + 400 + 85 * me)
 	end
 
-	-- Eviscerate with n points on `unit`, at the low end of its range.
+	-- Eviscerate with n points on `unit`: the middle of its range (an unlucky roll
+	-- leaves a sliver, which the white swing counted below finishes).
 	local function evisLow(n, unit)
 		local id = knownRank(EVISCERATE)
 		local r = id and ranges(id)[n]
 		if not r then return nil end
-		return r[1] * armorLeft(unit)
+		return (r[1] + r[2]) / 2 * armorLeft(unit)
 	end
+
+	-- Your main-hand weapon's low damage, from its tooltip ("11 - 21 Damage"): Forever
+	-- hides UnitDamage from addons. Read again when you change gear.
+	local weaponLo
+	local function weaponLow()
+		if weaponLo ~= nil then return weaponLo end
+		weaponLo = false
+		local info = C_TooltipInfo and C_TooltipInfo.GetInventoryItem and safe(C_TooltipInfo.GetInventoryItem, "player", 16)
+		if type(info) == "table" and type(info.lines) == "table" then
+			for _, line in ipairs(info.lines) do
+				local t = plain(line.leftText)
+				local lo = type(t) == "string" and t:match("^(%d+)%s*%-%s*%d+%s+[Dd]amage")
+				if lo then weaponLo = tonumber(lo) break end
+			end
+		end
+		return weaponLo
+	end
+	do
+		local gearEv = CreateFrame("Frame")
+		gearEv:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+		gearEv:SetScript("OnEvent", function() weaponLo = nil end)
+	end
+
 	-- One main-hand white swing, at the low end.
 	local function whiteLow(unit)
 		local lo = plain(UnitDamage and UnitDamage("player"))
+		if type(lo) ~= "number" or lo <= 0 then lo = weaponLow() end
 		if type(lo) ~= "number" then return 0 end
 		return lo * armorLeft(unit)
 	end
@@ -583,10 +608,12 @@ if playerClass == "ROGUE" then
 	end
 
 	local function evisCheck(preview)
-		if preview then gateOpen() return true, "Kill" end
+		if preview then gateOpen() evisTile.tex:SetDesaturated(false) return true, "Kill" end
 		if not on() or not inCombat() or not hostileTarget() then return false end
 		local n = points()
-		if n <= 0 or not ready(EVISCERATE) then return false end
+		if n <= 0 or not knownRank(EVISCERATE) then return false end
+		-- Shown even before you have the energy: grayed out until you can cast it.
+		evisTile.tex:SetDesaturated(not ready(EVISCERATE))
 		if n >= maxPoints() then gateOpen() return true, "Max" end
 		local dmg = evisLow(n, "target")
 		if not dmg then return false end
