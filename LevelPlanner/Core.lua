@@ -146,24 +146,33 @@ end
 ----------------------------------------------------------------------------------------
 local job, jobName, jobDone
 local frameStart = 0
+local frameBudget = 4 -- ms of work this frame (more while the frame rate is high, see the runner)
 local runner = CreateFrame("Frame")
 
 -- Call often inside long loops. Pauses the job until the next frame when the budget is used up.
 function ns.Check()
-	if coroutine.running() and debugprofilestop() - frameStart > (ns.cfg.frameBudgetMs or 4) then
+	if coroutine.running() and debugprofilestop() - frameStart > frameBudget then
 		coroutine.yield()
 	end
 end
 
 local jobSeconds = 0 -- time the job has been working (paused time in fights or flights not counted)
 local jobRetried = false
+local jobCpu, jobStartedAt = 0, 0 -- (/lp debug: work time and wall time of the running job)
 
 function ns.RunJob(name, fn, onDone)
 	job = coroutine.create(fn)
 	jobName, jobDone = name, onDone
-	jobSeconds = 0
+	jobSeconds, jobCpu, jobStartedAt = 0, 0, GetTime()
 	runner:Show()
 end
+
+-- Work time (ms) the running job has used so far, including this frame's.
+function ns.JobCpu()
+	-- (inside the job, this frame's part isn't added up yet)
+	return jobCpu + (coroutine.running() and (debugprofilestop() - frameStart) or 0)
+end
+function ns.JobWall() return GetTime() - jobStartedAt end
 
 function ns.JobRunning() return job ~= nil end
 
@@ -210,9 +219,14 @@ runner:SetScript("OnUpdate", function(self, elapsed)
 		jobFailed(self, string.format("planning took over %d s - switching to the quicker search for a while", limit), true)
 		return
 	end
+	-- a high frame rate has room to spare: use more of each frame (Config.frameBudgetFastMs) so a
+	-- re-plan lands sooner; at a low one, the usual small slice (Config.frameBudgetMs)
+	local base = ns.cfg.frameBudgetMs or 4
+	frameBudget = (elapsed or 1) < 1 / 50 and math.max(base, ns.cfg.frameBudgetFastMs or 8) or base
 	frameStart = debugprofilestop()
 	local co = job
 	local ok, result = coroutine.resume(co)
+	jobCpu = jobCpu + (debugprofilestop() - frameStart)
 	if not ok then
 		local stack = debugstack and select(2, pcall(debugstack, co, 1, 4, 0))
 		jobFailed(self, "planning error in " .. tostring(jobName) .. ": " .. tostring(result)
@@ -253,13 +267,16 @@ local function startWork()
 	local why = (ns.forceFresh and "fresh" or (ns.offTrail and "off the trail, 2% bar" or "10% bar")) .. (rescan and ", quests re-read" or "")
 	pendingRescan, ns.forceFresh, ns.offTrail = false, false, false
 	if ns.StepList then ns.StepList.SetPlanning(true) end
+	local scanMs
 	ns.RunJob("plan", function()
 		ns.Travel.Prepare()
+		local t0 = ns.JobCpu()
 		if rescan then
 			ns.candidates = ns.QuestSource.ScanCandidates()
 		else
 			ns.QuestSource.RebuildLog(ns.candidates)
 		end
+		scanMs = ns.JobCpu() - t0
 		return ns.Planner.Plan(ns.candidates, previous, opts)
 	end, function(plan)
 		if ns.StepList then ns.StepList.SetPlanning(false) end
@@ -269,6 +286,9 @@ local function startWork()
 			local s = plan.stops and plan.stops[1]
 			ns.dprint(string.format("re-planned (%s): %s; first step: %s; %d XP/min",
 				why, plan.note or "new route", s and s.label or "-", math.floor((plan.rate or 0) + 0.5)))
+			ns.dprint(string.format("  took %.1f s: %d ms reading quests (%s), %d ms planning",
+				ns.JobWall(), math.floor(scanMs or 0), rescan and "full scan" or "your log only",
+				math.floor(ns.JobCpu() - (scanMs or 0))))
 		end
 		ns.plan = plan
 		ns.OnPlanReady(plan)
@@ -276,11 +296,38 @@ local function startWork()
 	end)
 end
 
-function ns.RequestReplan(rescan)
+-- delay: seconds to wait for more events first (default Config.replanDelay; quest progress waits less)
+function ns.RequestReplan(rescan, delay)
 	if rescan then pendingRescan = true end
 	if timerQueued then return end
 	timerQueued = true
-	C_Timer.After(ns.cfg.replanDelay or 1, startWork)
+	C_Timer.After(delay or ns.cfg.replanDelay or 1, startWork)
+end
+
+-- A step you just finished, out of the shown list right away (the new plan takes a moment):
+-- accepted -> its pick-up, turned in or abandoned -> all its steps, an objective done -> that step.
+function ns.DropFinished(questId, index, reason, R)
+	local plan = ns.plan
+	if not (plan and plan.stops and R) then return end
+	local objDone = false
+	if reason == R.QUEST_UPDATED and index then
+		local entry = ns.Q.QuestLogCache and ns.safe(ns.Q.QuestLogCache.TryGetQuest, questId)
+		local o = entry and entry.objectives and entry.objectives[index]
+		objDone = o and o.finished and true or false
+		if not objDone then return end
+	end
+	local kept, dropped = {}, false
+	for _, s in ipairs(plan.stops) do
+		local id = s.questId or (s.quest and s.quest.id)
+		local drop = id == questId and (
+			(reason == R.QUEST_ACCEPTED and s.kind == "pickup")
+			or reason == R.QUEST_TURNED_IN or reason == R.QUEST_ABANDONED
+			or (objDone and s.kind == "objective" and s.objIndex == index))
+		if drop then dropped = true else kept[#kept + 1] = s end
+	end
+	if not dropped then return end
+	plan.stops = kept
+	ns.OnPlanReady(plan)
 end
 
 ----------------------------------------------------------------------------------------
@@ -414,8 +461,10 @@ local function onQuestieReady()
 			ns.safe(ns.Learn.OnQuestUpdate, questId, objectiveIndex, reason) -- time your objective progress
 			if ns.StepList then ns.safe(ns.StepList.Refresh) end -- live progress bar
 			local R = Questie.API.Enums and Questie.API.Enums.QuestUpdateTriggerReason
+			-- the step you just finished leaves the list at once; the re-plan refines it a moment later
+			ns.safe(ns.DropFinished, questId, objectiveIndex, reason, R)
 			-- progress only needs a re-plan; accept / turn-in / abandon change which quests are available
-			ns.RequestReplan(not (R and reason == R.QUEST_UPDATED))
+			ns.RequestReplan(not (R and reason == R.QUEST_UPDATED), ns.cfg.replanDelayQuest or 0.3)
 		end)
 	end
 	events:RegisterEvent("PLAYER_LEVEL_UP")

@@ -8,6 +8,8 @@ LevelPlannerConfig = {
 	stepsShown = 6,             -- lines in the step list
 	frameBudgetMs = 4,          -- planning work allowed per frame (lower = smoother, slower)
 	replanDelay = 1.0,          -- wait this long after an event before re-planning (events come in bursts)
+	replanDelayQuest = 0.3,     -- ...but only this long after quest progress, a pick-up or a turn-in
+	frameBudgetFastMs = 8,      -- planning work per frame while the frame rate is above 50
 	offTrailCheckSeconds = 5,   -- how often to check whether you've left the planned path
 	offTrailYards = 100,        -- moved this far from where the plan was made, not toward the next step = off the trail
 	offTrailSwitchThreshold = 0.02, -- off the trail, a new route only needs to be this much better (2%)
