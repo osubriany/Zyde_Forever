@@ -77,6 +77,17 @@ local function fixDividers()
 			setDividerAlpha(b.RightDivider, a)
 			setDividerAlpha(b.BottomDivider, a)
 		end
+		-- Forever's main bar puts each button in a MainActionBarButtonContainerN that draws the
+		-- divider itself: fade the container's own textures (not the button inside it).
+		local c = _G["MainActionBarButtonContainer" .. i]
+		if c and c.GetRegions then
+			for _, r in ipairs({ c:GetRegions() }) do setDividerAlpha(r, a) end
+		end
+	end
+	if bar then
+		for k, v in pairs(bar) do
+			if type(k) == "string" and k:find("Divider") and type(v) == "table" then setDividerAlpha(v, a) end
+		end
 	end
 end
 
