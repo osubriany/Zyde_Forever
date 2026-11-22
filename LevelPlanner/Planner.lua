@@ -765,25 +765,40 @@ end
 standingAt = function(state, ctx)
 	if not ctx.start or #state.route < 2 then return state end
 	local atYards = ns.cfg.hereTurninAtYards or 40
+	-- (/lp debug: how far the set-hearthstone step is, and whether it moved)
+	for _, e in ipairs(state.route) do
+		if e.stop.quest.id == "bind" and ns.Extras then
+			local d = ns.Geo.Distance(ctx.start, e.point)
+			ns.Extras.bindAt = d and string.format("%d yd from you", math.floor(d)) or "distance unknown (another map?)"
+		end
+	end
+	-- the stops you're standing at, in route order; each moves to the front unless the rules forbid
+	-- it there (a trainer visit that waits for your level-up stays put - the others still move)
+	local at = {}
+	for _, e in ipairs(state.route) do
+		if e.stop.kind == "turnin" or e.stop.quest.isExtra then
+			local d = ns.Geo.Distance(ctx.start, e.point)
+			if d and d <= atYards then at[#at + 1] = e end
+		end
+	end
 	local pos = 1
-	for _ = 1, #state.route do
+	for _, e in ipairs(at) do
 		local from
-		for i = pos, #state.route do
-			local e = state.route[i]
-			if e.stop.kind == "turnin" or e.stop.quest.isExtra then
-				local d = ns.Geo.Distance(ctx.start, e.point)
-				if d and d <= atYards then from = i break end
-			end
-		end
-		if not from then break end
-		if from > pos then
+		for i, x in ipairs(state.route) do if x == e then from = i break end end
+		if from and from > pos then
 			local r = copy(state.route)
-			local e = table.remove(r, from)
+			table.remove(r, from)
 			table.insert(r, pos, e)
-			if not feasible(r, ctx) then break end
-			state.route, state.total = r, routeSeconds(r, ctx)
+			failWhy = nil
+			if feasible(r, ctx) then
+				state.route, state.total = r, routeSeconds(r, ctx)
+				pos = pos + 1
+			elseif e.stop.quest.id == "bind" and ns.Extras then
+				ns.Extras.bindAt = (ns.Extras.bindAt or "") .. ", not moved first: " .. (failWhy or "?")
+			end
+		elseif from == pos then
+			pos = pos + 1
 		end
-		pos = pos + 1
 	end
 	return state
 end
