@@ -406,6 +406,7 @@ function T.PrintInfo()
 	else
 		ns.print("hearthstone: location not learned yet - use it once, or set it at an innkeeper")
 	end
+	if ns.Extras and ns.Extras.bindWhy then ns.print("set hearthstone step: " .. ns.Extras.bindWhy) end
 	if ns.QuestSource and ns.QuestSource.FreeBagSlots then
 		local free = ns.QuestSource.FreeBagSlots()
 		ns.print(string.format("bags: %d free slots (%d kept free for loot)%s", free, ns.cfg.bagReserveSlots or 2,

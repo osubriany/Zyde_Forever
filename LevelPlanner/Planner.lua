@@ -755,7 +755,40 @@ end
 -- where it fits best, only when the detour is short and XP per minute - counting what the stop
 -- saves or gains later - goes up.
 ----------------------------------------------------------------------------------------
+local standingAt, addExtrasInner -- (below)
 local function addExtras(state, ctx)
+	return standingAt(addExtrasInner(state, ctx), ctx)
+end
+
+-- A turn-in or extra stop (set your hearthstone, vendor, trainer) whose NPC you're standing at
+-- (Config.hereTurninAtYards) goes first: you're there now, later means coming back.
+standingAt = function(state, ctx)
+	if not ctx.start or #state.route < 2 then return state end
+	local atYards = ns.cfg.hereTurninAtYards or 40
+	local pos = 1
+	for _ = 1, #state.route do
+		local from
+		for i = pos, #state.route do
+			local e = state.route[i]
+			if e.stop.kind == "turnin" or e.stop.quest.isExtra then
+				local d = ns.Geo.Distance(ctx.start, e.point)
+				if d and d <= atYards then from = i break end
+			end
+		end
+		if not from then break end
+		if from > pos then
+			local r = copy(state.route)
+			local e = table.remove(r, from)
+			table.insert(r, pos, e)
+			if not feasible(r, ctx) then break end
+			state.route, state.total = r, routeSeconds(r, ctx)
+		end
+		pos = pos + 1
+	end
+	return state
+end
+
+function addExtrasInner(state, ctx)
 	if not ctx.start or #state.route == 0 then return state end
 	-- a level-up on the way: a trainer visit that falls due then can go right after it (Extras.lua)
 	ctx.dingLevel = dingIndex(state.route, ctx) and (ctx.level or 0) + 1 or nil
@@ -771,6 +804,10 @@ local function addExtras(state, ctx)
 			if r and t - state.total <= opt.maxDetour * 60
 				and (state.value + worth) / t > state.value / math.max(1, state.total) then
 				state.route, state.total, state.value = r, t, state.value + worth
+			elseif q.id == "bind" and ns.Extras then
+				-- (/lp debug says why the suggested inn didn't make it)
+				ns.Extras.bindWhy = (ns.Extras.bindWhy or "") .. (r and string.format(" - but left out: +%ds detour", math.floor(t - state.total))
+					or (" - but left out: " .. (failWhy or "no place in the route")))
 			end
 		end
 	end

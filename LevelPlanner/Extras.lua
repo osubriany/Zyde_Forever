@@ -112,7 +112,7 @@ local function hubInn(route)
 	local cfg = ns.cfg
 	local radius = cfg.hubRadiusYards or 250
 	local stops = questStops()
-	if #stops == 0 then return nil end
+	if #stops == 0 then X.bindWhy = "no quest stops ahead" return nil end
 	-- inns near any upcoming pick-up or turn-in (same lookup the route uses)
 	local inns = ns.Places.NearRoute("Innkeeper", stops, radius, 12)
 	local best, bestScore, bestCount = nil, 0, 0
@@ -121,16 +121,24 @@ local function hubInn(route)
 		local score, count = hubScore(inn.point, stops, radius)
 		if score > bestScore then best, bestScore, bestCount = inn, score, count end
 	end
-	if not best or bestCount < (cfg.hubMinStops or 3) then return nil end
+	if not best then X.bindWhy = string.format("no innkeeper known near the quests ahead (%d inns found)", #inns) return nil end
+	if bestCount < (cfg.hubMinStops or 3) then
+		X.bindWhy = string.format("%s has only %d quest stops nearby", best.name or "the nearest inn", bestCount)
+		return nil
+	end
 	local bind = ns.TravelLearn.Bind()
 	local bp = bind and ns.Geo.PointOnMap(bind.map, bind.x, bind.y)
 	if bp then
 		local d = ns.Geo.Distance(bp, best.point)
-		if d and d < 400 then return nil end -- already bound here
+		if d and d < 400 then X.bindWhy = "already set at " .. (bind.name or "that inn") return nil end
 		-- only worth a stop when the new hub clearly beats where you're bound
 		local here = hubScore(bp, stops, radius)
-		if bestScore < here * (cfg.hubBetterBy or 1.5) then return nil end
+		if bestScore < here * (cfg.hubBetterBy or 1.5) then
+			X.bindWhy = string.format("%s isn't clearly better than %s", best.name or "the hub inn", bind.name or "your home")
+			return nil
+		end
 	end
+	X.bindWhy = string.format("suggested: %s (%d quest stops nearby)", best.name or "inn", bestCount)
 	return best, bestCount
 end
 
