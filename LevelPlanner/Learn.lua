@@ -56,7 +56,10 @@ end
 -- Seconds per kill for a mob name, or the prior.
 function L.KillSecondsByName(name, prior)
 	if not name then return prior end
-	return blend(data().killNames[name], prior)
+	local rec = data().killNames[name]
+	-- (times saved before the gap rule below may hold a walk: one the rule would have skipped is ignored)
+	if rec and rec.mean > prior * (ns.cfg.learnKillGapMaxFactor or 3) then return prior end
+	return blend(rec, prior)
 end
 
 function L.DungeonMinutes(area, prior)
@@ -94,8 +97,6 @@ local function onXpMessage(msg)
 	if not gap or gap < 2 or gap > (ns.cfg.learnMaxGapSeconds or 240) then return end
 	if not learningAllowed() or UnitOnTaxi("player") then return end
 
-	local d = data()
-	d.killNames[name] = add(d.killNames[name], gap)
 	-- compare with the default for a mob of the target's level, when the target is that mob
 	local lvl
 	if UnitName("target") == name then
@@ -103,6 +104,12 @@ local function onXpMessage(msg)
 		if ns.isSecret(lvl) or type(lvl) ~= "number" or lvl < 1 then lvl = nil end
 	end
 	local prior = ns.Estimate.KillSecondsDefault(lvl or ns.playerLevel(), nil)
+	-- a gap far longer than a kill takes is the walk to a new area (or a turn-in, a break), not a slow
+	-- kill: the route already counts that walk as travel (one 134 s "Darkhound kill" made a quest
+	-- look twice as long)
+	if prior > 0 and gap > prior * (ns.cfg.learnKillGapMaxFactor or 3) then return end
+	local d = data()
+	d.killNames[name] = add(d.killNames[name], gap)
 	if prior > 0 then d.killFactor = add(d.killFactor, gap / prior) end
 end
 

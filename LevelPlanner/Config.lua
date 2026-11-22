@@ -201,6 +201,7 @@ LevelPlannerConfig = {
 	learnPriorWeight = 5,       -- the default counts as this many samples
 	learnMaxSamples = 30,       -- newer samples keep mattering: older ones fade after this many
 	learnMaxGapSeconds = 240,   -- a longer pause between two kills or two objective ticks is a break, not counted
+	learnKillGapMaxFactor = 3,  -- a gap between two kills over this many times the expected kill time is a walk, not a kill
 
 	-- Extra stops on the way (each is added only if the detour is short and it pays off) ----------
 	-- "Worth" is in minutes of your current XP rate: what the stop saves or gains you later.
