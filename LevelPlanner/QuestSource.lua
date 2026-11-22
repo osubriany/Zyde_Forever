@@ -183,7 +183,14 @@ function QS.ScanCandidates()
 	local maxAbove = grouped and (cfg.groupMaxLevelsAbove or 6) or (cfg.maxLevelsAbove or 2)
 	local blocked = {}   -- in level range but waiting for a pre-quest: maybe a follow-up later in the route
 	local greyIds = {}   -- grey quests not too far below you, for the quick-grey check
-	local soonIds = {}   -- open one level up: the planner may take them after a level-up on the way
+	-- open a level or few up: the planner may take them after level-ups on the way. Low levels go by
+	-- in minutes, so a level-2 route can reach level 4's quests (Brill's, for a Deathknell undead -
+	-- with one level only, a route to Durotar's level-1 quests won instead). [id] = level it opens at
+	local soonIds, soonAt = {}, {}
+	local ahead = cfg.levelsAhead or (player < 10 and 3 or player < 20 and 2 or 1)
+	local function soon(id, at)
+		if at - player <= ahead then soonIds[#soonIds + 1] = id soonAt[id] = at end
+	end
 
 	-- quest kinds we don't plan (returns a reason) — shared by available quests and follow-ups
 	local function excluded(id)
@@ -208,10 +215,10 @@ function QS.ScanCandidates()
 			local above = area and (cfg.groupMaxLevelsAbove or 6) or maxAbove
 			if req > player then
 				bump("required level too high", id)
-				if req == player + 1 and not area and lvl - (player + 1) <= above then soonIds[#soonIds + 1] = id end
+				if not area then soon(id, math.max(req, lvl - above)) end
 			elseif lvl - player > above then
 				bump(QS.ColourReason(lvl - player, grouped), id)
-				if lvl - (player + 1) <= above and not area then soonIds[#soonIds + 1] = id end
+				if not area then soon(id, lvl - above) end
 			elseif isTrivial(lvl) then
 				-- grey: kept aside; quick ones near you may still be worth doing (checked below)
 				if cfg.greyQuests ~= false and not area and lvl >= player - (cfg.greyMaxLevelsBelow or 8) then
@@ -268,12 +275,12 @@ function QS.ScanCandidates()
 			if ns.safe(QDB.IsDoable, id) and not excluded(id) then
 				local q = ns.Stops.BuildQuest(id, nil)
 				if q and q.stops[1] then
-					q.unlockLevel = player + 1
+					q.unlockLevel = soonAt[id] or (player + 1)
 					local first = q.stops[1]
 					local reach = here and ns.Stops.NearestPoint(first, here)
 					local t = reach and ns.Travel.Seconds(here, reach) or (cfg.continentChangeSeconds or 900)
 					q.roughRate = q.xp / math.max(60, t + q.workSeconds)
-					first.label = (first.label or "") .. string.format(" (opens at level %d)", player + 1)
+					first.label = (first.label or "") .. string.format(" (opens at level %d)", q.unlockLevel)
 					result.upcoming[#result.upcoming + 1] = q
 				end
 			end

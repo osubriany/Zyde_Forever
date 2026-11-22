@@ -42,6 +42,7 @@ LevelPlannerConfig = {
 	                            -- and the quicker search is used for 10 minutes
 	timedPredictHours = 3,      -- now-and-then quests (Data/QuestFixes.lua: ns.TimedQuests): guess the next stop for this long after a yell
 	overHorizonSeconds = 300,   -- a full route still takes a quest that raises XP per minute, if it adds at most this
+	fillMinShare = 0.2,         -- filling the hour stops at a quest earning less than this share of the route's XP/min
 	-- "/lp pickup loose" (or the step list's ... menu): also quick quests on the way that earn at least
 	-- this share of the route's XP per minute and add at most this many seconds. "tight" (default): no.
 	looseMinShare = 0.4,

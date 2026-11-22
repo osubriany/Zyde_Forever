@@ -38,10 +38,11 @@ local function stopXp(s, pool)
 	return m + b + (s.kind == "turnin" and (s.xp or 0) or 0), pool
 end
 
--- The stop after which the route's XP takes you to your next level (nil: no level-up in it).
--- ctx.toDing = XP still needed for the next level (nil when unknown or at the cap).
-local function dingIndex(route, ctx)
-	local need = ctx.toDing
+-- The stop after which the route's XP takes you up n levels (default 1; nil: it doesn't get there).
+-- ctx.toDing = XP still needed for the next level (nil when unknown or at the cap); ctx.dingNeeds[n]
+-- = XP needed for n levels up.
+local function dingIndex(route, ctx, n)
+	local need = ctx.dingNeeds and ctx.dingNeeds[n or 1] or (not n or n == 1) and ctx.toDing
 	if not need then return nil end
 	local xp, pool = 0, ctx.rested
 	for i, e in ipairs(route) do
@@ -201,7 +202,9 @@ local function feasible(route, ctx)
 		if s.order < (lastOrder[q] or 0) then failWhy = "step order" return false end
 		lastOrder[q] = s.order
 		if first and q.unlockLevel and q.unlockLevel > level then
-			if not need or q.unlockLevel > level + 1 or xp < need then failWhy = "opens at a level the route doesn't reach" return false end
+			local n = q.unlockLevel - level
+			local needN = ctx.dingNeeds and ctx.dingNeeds[n] or (n == 1 and need)
+			if not needN or xp < needN then failWhy = "opens at a level the route doesn't reach" return false end
 		end
 		local g
 		g, pool = stopXp(s, pool)
@@ -234,8 +237,8 @@ local function insertQuest(route, quest, ctx, skipFirst)
 	local r = copy(route)
 	local minPos = 1
 	if quest.unlockLevel and quest.unlockLevel > (ctx.level or 0) then
-		local d = quest.unlockLevel == (ctx.level or 0) + 1 and dingIndex(r, ctx)
-		if not d then failWhy = "opens at your next level, which the route doesn't reach" return nil end
+		local d = dingIndex(r, ctx, quest.unlockLevel - (ctx.level or 0))
+		if not d then failWhy = string.format("opens at level %d, which the route doesn't reach", quest.unlockLevel) return nil end
 		minPos = d + 1
 	end
 	if quest.requires then
@@ -350,6 +353,14 @@ local function greedyFill(state, pool, ctx, opts)
 		end
 		if #top == 0 then break end
 		local c = top[(rand and #top > 1) and rand(#top) or 1]
+		-- filling the hour is no reason to take something far worse than the route: a long trip for a
+		-- few quests (Durotar from Deathknell) would sink its XP per minute. Leave the time to grinding
+		-- nearby (fillWithGrind) and the next re-plan instead. (Config.fillMinShare of the route's rate)
+		-- (once the route has some length: a 40-second turn-in alone says little about a route's rate)
+		if state.total >= ctx.horizon * 0.25 then
+			local routeRate = (state.value or 0) / math.max(60, state.total)
+			if c.rate < routeRate * (ns.cfg.fillMinShare or 0.2) then break end
+		end
 		state.used[c.q] = true
 		state.route, state.total, state.xp = c.r, c.t, state.xp + c.q.xp
 		state.value = (state.value or 0) + value(c.q)
@@ -644,6 +655,38 @@ function hereFirstInner(state, ctx)
 			if fighting or t <= state.total + slack then state.route, state.total = r, t end
 		end
 	end
+	-- the other objectives in this same camp (Rattlecage Skeletons among the scavengers and bats you're
+	-- killing): right after it, nearest first - you're among their mobs now, later means coming back
+	if campStop and state.route[1] and state.route[1].stop == campStop then
+		local others = {}
+		for i, e in ipairs(state.route) do
+			if i > 1 and e.stop.kind == "objective" then
+				local bestP2, bestD2
+				for _, p in ipairs(e.stop.points) do
+					local d = ns.Geo.Distance(ctx.start, p)
+					if d and d <= near and (not bestD2 or d < bestD2) then bestP2, bestD2 = p, d end
+				end
+				if bestP2 then others[#others + 1] = { e = e, p = bestP2, d = bestD2 } end
+			end
+		end
+		table.sort(others, function(a, b) return a.d < b.d end)
+		local pos, budget = 2, state.total + slack
+		for _, o in ipairs(others) do
+			local r = copy(state.route)
+			local from
+			for i, x in ipairs(r) do if x == o.e then from = i break end end
+			if from and from > pos then
+				table.remove(r, from)
+				table.insert(r, pos, { stop = o.e.stop, point = o.p })
+				if feasible(r, ctx) then
+					local t = routeSeconds(r, ctx)
+					if t <= budget then state.route, state.total, pos = r, t, pos + 1 end
+				end
+			elseif from == pos then
+				pos = pos + 1
+			end
+		end
+	end
 
 	-- Turn-ins close by (the town you're standing in) go first too, nearest first: putting them off
 	-- "until you're back" looks free on paper, but the XP and follow-ups are wanted now.
@@ -884,6 +927,11 @@ local function finalize(state, ctx)
 	local hearthSecs = cfg.hearthSeconds or 45
 	-- level-up on the way: legs after it are ridden when it reaches your mount level (as in routeSeconds)
 	local ding = dingIndex(route, ctx)
+	local dingsAt = {} -- [stop index] = the level it takes you to, for the 2nd, 3rd... level-up
+	for k = 2, #(ctx.dingNeeds or {}) do
+		local d = dingIndex(route, ctx, k)
+		if d then dingsAt[d] = (ctx.level or 0) + k end
+	end
 	local function legSeconds(idx, a, b)
 		if ding and idx > ding and ctx.mountSpeed and a then return ns.Travel.Seconds(a, b, ctx.mountSpeed) end
 		return travel(a, b)
@@ -977,6 +1025,7 @@ local function finalize(state, ctx)
 			end
 		end
 		if idx == ding then view.dingTo = (ctx.level or 0) + 1 end
+		if dingsAt[idx] then view.dingTo = dingsAt[idx] end
 		keys[#keys + 1] = { key = e.stop.key, wx = e.point.wx, wy = e.point.wy, inst = e.point.inst }
 		local w
 		w, run = addedWork(prevEntry, e, run, start)
@@ -1044,6 +1093,13 @@ function P.Plan(candidates, previous, opts)
 		local cap = GetMaxPlayerLevel and GetMaxPlayerLevel() or 60
 		if not secret and type(cur) == "number" and type(max) == "number" and max > 0 and ctx.level < cap then
 			ctx.toDing = math.max(1, max - cur)
+			-- and the levels after it (several level-ups in one route at low levels)
+			ctx.dingNeeds = { ctx.toDing }
+			for k = 2, 4 do
+				local per = ns.Estimate and ns.Estimate.XpToNext and ns.Estimate.XpToNext(ctx.level + k - 1)
+				if not per or ctx.level + k > cap then break end
+				ctx.dingNeeds[k] = ctx.dingNeeds[k - 1] + per
+			end
 		end
 	end
 	-- the level-up reaches your mount level: legs after it are ridden
