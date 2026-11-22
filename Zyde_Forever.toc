@@ -24,6 +24,7 @@ ScrapList.lua
 Ammo.lua
 InfoBar.lua
 ThreatBox.lua
+PullLight.lua
 PetCare.lua
 Reminders.lua
 MarkerWheel.lua

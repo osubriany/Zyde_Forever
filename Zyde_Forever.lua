@@ -158,6 +158,7 @@ local FEATURES = {
 	{ key = "rares", short = "flash + sound", label = "Rare announcer", desc = "When a rare or rare elite shows up (on a nameplate, as your target or mouseover, or on the minimap), its name flashes on screen, a line goes to chat and a sound plays. Each rare is announced once per 5 minutes. Rares you've just seen are also first for the \"Target nearest quest mob\" key" },
 	{ key = "questAlert", short = "glow on quest objects", label = "Quest object alert", desc = "Glow, ! and ping on nearby quest objects you pick up (not the loot of mobs you kill for a quest)" },
 	{ key = "questIcons", short = "icons over nodes", label = "Icons over nearby objects", desc = "The game's interact icons over herbs, ore and chests" },
+	{ key = "pullLight", short = "healer mana light", label = "Pull traffic light", desc = "When you tank a dungeon or raid: a small traffic light for your healer's mana you can drag anywhere. GO (green) at 70% or more, careful (yellow) 30-70%, STOP (red) under 30%, with a mana bar, a drink countdown, and DEAD / OFFLINE. Works in combat. /zyde light to place it, /zyde healer <name> to pick the healer" },
 	{ key = "nodeGlow", short = "herbs, ore, chests", label = "Herb, ore and chest glow", desc = "A colored glow and icon on herbs (green) and ore (copper) you can gather with your professions, and on chests (gold), within 30 yards. Brighter on the one you face" },
 	{ key = "guildRoster", short = "class colors, levels, zones", label = "Guild member list", desc = "In the Guild & Communities window: online members' names in class colors, each member's level at the right (colored by how near your level), and their zone when you hover them" },
 	{ key = "lfg", short = "groups that fit you", label = "Group finder helper", desc = "Beside Looking For Group: groups with room for your role first, one-click whisper to the leader" },
@@ -1775,7 +1776,7 @@ local CATEGORIES = {
 			"gear",
 		} },
 		{ "Hunter", { "ammo", "petCare" } },
-		{ "Groups", { "lfg", "guildRoster", "markerWheel" } },
+		{ "Groups", { "lfg", "guildRoster", "markerWheel", "pullLight" } },
 	},
 	{
 		{ "Questing & leveling", {
@@ -2354,6 +2355,12 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		ns.MarkerWheel.ToggleDebug()
 	elseif msg == "rangedebug" then
 		if ns.RangeDebug then ns.RangeDebug() else print("|cff66ccffZyde_Forever|r: the range check is for hunters and warriors") end
+	elseif msg == "light" then
+		if ns.PullLight then ns.PullLight.Test() end
+	elseif msg == "lightreset" then
+		if ns.PullLight then ns.PullLight.Reset() end
+	elseif msg == "healer" or msg:match("^healer%s") then
+		if ns.PullLight then ns.PullLight.SetHealer(msg:match("^healer%s+(.-)%s*$")) end
 	elseif msg == "sealdebug" then
 		if ns.SealDebug then ns.SealDebug() else print("|cff66ccffZyde_Forever|r: the seal tile is for paladins") end
 	elseif msg == "evisdebug" then
@@ -2434,6 +2441,9 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			{ "errors", "show the last Lua errors (from any addon), even with error pop-ups turned off" },
 			{ "petdebug", "hunters: show what the game reports about your pet's mood, buffs and food" },
 			{ "rangedebug", "hunters and warriors: show what the game says about your target's range" },
+			{ "light", "show the Pull Traffic Light with your own mana, to drag it into place (again to hide)" },
+			{ "lightreset", "put the Pull Traffic Light back in its first place" },
+			{ "healer <name>", "the healer the Pull Traffic Light watches (no name: back to role, then a guess by class)" },
 			{ "sealdebug", "paladins: why the Seal of Righteousness tile is or isn't showing" },
 			{ "evisdebug", "rogues: the damage numbers behind the Eviscerate tile for your target" },
 			{ "mapnotes", "how many map markers you have (alt-click the map to add one); /zyde mapnotes clear empties the open map" },
