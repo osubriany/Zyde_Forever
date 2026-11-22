@@ -935,8 +935,10 @@ if playerClass == "PALADIN" then
 		return true, "No blessing"
 	end)
 
-	-- Judgement ready: in a fight with an enemy targeted, off cooldown, castable (the game
-	-- says it isn't without a seal up or the mana), and your target within its reach.
+	-- Judgement ready: an enemy targeted (in a fight or not, e.g. to open a pull), off
+	-- cooldown, castable (the game says it isn't without a seal up or the mana), and your
+	-- target within its reach. Out of a fight the reach must be known; in a fight, where
+	-- the game can hide it, "can't tell" still shows.
 	-- Forever can hide spell cooldowns from addons in a fight, so your own Judgement casts
 	-- are tracked too: the tile stays down for the cooldown after each one (the game's base
 	-- cooldown if it says, else 10 seconds).
@@ -956,10 +958,11 @@ if playerClass == "PALADIN" then
 	end)
 	ns.AddReminder("judgement", "ZydeForeverJudgement", icon(JUDGEMENT_IDS, "Spell_Holy_RighteousFury"), function(preview)
 		if preview then return true, "Judgement" end
-		if not on() or not inCombat() or not hostileTarget() then return false end
+		if not on() or not hostileTarget() or UnitIsDeadOrGhost("player") or UnitOnTaxi("player") then return false end
 		if GetTime() - judgedAt < judgeCooldown() then return false end
 		if not ready(JUDGEMENT_IDS) then return false end
-		if inRange(JUDGEMENT) == false then return false end -- (out of reach; can't tell: still show)
+		local reach = inRange(JUDGEMENT)
+		if reach == false or (reach == nil and not inCombat()) then return false end
 		return true, "Judgement"
 	end)
 
