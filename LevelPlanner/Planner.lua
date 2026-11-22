@@ -1315,5 +1315,22 @@ function P.Diagnose(questId)
 	local planRate = worth(state, ctx) / math.max(60, state.total) * 60
 	out[#out + 1] = string.format("  Adding it: +%s for %s XP (~%d XP/min); the route makes ~%d XP/min over %s.",
 		ns.minutes(added), ns.short(value(q)), math.floor(qRate), math.floor(planRate), ns.minutes(state.total))
+	-- the "you're at its giver" rule (topUp): what it sees
+	local first = q.stops[1]
+	if first and first.kind == "pickup" then
+		local gd
+		for _, p in ipairs(first.points or {}) do
+			local d = ctx.start and ns.Geo.Distance(ctx.start, p)
+			if d and (not gd or d < gd) then gd = d end
+		end
+		local qWork = 0
+		for _, s in ipairs(q.stops) do qWork = qWork + (s.work or 0) end
+		local cfg = ns.cfg
+		out[#out + 1] = string.format("  At-the-giver rule: giver %s from you (needs %d); adds %ds (max %d), %ds beyond its own work (max %d); %d%% of the route's rate (needs %d%%).",
+			gd and (math.floor(gd) .. " yd") or "not on your map", cfg.hereTurninAtYards or 40,
+			math.floor(added), math.max(cfg.looseMaxSeconds or 180, cfg.overHorizonSeconds or 300),
+			math.floor(added - qWork), cfg.looseDetourSeconds or 60,
+			math.floor(qRate / math.max(1, planRate) * 100), math.floor((cfg.looseMinShare or 0.4) * 100))
+	end
 	return out
 end
