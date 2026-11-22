@@ -10,7 +10,7 @@
 --            on its last charge, Earth Shock to interrupt a cast, a totem out
 --            of range (its buff gone), no Ankh for Reincarnation.
 --   Rogue:   Eviscerate when your combo points will (nearly) kill, or you're at max.
---   Paladin: Seal of Righteousness missing or running out, no aura on you.
+--   Paladin: Seal of Righteousness missing or running out, no aura, no blessing on you.
 --   Everyone: gear badly damaged, running low on food (and water for hunters).
 -- Battle Shout running out (under 10 seconds) blinks in Zyde_Forever.lua.
 
@@ -874,6 +874,74 @@ if playerClass == "PALADIN" then
 		if has then return false end
 		auraTile.tex:SetTexture(ns.spellTexture(auraCastId or knownRank(DEVOTION), auraTile.fallback))
 		return true, "No aura"
+	end)
+
+	-- No blessing on you (Might, Wisdom, Kings, Salvation, Light, Sanctuary, or a Greater
+	-- one; from you or another paladin). Not the short ones (Protection, Freedom,
+	-- Sacrifice). When Forever hides your buffs: a blessing you cast on yourself counts for
+	-- its 5 minutes (15 for a Greater one), until you die.
+	local MIGHT = { 19740, 19834, 19835, 19836, 19837, 19838, 25291 }
+	local LONG = { Might = true, Wisdom = true, Kings = true, Salvation = true, Light = true, Sanctuary = true }
+	local function isBlessing(name)
+		if type(name) ~= "string" then return false end
+		local kind = name:match("^Greater Blessing of (%a+)") or name:match("^Blessing of (%a+)")
+		return kind ~= nil and LONG[kind] == true, name:find("^Greater") ~= nil
+	end
+	local blessId, blessExpires = nil, 0
+	local pendingSelf = {} -- cast GUID -> true when the cast went at you
+	local blessEv = CreateFrame("Frame")
+	blessEv:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
+	blessEv:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	blessEv:RegisterEvent("PLAYER_DEAD")
+	blessEv:SetScript("OnEvent", function(_, event, _, a2, a3, a4)
+		if event == "PLAYER_DEAD" then blessExpires = 0 return end
+		if event == "UNIT_SPELLCAST_SENT" then
+			-- (unit, target name, cast GUID, spell ID): no target name = yourself
+			local target, guid = plain(a2), plain(a3)
+			if guid and (target == nil or target == "" or target == plain(UnitName("player"))) then pendingSelf[guid] = true end
+			return
+		end
+		-- UNIT_SPELLCAST_SUCCEEDED (unit, cast GUID, spell ID)
+		local guid, spellID = plain(a2), plain(a3)
+		local onMe = guid and pendingSelf[guid]
+		if guid then pendingSelf[guid] = nil end
+		if not spellID then return end
+		local ok, greater = isBlessing(spellName(spellID))
+		if not ok then return end
+		blessId = spellID
+		-- (a Greater blessing covers your whole class, you included)
+		if onMe or greater then blessExpires = GetTime() + (greater and 900 or 300) end
+	end)
+
+	-- true (a blessing is on you), false (none), nil (buffs hidden)
+	local function hasBlessing()
+		if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return nil end
+		local hidden = false
+		for i = 1, 40 do
+			local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
+			if not ok then return nil end
+			if not a then break end
+			local name = plain(a.name)
+			if name == nil then hidden = true
+			elseif isBlessing(name) then
+				local exp = plain(a.expirationTime)
+				if exp and exp > 0 then blessExpires = exp end
+				return true
+			end
+		end
+		if hidden then return nil end
+		return false
+	end
+
+	local blessTile
+	blessTile = ns.AddReminder("paladinBlessing", "ZydeForeverPaladinBlessing", icon(MIGHT, "Spell_Holy_FistOfJustice"), function(preview)
+		if preview then return true, "No blessing" end
+		if not on() or UnitIsDeadOrGhost("player") or UnitOnTaxi("player") or not knownRank(MIGHT) then return false end
+		local has = hasBlessing()
+		if has == nil then has = blessExpires > GetTime() end
+		if has then return false end
+		blessTile.tex:SetTexture(ns.spellTexture(blessId or knownRank(MIGHT), blessTile.fallback))
+		return true, "No blessing"
 	end)
 end
 
