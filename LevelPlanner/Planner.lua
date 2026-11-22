@@ -393,7 +393,20 @@ local function topUp(state, pool, ctx)
 			if not state.used[q] then
 				local r, t, firstPos = insertQuest(state.route, q, ctx)
 				local added = r and t - state.total
-				if r and added <= math.max(maxExtra, ctx.loose and looseMax or 0) then
+				-- a quest whose giver you're standing at gets the loose rule in tight mode too: taking
+				-- it now costs nothing, coming back for it later costs a trip (Scavenging Deathknell)
+				local atGiver = false
+				local first = q.stops[1]
+				if first and first.kind == "pickup" and ctx.start then
+					for _, p in ipairs(first.points or {}) do
+						local d = ns.Geo.Distance(ctx.start, p)
+						if d and d <= (cfg.hereTurninAtYards or 40) then atGiver = true break end
+					end
+				end
+				local looseHere = ctx.loose or atGiver
+				-- (at the giver: up to Config.overHorizonSeconds, like a quest that speeds the route up)
+				local looseCap = atGiver and math.max(looseMax, maxExtra) or looseMax
+				if r and added <= math.max(maxExtra, looseHere and looseCap or 0) then
 					local qWork = 0
 					for _, s in ipairs(q.stops) do qWork = qWork + (s.work or 0) end
 					local m = (state.mobXp or 0) + mobOf(q)
@@ -403,8 +416,8 @@ local function topUp(state, pool, ctx)
 					local loose = false
 					-- (on the way: little walking beyond the quest's own work, and inside the route - one
 					-- tacked on after its end only makes the route longer)
-					if not ok and ctx.loose and added <= math.min(looseMax, looseLeft) and added - qWork <= looseDetour
-						and firstPos and firstPos <= #state.route then
+					if not ok and looseHere and added <= math.min(looseCap, looseLeft) and added - qWork <= looseDetour
+						and (atGiver or (firstPos and firstPos <= #state.route)) then
 						ok = gain / math.max(1, added) >= rate0 * looseShare
 						loose = ok
 					end
@@ -830,7 +843,7 @@ standingAt = function(state, ctx)
 	-- it there (a trainer visit that waits for your level-up stays put - the others still move)
 	local at = {}
 	for _, e in ipairs(state.route) do
-		if e.stop.kind == "turnin" or e.stop.quest.isExtra then
+		if e.stop.kind == "turnin" or e.stop.kind == "pickup" or e.stop.quest.isExtra then
 			local d = ns.Geo.Distance(ctx.start, e.point)
 			if d and d <= atYards then at[#at + 1] = e end
 		end
