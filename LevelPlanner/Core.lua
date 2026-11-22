@@ -370,6 +370,20 @@ local function checkTrail()
 			return
 		end
 	end
+	-- walked up to a later turn-in / pick-up / extra stop (it wasn't this close when the plan was made):
+	-- re-plan now so it moves to the front (Planner standingAt) instead of waiting for the refresh
+	local atYards = cfg.hereTurninAtYards or 40
+	for i, e in ipairs(ns.plan.route or {}) do
+		if i > 1 and e.point and (e.stop.kind == "turnin" or e.stop.kind == "pickup" or e.stop.quest.isExtra) then
+			local d = ns.Geo.Distance(here, e.point)
+			local d0 = ns.Geo.Distance(origin, e.point)
+			if d and d <= atYards and not (d0 and d0 <= atYards) then
+				ns.dprint(string.format("now %d yd from step %d (%s) - re-planning", math.floor(d), i, e.stop.questName or e.stop.quest.name or "?"))
+				ns.RequestReplan(false)
+				return
+			end
+		end
+	end
 	if moved >= 50 and GetTime() - planMadeAt >= (cfg.refreshSeconds or 90) then
 		ns.RequestReplan(false) -- re-time the route from where you are now
 	end
