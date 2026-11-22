@@ -10,7 +10,7 @@
 --            on its last charge, Earth Shock to interrupt a cast, a totem out
 --            of range (its buff gone), no Ankh for Reincarnation.
 --   Rogue:   Eviscerate when your combo points will (nearly) kill, or you're at max.
---   Paladin: Seal of Righteousness missing or running out, no aura, no blessing on you, Judgement ready.
+--   Paladin: Seal of Righteousness missing or running out, no aura, no blessing on you, Judgement and Holy Strike ready.
 --   Everyone: gear badly damaged, running low on food (and water for hunters).
 -- Battle Shout running out (under 10 seconds) blinks in Zyde_Forever.lua.
 
@@ -961,6 +961,43 @@ if playerClass == "PALADIN" then
 		if not ready(JUDGEMENT_IDS) then return false end
 		if inRange(JUDGEMENT) == false then return false end -- (out of reach; can't tell: still show)
 		return true, "Judgement"
+	end)
+
+	-- Holy Strike ready (a Forever paladin spell, so found by name in your spellbook):
+	-- in a fight with an enemy targeted, castable, in reach, not already queued on your
+	-- next swing, and not cooling down. Your casts are tracked for its cooldown, as
+	-- Forever can hide cooldowns in a fight.
+	local strikeIds, strikeAt = nil, -math.huge
+	local function holyStrike()
+		if strikeIds then return strikeIds end
+		local info = C_Spell and C_Spell.GetSpellInfo and safe(C_Spell.GetSpellInfo, "Holy Strike")
+		local id = type(info) == "table" and plain(info.spellID)
+		if not id and GetSpellInfo then id = plain(select(7, safe(GetSpellInfo, "Holy Strike"))) end
+		if type(id) == "number" then strikeIds = { id } end
+		return strikeIds
+	end
+	local strikeEv = CreateFrame("Frame")
+	strikeEv:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	strikeEv:RegisterEvent("SPELLS_CHANGED")
+	strikeEv:SetScript("OnEvent", function(_, event, _, _, spellID)
+		if event == "SPELLS_CHANGED" then strikeIds = nil return end -- (a new rank: look it up again)
+		spellID = plain(spellID)
+		if spellID and spellName(spellID) == "Holy Strike" then strikeAt = GetTime() end
+	end)
+	local strikeTile
+	strikeTile = ns.AddReminder("holyStrike", "ZydeForeverHolyStrike", "Interface\\Icons\\Spell_Holy_Excorcism_02", function(preview)
+		if preview then return true, "Holy Strike" end
+		if not on() or not inCombat() or not hostileTarget() then return false end
+		local ids = holyStrike()
+		if not ids then return false end
+		local id = ids[1]
+		local ms = GetSpellBaseCooldown and plain(safe(GetSpellBaseCooldown, id))
+		if type(ms) == "number" and ms > 0 and GetTime() - strikeAt < ms / 1000 then return false end
+		if IsCurrentSpell and plain(safe(IsCurrentSpell, id)) then return false end -- (queued on your next swing)
+		if not ready(ids) then return false end
+		if inRange(id) == false then return false end
+		strikeTile.tex:SetTexture(ns.spellTexture(id, strikeTile.fallback))
+		return true, "Holy Strike"
 	end)
 end
 
