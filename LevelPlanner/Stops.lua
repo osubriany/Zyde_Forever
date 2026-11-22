@@ -298,7 +298,9 @@ local function objectiveStop(quest, od, remaining)
 		stop.mobs = {}
 		for _, id in ipairs(ids) do stop.mobs[id] = true end
 		local key = od.Type == "monster" and ("monster:" .. tostring(od.Id)) or ("killcredit:" .. tostring(od.RootId))
-		stop.work = need * E.UnitSeconds(key, E.KillSeconds(lvl, rank, mobName))
+		-- (only this mob's own learned pace: KillSeconds already has your general pace, scaled by the
+		-- mob's level - your average over other mobs would drop that)
+		stop.work = need * E.UnitSeconds(key, E.KillSeconds(lvl, rank, mobName), true)
 		stop.refLevel, stop.refRank = lvl, rank
 		stop.mobXp = need * E.MobXP(lvl, rank)
 		stop.mobLevel, stop.mobRank = lvl, rank -- (the planner re-prices the kills after a level-up)
@@ -442,7 +444,7 @@ fixStop = function(quest, fo, index, remaining)
 		for _, id in ipairs(ids) do stop.mobs[id] = true end
 		if fo.kind == "kill" then
 			local need = remaining or fo.count or countFromText(quest.texts, fo.name, cfg.defaultKillCount or 8)
-			stop.work = need * E.UnitSeconds(key, E.KillSeconds(lvl, rank, fo.name))
+			stop.work = need * E.UnitSeconds(key, E.KillSeconds(lvl, rank, fo.name), true)
 			stop.mobXp = need * E.MobXP(lvl, rank)
 			stop.mobLevel, stop.mobRank = lvl, rank -- (the planner re-prices the kills after a level-up)
 			stop.label = string.format("Kill %d %s", need, fo.name or "mobs")
@@ -451,7 +453,10 @@ fixStop = function(quest, fo, index, remaining)
 			-- a quest item from these mobs: drop rate unknown, so the usual default
 			local need = remaining or fo.count or cfg.defaultItemCount or 6
 			local kills = math.ceil(need / math.max(cfg.defaultDropRate or 0.5, 0.05))
-			stop.work = need * E.UnitSeconds(key, kills * E.KillSeconds(lvl, rank, fo.name) / need)
+			local killSecs = E.KillSeconds(lvl, rank, fo.name)
+			stop.work = need * E.UnitSeconds(key, kills * killSecs / need, true)
+			-- (kill XP only for the kills that fit in that time, as for Questie's item drops)
+			kills = math.max(need, math.min(kills, math.ceil(stop.work / math.max(1, killSecs))))
 			stop.mobXp = kills * E.MobXP(lvl, rank)
 			stop.mobLevel, stop.mobRank = lvl, rank -- (the planner re-prices the kills after a level-up)
 			stop.label = string.format("Collect %d from %s (~%d kills)", need, fo.name or "mobs", kills)
@@ -468,7 +473,7 @@ fixStop = function(quest, fo, index, remaining)
 	elseif fo.kind == "objects" then
 		-- click / loot things lying around (herbs, crates)
 		local need = remaining or fo.count or countFromText(quest.texts, fo.name, cfg.defaultObjectCount or 4)
-		stop.work = need * E.UnitSeconds(key, cfg.objectSeconds or 12)
+		stop.work = need * E.UnitSeconds(key, cfg.objectSeconds or 12, true) -- ("type:fix" mixes kills, loot and clicks)
 		stop.label = string.format("Collect %d %s", need, fo.name or "objects")
 		stop.need = need
 	else

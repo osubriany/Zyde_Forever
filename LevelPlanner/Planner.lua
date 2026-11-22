@@ -103,7 +103,9 @@ end
 -- Work time a stop adds after the previous one. Two objectives right next to each other that need
 -- the same mobs are done together: the kills count for both, so only the longer one's time counts.
 -- run = the longest work time in the current "together" group.
-local function addedWork(prevEntry, e, run, start)
+-- rate (search only, XP per second): those shared kills give their XP once, not to both quests, so
+-- the XP counted twice is charged back as the time it would take to earn at this rate.
+local function addedWork(prevEntry, e, run, start, rate)
 	-- (an area of higher-level mobs takes longer: point.workFactor, Stops.lua)
 	local w = (e.stop.work or 0) * (e.point.workFactor or 1)
 	if not prevEntry then
@@ -117,7 +119,14 @@ local function addedWork(prevEntry, e, run, start)
 	if prevEntry then
 		local d = ns.Geo.Distance(prevEntry.point, e.point)
 		if d and d <= (ns.cfg.overlapYards or 60) and sharesMobs(prevEntry.stop, e.stop) then
-			return math.max(0, w - run), math.max(run, w)
+			local charge = 0
+			local mx = (e.stop.mobXp or 0) * (e.point.xpFactor or 1)
+			-- (no route rate known yet: this stop's own kill rate, i.e. the shared kills save nothing)
+			if rate and mx > 0 and w > 0 then
+				local r = rate > 0 and rate or mx / w
+				charge = mx * math.min(1, run / w) / r
+			end
+			return math.max(0, w - run) + charge, math.max(run, w)
 		end
 		-- another objective in the same camp: you're already there, so "finding the spot"
 		-- (objectiveOverheadSeconds) is counted once, not again for each objective
@@ -141,7 +150,7 @@ local function routeSeconds(route, ctx)
 	local need, xp, speed, pool = ctx.mountSpeed and ctx.toDing, 0, nil, ctx.rested
 	for _, e in ipairs(route) do
 		local w
-		w, run = addedWork(prevEntry, e, run, ctx.start)
+		w, run = addedWork(prevEntry, e, run, ctx.start, ctx.xpRate or 0)
 		local leg = speed and prev and ns.Travel.Seconds(prev, e.point, speed) or travel(prev, e.point)
 		if h and leg > hs and t >= h.readyIn then
 			local s = leg - hs - travel(h.point, e.point)
@@ -926,6 +935,8 @@ function P.Plan(candidates, previous, opts)
 		bagFree = ns.QuestSource.FreeBagSlots() - (cfg.bagReserveSlots or 2),
 		level = ns.playerLevel and ns.playerLevel() or 1,
 		hearthSecs = cfg.hearthSeconds or 45,
+		-- the current plan's XP per second: what XP counted twice is worth in time (addedWork)
+		xpRate = (ns.plan and (ns.plan.rate or 0) > 0) and ns.plan.rate / 60 or 0,
 		now = GetServerTime and GetServerTime() or nil, -- (for quests offered only now and then)
 		-- rested XP: kills give double until it's used up (counted in route value and level-ups)
 		rested = (cfg.plannerRested ~= false and ns.Estimate and ns.Estimate.RestedPool) and ns.Estimate.RestedPool() or 0,

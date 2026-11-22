@@ -174,6 +174,9 @@ local function explainOne(id)
 			else
 				say(string.format("  Considered, but slower than what's planned: ~%s XP/min on its own against the plan's ~%s.",
 					ns.short(r.rate * 60), ns.short(planRate)))
+				-- what it would really cost slotted into the route (on its own it counts the whole walk)
+				local ok, lines = pcall(ns.Planner.Diagnose, id)
+				if ok then for _, l in ipairs(lines or {}) do say(l) end end
 			end
 		elseif inLog then
 			say("  It's in your log but not in this hour's plan - it's further away or slower than the planned quests.")
