@@ -57,11 +57,35 @@ local function fixEmpty(button)
 	button:SetAlpha((has or dragging) and 1 or 0)
 end
 
+-- Main bar dividers: the game draws a thin line between the main bar's slots. They belong to the
+-- bar, not the buttons, so they stayed visible over empty (invisible) slots. Hide them like the slots.
+local function mainBar() return MainActionBar or MainMenuBar end
+local function setDividerAlpha(d, a)
+	if not d or not d.SetAlpha then return end
+	if d.IsProtected and d:IsProtected() and InCombatLockdown() then return end
+	d:SetAlpha(a)
+end
+local function fixDividers()
+	local a = (barsOn() and not dragging) and 0 or 1
+	local bar = mainBar()
+	if bar and bar.dividersPool and bar.dividersPool.EnumerateActive then
+		for d in bar.dividersPool:EnumerateActive() do setDividerAlpha(d, a) end
+	end
+	for i = 1, 12 do
+		local b = _G["ActionButton" .. i]
+		if b then
+			setDividerAlpha(b.RightDivider, a)
+			setDividerAlpha(b.BottomDivider, a)
+		end
+	end
+end
+
 local function updateAll()
 	eachButton(function(b)
 		fixHotkey(b)
 		fixEmpty(b)
 	end)
+	fixDividers()
 end
 
 local hooked = {}
@@ -74,6 +98,12 @@ local function hookButtons()
 		if b.Update then hooksecurefunc(b, "Update", fixEmpty) end
 	end)
 	if ActionButton_UpdateHotkeys then hooksecurefunc("ActionButton_UpdateHotkeys", fixHotkey) end
+	-- The game rebuilds the dividers when the bar's layout changes (Edit Mode, padding, rows).
+	local bar = mainBar()
+	if bar and bar.UpdateDividers and not hooked[bar] then
+		hooked[bar] = true
+		hooksecurefunc(bar, "UpdateDividers", fixDividers)
+	end
 end
 
 local barEv = CreateFrame("Frame")
