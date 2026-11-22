@@ -730,9 +730,8 @@ end
 ---------------------------------------------------------------------------
 -- Paladin: Seal of Righteousness missing (in a fight, or with an enemy targeted),
 -- or under 3 seconds left in a fight. Quiet while any other seal is up (you chose it).
--- A seal lasts 30 seconds and Judgement uses it up. Forever can hide your buffs in a
--- fight, so your own casts are tracked too: a seal cast starts the 30 seconds, a
--- Judgement ends them.
+-- A seal lasts 30 seconds (on Forever, Judgement does not use it up). Forever can hide
+-- your buffs in a fight, so your own casts are tracked too: a seal cast starts the 30 seconds.
 ---------------------------------------------------------------------------
 if playerClass == "PALADIN" then
 	-- (Rank 1 is 20154 on Classic clients, 21084 on some others: both listed)
@@ -757,7 +756,6 @@ if playerClass == "PALADIN" then
 	ev:SetScript("OnEvent", function(_, _, _, _, spellID)
 		spellID = plain(spellID)
 		if not spellID then return end
-		if spellID == JUDGEMENT then sealExpires = 0 return end
 		local name = spellName(spellID)
 		if isSeal(name) then
 			sealExpires = GetTime() + SEAL_TIME
