@@ -393,6 +393,7 @@ local function objectiveStop(quest, od, remaining)
 		local name = od.Text or QS.Object(od.Id, "name") or "objects"
 		local need = remaining or countFromText(quest.texts, QS.Object(od.Id, "name") or name, cfg.defaultObjectCount or 4)
 		points = objectPoints({ od.Id })
+		stop.gather = true -- (picked up on the ground: done in the gaps while killing nearby, Planner addedWork)
 		stop.work = need * E.UnitSeconds("object:" .. tostring(od.Id), cfg.objectSeconds or 12)
 		stop.label = string.format("Use %d %s", need, name)
 		stop.need = need
@@ -450,6 +451,7 @@ local function objectiveStop(quest, od, remaining)
 			if bought then return bought end
 		elseif type(objs) == "table" and #objs > 0 then
 			points = objectPoints(objs)
+			stop.gather = true
 			-- picked up from the ground: learned apart from mob drops (see Learn.lua)
 			stop.work = need * E.UnitSeconds("itempick:" .. tostring(od.Id), cfg.objectSeconds or 12)
 			stop.label = string.format("Collect %d %s", need, itemName)

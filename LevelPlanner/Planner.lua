@@ -134,6 +134,13 @@ local function addedWork(prevEntry, e, run, start, rate)
 		if d and d <= (ns.cfg.sameCampYards or 200)
 			and prevEntry.stop.kind == "objective" and e.stop.kind == "objective" then
 			w = math.max(0, w - (ns.cfg.objectiveOverheadSeconds or 45))
+			-- picking things off the ground among mobs you're killing: you walk the area anyway, so
+			-- part of the shorter one's time is shared (Doom Weed among the Graverobbers)
+			local a, b = prevEntry.stop, e.stop
+			if (a.gather and b.mobs) or (b.gather and a.mobs) then
+				local pw = (a.work or 0) * (prevEntry.point.workFactor or 1)
+				w = math.max(0, w - math.min(w, pw) * (ns.cfg.gatherAmongKillsShare or 0.5))
+			end
 		end
 	end
 	return w, w
@@ -383,6 +390,30 @@ local function topUp(state, pool, ctx)
 	local rate0 = worth(state, ctx) / math.max(60, state.total) -- (loose bar: the route as it was)
 	local looseLeft = cfg.looseMaxTotalSeconds or 600            -- (and loose picks add this much at most)
 	local looseDetour = cfg.looseDetourSeconds or 60
+	-- the route's kill stops near you (the quest you're standing in): a quest in your log whose
+	-- ground pick-ups are among them is "here" too, like a giver you're standing at
+	local killsHere = {}
+	local camp = cfg.sameCampYards or 200
+	if ctx.start then
+		for _, e in ipairs(state.route) do
+			local d = e.stop.mobs and ns.Geo.Distance(ctx.start, e.point)
+			if d and d <= camp then killsHere[#killsHere + 1] = e.point end
+		end
+	end
+	local function gatherHere(q)
+		if #killsHere == 0 or q.stops[1] and q.stops[1].kind == "pickup" then return false end
+		for _, s in ipairs(q.stops) do
+			if s.gather then
+				for _, p in ipairs(s.points or {}) do
+					for _, k in ipairs(killsHere) do
+						local d = ns.Geo.Distance(k, p)
+						if d and d <= camp then return true end
+					end
+				end
+			end
+		end
+		return false
+	end
 	local changed = true
 	while changed do
 		changed = false
@@ -403,6 +434,8 @@ local function topUp(state, pool, ctx)
 						if d and d <= (cfg.hereTurninAtYards or 40) then atGiver = true break end
 					end
 				end
+				-- (or a quest in your log whose ground pick-ups are among the mobs you're killing here)
+				if not atGiver and r and gatherHere(q) then atGiver = true end
 				local looseHere = ctx.loose or atGiver
 				-- (at the giver: up to Config.overHorizonSeconds, like a quest that speeds the route up)
 				local looseCap = atGiver and math.max(looseMax, maxExtra) or looseMax
@@ -1333,6 +1366,24 @@ function P.Diagnose(questId)
 			math.floor(added), math.max(cfg.looseMaxSeconds or 180, cfg.overHorizonSeconds or 300),
 			math.floor(added - qWork), math.max(cfg.looseDetourSeconds or 60, cfg.giverDetourSeconds or 120),
 			math.floor(qRate / math.max(1, planRate) * 100), math.floor((cfg.giverMinShare or 0.3) * 100))
+	elseif first then
+		-- a quest in your log with ground pick-ups: are they among the route's kills where you are?
+		local camp, gd = ns.cfg.sameCampYards or 200, nil
+		for _, e in ipairs(state.route) do
+			local here = e.stop.mobs and ctx.start and ns.Geo.Distance(ctx.start, e.point)
+			if here and here <= camp then
+				for _, s in ipairs(q.stops) do
+					for _, p in ipairs(s.gather and s.points or {}) do
+						local d = ns.Geo.Distance(e.point, p)
+						if d and (not gd or d < gd) then gd = d end
+					end
+				end
+			end
+		end
+		if gd then
+			out[#out + 1] = string.format("  Gather-here rule: its pick-ups are %d yd from a kill step near you (needs %d); then it's taken like a quest at its giver.",
+				math.floor(gd), camp)
+		end
 	end
 	return out
 end

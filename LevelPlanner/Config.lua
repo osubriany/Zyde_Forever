@@ -122,6 +122,7 @@ LevelPlannerConfig = {
 	killShareLessPerLevelBelow = 0.07, -- each level a mob is below you makes it this much quicker (7%)
 	killFloorShare = 0.35,      -- ...but a kill never takes less than this share of the normal time
 	objectSeconds = 12,         -- using / looting one object
+	gatherAmongKillsShare = 0.5, -- ground pick-ups next to a kill objective: this share of the shorter one's time is shared
 	eventSeconds = 20,          -- explore / reach-a-place objectives once you are there
 	defaultDropRate = 0.5,      -- chance a quest item drops when Questie has no rate (0-1)
 	-- Quest items no mob drops (crafted, sold): buy them. A vendor Questie knows sells it comes
