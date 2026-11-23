@@ -123,6 +123,16 @@ LevelPlannerConfig = {
 	killFloorShare = 0.35,      -- ...but a kill never takes less than this share of the normal time
 	objectSeconds = 12,         -- using / looting one object
 	gatherAmongKillsShare = 0.5, -- ground pick-ups next to a kill objective: this share of the shorter one's time is shared
+	-- along the way: a kill / gather step among other quests' steps is partly done in passing
+	alongTheWay = true,
+	wayYards = 150,             -- another quest's step this close to its mobs / pick-ups is a neighbour
+	wayPerNeighbour = 0.1,      -- each neighbour quest in the route takes this share off its work...
+	wayMaxShare = 0.3,          -- ...up to this much
+	wayMaxShareRoam = 0.5,      -- ...or this much for mobs that roam the whole zone (Duskbats)
+	waySpreadPoints = 16,       -- spawn points sampled per step to find its neighbours
+	roamSpawnCount = 60,        -- a mob with this many spawns roams the zone
+	roamMaxAreas = 10,          -- places offered for roaming mobs (others: maxAreasPerObjective), so one is on your path
+	roamHereNeighbours = 3,     -- a quest in your log whose roaming mobs are among this many route quests counts as "here"
 	eventSeconds = 20,          -- explore / reach-a-place objectives once you are there
 	defaultDropRate = 0.5,      -- chance a quest item drops when Questie has no rate (0-1)
 	-- Quest items no mob drops (crafted, sold): buy them. A vendor Questie knows sells it comes

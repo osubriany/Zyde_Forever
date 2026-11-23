@@ -82,7 +82,7 @@ end
 -- its mobs' average level (area.level), and areas are chosen by count x how well that level suits
 -- you - a camp of your level beats a bigger one four levels above you. here: your position; the
 -- camp you're standing in is always one of the areas (so "you're there" counts).
-local function clusterAreas(points, here, byLevel)
+local function clusterAreas(points, here, byLevel, maxAreas)
 	local cfg = ns.cfg
 	local radius = cfg.clusterRadius or 120
 	local r2 = radius * radius
@@ -142,7 +142,7 @@ local function clusterAreas(points, here, byLevel)
 		end
 	end
 
-	for _ = #areas + 1, (cfg.maxAreasPerObjective or 4) do
+	for _ = #areas + 1, maxAreas or (cfg.maxAreasPerObjective or 4) do
 		local best, bestScore, bestN, bestLevel = nil, 0, 0, nil
 		for i in ipairs(pts) do
 			if not used[i] then
@@ -487,7 +487,18 @@ local function objectiveStop(quest, od, remaining)
 	end
 
 	if not points or #points == 0 then return nil, "no location for objective" end
-	stop.points = clusterAreas(points, ns.Geo.PlayerPoint and ns.Geo.PlayerPoint(), stop.refLevel ~= nil)
+	-- along the way (Planner wayNeighbours): a sample of where its mobs / pick-ups are, to see which other
+	-- quests' steps lie among them. Mobs that roam the whole zone (Duskbats: ~250 spawns across Tirisfal)
+	-- get more places to choose from, so the route finds one on its path instead of a detour.
+	local roam = #points >= (cfg.roamSpawnCount or 60)
+	if (stop.mobs and (stop.mobXp or 0) > 0) or stop.gather then
+		local n, spread = cfg.waySpreadPoints or 16, {}
+		local step = math.max(1, #points / n)
+		for i = 1, math.min(n, #points) do spread[i] = points[math.floor((i - 1) * step) + 1] end
+		stop.spread, stop.roam = spread, roam or nil
+	end
+	stop.points = clusterAreas(points, ns.Geo.PlayerPoint and ns.Geo.PlayerPoint(), stop.refLevel ~= nil,
+		roam and (cfg.roamMaxAreas or 10) or nil)
 	-- mobs of different levels in different areas (5 kinds of basilisk drop Singing Crystal Shards):
 	-- each area priced by its own mobs
 	if stop.refLevel then

@@ -101,14 +101,84 @@ local function sharesMobs(a, b)
 	return false
 end
 
+-- Along the way. A kill / gather step whose mobs or pick-ups lie among the steps of other quests
+-- (stop.wayNb, worked out once per plan by P.WayNeighbours) is partly done in passing: on the way to
+-- those steps and while doing them you meet its mobs anyway. Each such quest that's in the route
+-- takes Config.wayPerNeighbour off its work, up to wayMaxShare - or wayMaxShareRoam for mobs that roam
+-- the whole zone (Duskbats). Quests that need the same mobs are left to the overlap rule (addedWork).
+function P.WayShare(stop, inRoute)
+	local nb = inRoute and stop.wayNb
+	if not nb then return 0 end
+	local n = 0
+	for q in pairs(nb) do
+		if inRoute[q] then n = n + 1 end
+	end
+	if n == 0 then return 0 end
+	local cfg = ns.cfg
+	local max = stop.roam and (cfg.wayMaxShareRoam or 0.5) or (cfg.wayMaxShare or 0.3)
+	return math.min(max, n * (cfg.wayPerNeighbour or 0.1))
+end
+
+-- Sets stop.wayNb on every kill / gather step of the pool: the other quests with a step within
+-- Config.wayYards of its mobs or pick-ups (Stops.lua stop.spread). A grid keeps it quick.
+function P.WayNeighbours(pool)
+	local cfg = ns.cfg
+	local yards = cfg.wayYards or 150
+	local grid = {}
+	local function key(p, dx, dy)
+		return tostring(p.inst) .. ":" .. (math.floor(p.wx / yards) + dx) .. ":" .. (math.floor(p.wy / yards) + dy)
+	end
+	for _, q in ipairs(pool) do
+		for _, s in ipairs(q.stops) do
+			for _, p in ipairs(s.points or {}) do
+				if p.wx and p.wy then
+					local k = key(p, 0, 0)
+					local cell = grid[k]
+					if not cell then cell = {} grid[k] = cell end
+					cell[#cell + 1] = { p = p, q = q, s = s }
+				end
+			end
+		end
+	end
+	local any = false
+	for _, q in ipairs(pool) do
+		ns.Check()
+		for _, s in ipairs(q.stops) do
+			s.wayNb = nil
+			if s.spread then
+				local nb, n = {}, 0
+				for _, p in ipairs(s.spread) do
+					if p.wx and p.wy then
+						for dx = -1, 1 do
+							for dy = -1, 1 do
+								for _, c in ipairs(grid[key(p, dx, dy)] or {}) do
+									if c.q ~= q and not nb[c.q] and not sharesMobs(s, c.s) then
+										local d = ns.Geo.Distance(p, c.p)
+										if d and d <= yards then nb[c.q], n = true, n + 1 end
+									end
+								end
+							end
+						end
+					end
+				end
+				if n > 0 then s.wayNb, any = nb, true end
+			end
+		end
+	end
+	return any
+end
+
 -- Work time a stop adds after the previous one. Two objectives right next to each other that need
 -- the same mobs are done together: the kills count for both, so only the longer one's time counts.
 -- run = the longest work time in the current "together" group.
 -- rate (search only, XP per second): those shared kills give their XP once, not to both quests, so
 -- the XP counted twice is charged back as the time it would take to earn at this rate.
-local function addedWork(prevEntry, e, run, start, rate)
+local function addedWork(prevEntry, e, run, start, rate, inRoute)
 	-- (an area of higher-level mobs takes longer: point.workFactor, Stops.lua)
 	local w = (e.stop.work or 0) * (e.point.workFactor or 1)
+	-- along the way: other quests of the route have steps among its mobs / pick-ups, so part of it is
+	-- done in passing, on the way to and while doing those (wayNeighbours, P.Plan)
+	w = w * (1 - P.WayShare(e.stop, inRoute))
 	if not prevEntry then
 		-- the first stop is an objective in the camp you're standing in: you've already found it
 		local d = start and e.stop.kind == "objective" and ns.Geo.Distance(start, e.point)
@@ -154,11 +224,16 @@ end
 --    (ctx.mountSpeed). Flights, boats and zeppelins you know are in travel() already.
 local function routeSeconds(route, ctx)
 	local t, prev, prevEntry, run = 0, ctx.start, nil, 0
+	local inRoute
+	if ctx.wayOn then
+		inRoute = {}
+		for _, e in ipairs(route) do inRoute[e.stop.quest] = true end
+	end
 	local h, hs, save = ctx.hearth, ctx.hearthSecs or 45, 0
 	local need, xp, speed, pool = ctx.mountSpeed and ctx.toDing, 0, nil, ctx.rested
 	for _, e in ipairs(route) do
 		local w
-		w, run = addedWork(prevEntry, e, run, ctx.start, ctx.xpRate or 0)
+		w, run = addedWork(prevEntry, e, run, ctx.start, ctx.xpRate or 0, inRoute)
 		local leg = speed and prev and ns.Travel.Seconds(prev, e.point, speed) or travel(prev, e.point)
 		if h and leg > hs and t >= h.readyIn then
 			local s = leg - hs - travel(h.point, e.point)
@@ -401,9 +476,15 @@ local function topUp(state, pool, ctx)
 		end
 	end
 	local function gatherHere(q)
-		if #killsHere == 0 or q.stops[1] and q.stops[1].kind == "pickup" then return false end
+		if q.stops[1] and q.stops[1].kind == "pickup" then return false end
 		for _, s in ipairs(q.stops) do
-			if s.gather then
+			-- (mobs that roam the zone, among several of the route's quests: killed on the way to them)
+			if s.roam and s.wayNb then
+				local n = 0
+				for nq in pairs(s.wayNb) do if routeSet[nq] then n = n + 1 end end
+				if n >= (cfg.roamHereNeighbours or 3) then return true end
+			end
+			if s.gather and #killsHere > 0 then
 				for _, p in ipairs(s.points or {}) do
 					for _, k in ipairs(killsHere) do
 						local d = ns.Geo.Distance(k, p)
@@ -414,9 +495,12 @@ local function topUp(state, pool, ctx)
 		end
 		return false
 	end
+	local routeSet
 	local changed = true
 	while changed do
 		changed = false
+		routeSet = {}
+		for _, e in ipairs(state.route) do routeSet[e.stop.quest] = true end
 		local best, bestR, bestT, bestRate, bestLoose
 		local rate = worth(state, ctx) / math.max(60, state.total)
 		for _, q in ipairs(pool) do
@@ -983,6 +1067,11 @@ end
 local function finalize(state, ctx)
 	local cfg = ns.cfg
 	local route, start = state.route, ctx.start
+	local wayIn -- (the along-the-way share, as routeSeconds counts it)
+	if ctx.wayOn then
+		wayIn = {}
+		for _, e in ipairs(route) do wayIn[e.stop.quest] = true end
+	end
 	local hearthSecs = cfg.hearthSeconds or 45
 	-- level-up on the way: legs after it are ridden when it reaches your mount level (as in routeSeconds)
 	local ding = dingIndex(route, ctx)
@@ -1087,7 +1176,7 @@ local function finalize(state, ctx)
 		if dingsAt[idx] then view.dingTo = dingsAt[idx] end
 		keys[#keys + 1] = { key = e.stop.key, wx = e.point.wx, wy = e.point.wy, inst = e.point.inst }
 		local w
-		w, run = addedWork(prevEntry, e, run, start)
+		w, run = addedWork(prevEntry, e, run, start, nil, wayIn)
 		t = t + w
 		prev, prevEntry = e.point, e
 	end
@@ -1190,6 +1279,8 @@ function P.Plan(candidates, previous, opts)
 		end
 	end
 	ctx.pool = pool -- (escortFirst looks here for an escort you have started)
+	-- which kill / gather steps lie among other quests' steps (along the way: P.WayShare)
+	ctx.wayOn = cfg.alongTheWay ~= false and P.WayNeighbours(pool) or nil
 
 	-- grinding is filler only: it can take time the quests leave empty, never replace them
 	local grind = {}
@@ -1328,9 +1419,22 @@ function P.Diagnose(questId)
 	local state, ctx = last.state, last.ctx
 	if state.used[q] then return { "  It's in the route." } end
 	local out = {}
+	local inRoute = {}
+	for _, e in ipairs(state.route) do inRoute[e.stop.quest] = true end
 	for _, s in ipairs(q.stops) do
-		out[#out + 1] = string.format("  step: %s - %ds work, %d place(s)%s", s.label or s.key, math.floor(s.work or 0),
-			#(s.points or {}), (s.bagDelta or 0) ~= 0 and string.format(", bags %+d", s.bagDelta) or "")
+		-- (along the way: how many quests of the route have steps among its mobs, and the time that saves)
+		local way = ""
+		if s.wayNb then
+			local n, total = 0, 0
+			for nq in pairs(s.wayNb) do
+				total = total + 1
+				if inRoute[nq] then n = n + 1 end
+			end
+			way = string.format(", along the way: %d of %d nearby quests in the route, -%d%%%s", n, total,
+				math.floor(P.WayShare(s, inRoute) * 100), s.roam and " (roams the zone)" or "")
+		end
+		out[#out + 1] = string.format("  step: %s - %ds work, %d place(s)%s%s", s.label or s.key, math.floor(s.work or 0),
+			#(s.points or {}), (s.bagDelta or 0) ~= 0 and string.format(", bags %+d", s.bagDelta) or "", way)
 	end
 	failWhy = nil
 	local r, t = insertQuest(state.route, q, ctx)
