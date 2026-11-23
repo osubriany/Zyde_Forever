@@ -1116,6 +1116,31 @@ local function finalize(state, ctx)
 		end
 	end
 
+	-- on the way (the step list's "On the way" section): a step for mobs that roam the zone among the
+	-- route's other quests is done in passing, not at its place in the order - it's listed apart, gets
+	-- no travel steps of its own, and the arrow skips it. Once nothing else is left before its turn-in,
+	-- it's a normal step again ("finish it now").
+	local wayIdx = {}
+	if wayIn and cfg.onWayList ~= false then
+		for idx, e in ipairs(route) do
+			if e.stop.kind == "objective" and e.stop.roam and not hearthLegs[idx] and P.WayShare(e.stop, wayIn) > 0 then
+				wayIdx[idx] = true
+			end
+		end
+		-- (its own quest's other steps - buy the thread - don't count as "something else first")
+		local finish = {}
+		for idx in pairs(wayIdx) do
+			local q = route[idx].stop.quest
+			for j = idx + 1, #route do
+				local sj = route[j].stop
+				if sj.quest == q and sj.kind == "turnin" then finish[idx] = true break end
+				if not wayIdx[j] and sj.quest ~= q then break end
+			end
+		end
+		for idx in pairs(finish) do wayIdx[idx] = nil end
+	end
+	local onWay = {}
+
 	local steps, keys = {}, {}
 	local xpAdj = 0
 	local arrived = (cfg.arrivedYards or 15) * 2
@@ -1128,13 +1153,14 @@ local function finalize(state, ctx)
 	end
 	for idx, e in ipairs(route) do
 		local from = prev
+		local way = wayIdx[idx]
 		if hearthLegs[idx] then
 			steps[#steps + 1] = { kind = "travel", mode = "hearth", label = "Use your hearthstone (" .. hearth.name .. ")",
 				point = prev, work = hearthSecs, arrive = t, mobXp = 0 }
 			t = t + hearthSecs
 			from = hearth.point
 		end
-		for _, leg in ipairs(ns.Travel.Legs(from, e.point)) do
+		for _, leg in ipairs(way and {} or ns.Travel.Legs(from, e.point)) do
 			local d = ns.Geo.Distance(leg.point, from)
 			-- a crossing you're already standing at is no step
 			if not ((leg.mode == "pass" or leg.mode == "border") and d and d <= arrived) then
@@ -1142,7 +1168,7 @@ local function finalize(state, ctx)
 					work = leg.seconds, mobXp = 0, to = leg.to }
 			end
 		end
-		t = t + legSeconds(idx, from, e.point)
+		if not way then t = t + legSeconds(idx, from, e.point) end
 		-- the giver of a now-and-then quest isn't there yet: wait for him
 		local wait = e.stop.quest.timedFrom and timedWait(e.stop, t, ctx) or 0
 		if wait > 0 and wait < MISSED then
@@ -1154,7 +1180,7 @@ local function finalize(state, ctx)
 		e.arrive = t
 		-- a per-plan view of the stop (the stop itself is shared between the plans being compared)
 		local view = setmetatable({ point = e.point, arrive = t }, { __index = e.stop })
-		steps[#steps + 1] = view
+		if way then onWay[#onWay + 1] = view else steps[#steps + 1] = view end
 		-- kills in this area: its own mobs' level (Stops.lua: point.xpFactor, point.level)
 		local mx = e.stop.mobXp or 0
 		if mx > 0 and e.point.xpFactor then
@@ -1178,7 +1204,9 @@ local function finalize(state, ctx)
 		local w
 		w, run = addedWork(prevEntry, e, run, start, nil, wayIn)
 		t = t + w
-		prev, prevEntry = e.point, e
+		-- (an on-the-way step has no place in the order: the next step's travel starts where you were)
+		if not way then prev = e.point end
+		prevEntry = e
 	end
 
 	local xp = state.xp + xpAdj
@@ -1186,11 +1214,13 @@ local function finalize(state, ctx)
 	-- step list adds it to what it shows from the live pool (Estimate.RestedBonus, same rule)
 	local kills = 0
 	for _, s in ipairs(steps) do kills = kills + (s.mobXp or 0) end
+	for _, s in ipairs(onWay) do kills = kills + (s.mobXp or 0) end
 	local rested = restedWorth(kills, ctx)
 	local w = (state.value or state.xp) + xpAdj * (cfg.mobXpWeight or 1) + rested
 	local bonus = endBonus(route, ctx, w)
 	return {
 		stops = steps,
+		onWay = onWay,                                        -- steps done in passing (listed apart)
 		keys = keys,
 		route = route,
 		xp = xp,                                              -- real XP, shown in the list (rested not included)

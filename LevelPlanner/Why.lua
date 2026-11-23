@@ -99,6 +99,13 @@ local function explainOne(id)
 	if ns.skipped[id] then say("  You skipped it with /lp next. /lp reset brings it back.") return end
 
 	local idx, s, dungeon = stepOf(id)
+	-- a step done in passing (the step list's "On the way" section)
+	for _, w in ipairs(not idx and ns.plan and ns.plan.onWay or {}) do
+		if w.questId == id then
+			say(string.format("  In the plan, on the way: %s - its mobs roam among the route's other quests, so you kill them in passing (the \"On the way\" section).", w.label or "?"))
+			return
+		end
+	end
 	if idx then
 		if dungeon then
 			say(string.format("  Planned as part of %s (step %d).", dungeon.name, idx))

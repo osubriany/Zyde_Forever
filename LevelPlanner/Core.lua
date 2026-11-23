@@ -316,17 +316,22 @@ function ns.DropFinished(questId, index, reason, R)
 		objDone = o and o.finished and true or false
 		if not objDone then return end
 	end
-	local kept, dropped = {}, false
-	for _, s in ipairs(plan.stops) do
-		local id = s.questId or (s.quest and s.quest.id)
-		local drop = id == questId and (
-			(reason == R.QUEST_ACCEPTED and s.kind == "pickup")
-			or reason == R.QUEST_TURNED_IN or reason == R.QUEST_ABANDONED
-			or (objDone and s.kind == "objective" and s.objIndex == index))
-		if drop then dropped = true else kept[#kept + 1] = s end
+	local dropped = false
+	local function keep(list)
+		local kept = {}
+		for _, s in ipairs(list or {}) do
+			local id = s.questId or (s.quest and s.quest.id)
+			local drop = id == questId and (
+				(reason == R.QUEST_ACCEPTED and s.kind == "pickup")
+				or reason == R.QUEST_TURNED_IN or reason == R.QUEST_ABANDONED
+				or (objDone and s.kind == "objective" and s.objIndex == index))
+			if drop then dropped = true else kept[#kept + 1] = s end
+		end
+		return kept
 	end
+	local stops, onWay = keep(plan.stops), keep(plan.onWay) -- (and the "On the way" steps)
 	if not dropped then return end
-	plan.stops = kept
+	plan.stops, plan.onWay = stops, onWay
 	ns.OnPlanReady(plan)
 end
 
@@ -433,10 +438,21 @@ end
 function ns.CurrentStepMobs()
 	local stops = ns.plan and ns.plan.stops
 	if not stops then return nil end
+	local mobs
 	for i = 1, math.min(#stops, 3) do
-		if stops[i].mobs and next(stops[i].mobs) then return stops[i].mobs end
+		if stops[i].mobs and next(stops[i].mobs) then mobs = stops[i].mobs break end
 	end
-	return nil
+	-- and the mobs you kill on the way (the step list's "On the way" section)
+	local onWay = ns.plan.onWay
+	if onWay and #onWay > 0 then
+		local all = {}
+		for id in pairs(mobs or {}) do all[id] = true end
+		for _, s in ipairs(onWay) do
+			for id in pairs(s.mobs or {}) do all[id] = true end
+		end
+		if next(all) then return all end
+	end
+	return mobs
 end
 
 function ns.OnPlanReady(plan)

@@ -500,6 +500,29 @@ end
 local DIV_H = 16
 local dividers = {}
 
+-- "On the way": steps done in passing (mobs that roam among the route's other quests, Planner
+-- finalize plan.onWay). One compact line each - icon, what, which quest, live count - above the
+-- numbered steps: there's no one place to go for them, so they have no row, travel or arrow.
+local WAY_H = 16
+local wayLines = {}
+local function wayLine(i)
+	if wayLines[i] then return wayLines[i] end
+	local w = CreateFrame("Frame", nil, list)
+	w:SetSize(WIDTH - PAD * 2, WAY_H)
+	w.icon = w:CreateTexture(nil, "ARTWORK")
+	w.icon:SetSize(13, 13)
+	w.icon:SetPoint("LEFT", 10, 0)
+	w.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	w.count = fontString(w, "GameFontNormalSmall", C_XP[1], C_XP[2], C_XP[3], "RIGHT")
+	w.count:SetPoint("RIGHT", -4, 0)
+	w.text = fontString(w, "GameFontHighlightSmall")
+	w.text:SetPoint("LEFT", w.icon, "RIGHT", 6, 0)
+	w.text:SetPoint("RIGHT", w.count, "LEFT", -6, 0)
+	w.text:SetWordWrap(false)
+	wayLines[i] = w
+	return w
+end
+
 -- "--- Westfall ---": a thin line with the zone name, between rows when the route changes zone.
 -- The same in gold, "--- Level 35 ---", where the plan says you'll level up.
 local function styleDivider(d, level)
@@ -548,8 +571,9 @@ function L.Update(plan)
 	local newPlan = plan ~= lastPlan
 	lastPlan = plan
 	footer:Hide()
-	if not plan or #plan.stops == 0 then
+	if not plan or (#plan.stops == 0 and #(plan.onWay or {}) == 0) then
 		for i = 1, MAX_ROWS do rows[i]:Hide() dividers[i]:Hide() rows[i].slide:Stop() dividers[i].slide:Stop() end
+		for _, w in pairs(wayLines) do w:Hide() end
 		ghost.fade:Stop()
 		hearthRow = nil
 		placeHearth()
@@ -567,6 +591,7 @@ function L.Update(plan)
 	local rested = E.RestedPool()
 	local planMobXp = 0
 	for _, st in ipairs(plan.stops) do planMobXp = planMobXp + (st.mobXp or 0) end
+	for _, st in ipairs(plan.onWay or {}) do planMobXp = planMobXp + (st.mobXp or 0) end
 	local restedBonus = E.RestedBonus(rested, planMobXp)
 	local rate = plan.seconds > 0 and (plan.xp + restedBonus) / (plan.seconds / 60) or plan.rate or 0
 	-- a ghost has the run back to the corpse to do first
@@ -637,6 +662,29 @@ function L.Update(plan)
 		d:Show()
 		if slide then d.slide:Play() end
 		y = y - DIV_H
+	end
+
+	-- "On the way": what you kill / pick up in passing, with its live count
+	local nWay = 0
+	for _, s in ipairs(plan.onWay or {}) do
+		if nWay >= (ns.cfg.onWayShown or 3) then break end
+		if nWay == 0 then divider("On the way", false) end
+		nWay = nWay + 1
+		local w = wayLine(nWay)
+		w.icon:SetTexture(ICON[objectiveType(s) or ""] or ICON.monster)
+		local what = (s.label or ""):gsub("%s*%(~%d+ kills%)", "")
+		w.text:SetText(what .. (s.questName and ("  |cff999999· " .. s.questName .. "|r") or ""))
+		local done, needed = progressOf(s)
+		w.count:SetText(done and string.format("%d/%d", done, needed) or "")
+		w:ClearAllPoints()
+		w:SetPoint("TOPLEFT", summary, "BOTTOMLEFT", 0, y)
+		w:Show()
+		y = y - WAY_H
+	end
+	for i = nWay + 1, #wayLines do wayLines[i]:Hide() end
+	if nWay > 0 then
+		prevZone = nil -- (a line under the section, so the steps start clearly: the zone divider below)
+		y = y - 2
 	end
 
 	for i = 1, shown do
