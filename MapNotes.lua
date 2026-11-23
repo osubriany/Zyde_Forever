@@ -6,8 +6,9 @@
 -- Saved per account (every character sees them), per map: ZydeForeverDB.mapNotes[mapID].
 --
 -- The markers sit on the map's canvas, so they pan with it, and are scaled back
--- down as you zoom in so they stay the same size on screen. The click is caught
--- with a hook on the map (not the map's own click handlers, which taint).
+-- down as you zoom in so they stay the same size on screen. Alt-click is caught
+-- by our own frame over the map. Hooking the map's scripts taints it, and then
+-- opening the map in combat fails.
 
 local ADDON, ns = ...
 
@@ -160,24 +161,49 @@ local function setup()
 	if hooked or not (WorldMapFrame and WorldMapFrame.ScrollContainer) then return end
 	hooked = true
 	local sc = WorldMapFrame.ScrollContainer
-	sc:HookScript("OnMouseDown", function(_, button)
-		pressed = nil
-		if button ~= "LeftButton" or not IsAltKeyDown() or not on() then return end
+	-- Our own click frame, parented to the screen, shown only while Alt is held.
+	-- It is never a child of the map and never hooks the map's scripts.
+	local catcher = CreateFrame("Button", nil, UIParent)
+	catcher:SetFrameStrata("FULLSCREEN_DIALOG")
+	catcher:RegisterForClicks("LeftButtonUp", "LeftButtonDown")
+	catcher:Hide()
+	local function cursorOnMap()
+		if not sc.GetNormalizedCursorPosition then return end
 		local x, y = sc:GetNormalizedCursorPosition()
 		if ns.isSecret(x) or ns.isSecret(y) or type(x) ~= "number" or type(y) ~= "number" then return end
 		if x < 0 or x > 1 or y < 0 or y > 1 then return end
+		return x, y
+	end
+	catcher:SetScript("OnMouseDown", function(_, button)
+		pressed = nil
+		if button ~= "LeftButton" or not IsAltKeyDown() or not on() then return end
+		local x, y = cursorOnMap()
+		if not x then return end
 		pressed = { mapID = WorldMapFrame:GetMapID(), x = x, y = y }
 	end)
-	sc:HookScript("OnMouseUp", function(_, button)
+	catcher:SetScript("OnMouseUp", function(_, button)
 		local p = pressed
 		pressed = nil
 		if not p or button ~= "LeftButton" or not IsAltKeyDown() then return end
 		local info = C_Map.GetMapInfo and C_Map.GetMapInfo(p.mapID)
 		askName(p, "Name this map marker" .. (info and info.name and (" (" .. info.name .. ")") or "") .. ":")
 	end)
-	-- Redraw when the map, its zoom or its size changes.
-	local watcher = CreateFrame("Frame", nil, WorldMapFrame)
+	local function placeCatcher()
+		if not WorldMapFrame:IsShown() or not IsAltKeyDown() or not on() then catcher:Hide() return end
+		local left, bottom, w, h = sc:GetLeft(), sc:GetBottom(), sc:GetWidth(), sc:GetHeight()
+		local s, u = sc:GetEffectiveScale(), UIParent:GetEffectiveScale()
+		if not (left and bottom and w and h and s and u and u > 0) then catcher:Hide() return end
+		catcher:ClearAllPoints()
+		catcher:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left * s / u, bottom * s / u)
+		catcher:SetSize(w * s / u, h * s / u)
+		catcher:Show()
+	end
+	-- Redraw when the map, its zoom or its size changes. This frame is not a
+	-- child of the map, so the map's own show handler stays clean.
+	local watcher = CreateFrame("Frame", nil, UIParent)
 	watcher:SetScript("OnUpdate", function()
+		if not WorldMapFrame:IsShown() then catcher:Hide() return end
+		placeCatcher()
 		local c = canvas()
 		if not c then return end
 		local scale = sc.GetCanvasScale and sc:GetCanvasScale() or 1
@@ -185,7 +211,6 @@ local function setup()
 			refresh()
 		end
 	end)
-	WorldMapFrame:HookScript("OnShow", refresh)
 end
 
 local ev = CreateFrame("Frame")

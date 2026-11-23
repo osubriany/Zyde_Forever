@@ -173,15 +173,17 @@ local function setupWorld()
 	worldLayer = CreateFrame("Frame", nil, canvas)
 	worldLayer:SetAllPoints(canvas)
 	worldLayer:SetFrameLevel(canvas:GetFrameLevel() + 2000)
-	-- only listen; never hand the map our functions or call its own methods (Forever taint lesson)
-	WorldMapFrame:HookScript("OnShow", drawWorld)
-	if WorldMapFrame.OnMapChanged then hooksecurefunc(WorldMapFrame, "OnMapChanged", drawWorld) end
-	local lastZoom, since = nil, 0
+	-- Do not hook the map's own scripts. That taints opening the map in combat.
+	local lastZoom, lastMap, since = nil, nil, 0
 	worldLayer:SetScript("OnUpdate", function(_, dt)
 		local z = WorldMapFrame.ScrollContainer.GetCanvasScale and WorldMapFrame.ScrollContainer:GetCanvasScale()
+		local mapID = WorldMapFrame.GetMapID and WorldMapFrame:GetMapID()
 		since = since + dt
-		-- redraw on zoom, and twice a second so the line from you follows you
-		if z ~= lastZoom or since >= 0.5 then lastZoom, since = z, 0 drawWorld() end
+		-- redraw when the map or the zoom changes, and twice a second so the line from you follows you
+		if z ~= lastZoom or mapID ~= lastMap or since >= 0.5 then
+			lastZoom, lastMap, since = z, mapID, 0
+			drawWorld()
+		end
 	end)
 end
 

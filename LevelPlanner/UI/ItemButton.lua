@@ -1,5 +1,5 @@
 -- ItemButton: a button for the usable quest item of your current quest (the "use this on ..." kind).
--- Click it, or bind a key in Key Bindings > AddOns > LevelPlanner. Alt+drag to move it.
+-- Click it, or bind a key in Key Bindings > Zyde Forever. Alt+drag to move it.
 -- It's a protected (secure) button so it may use items; the game only lets it change outside
 -- combat, so a change during a fight waits until the fight ends.
 local ADDON, zyde = ...
@@ -12,7 +12,6 @@ local IB = {}
 ns.ItemButton = IB
 
 local BINDING = "CLICK LevelPlannerItemButton:LeftButton"
-_G.BINDING_HEADER_LEVELPLANNER = "LevelPlanner"
 _G["BINDING_NAME_" .. BINDING] = "Use quest item"
 
 local btn

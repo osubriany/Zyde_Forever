@@ -8,7 +8,7 @@
 --   World markers: press the key to show a small grid of squares, click one,
 --     then click the ground. Press the key again to put the grid away. Drag
 --     its title bar to move it. The last square clears every world marker.
--- Set the keys in Options > Keybindings > AddOns > Zyde Forever.
+-- Set the keys in Options > Keybindings > Zyde Forever.
 --
 -- Marking is protected on Forever, so each icon is a secure button running
 -- /tm or /worldmarker. Only a real click can run it.
@@ -163,11 +163,11 @@ local function makePalette(cfg)
 	drag:SetScript("OnDragStop", function(self)
 		self.dragging = false
 		if InCombatLockdown() then return end
-		local point, _, _, x, y = panel:GetPoint()
-		if point and type(x) == "number" and type(y) == "number" then
-			ZydeForeverDB = ZydeForeverDB or {}
-			ZydeForeverDB.worldMarkerPos = { point = point, x = x, y = y }
-		end
+		local left, top = panel:GetLeft(), panel:GetTop()
+		if ns.isSecret(left) or ns.isSecret(top) or type(left) ~= "number" or type(top) ~= "number" then return end
+		ZydeForeverDB = ZydeForeverDB or {}
+		-- TOPLEFT of the box, measured from the bottom-left of the screen.
+		ZydeForeverDB.worldMarkerPos = { point = "TOPLEFT", rel = "BOTTOMLEFT", x = left, y = top }
 		parkDrag()
 	end)
 	drag:SetScript("OnUpdate", function(self)
@@ -225,10 +225,10 @@ for _, m in ipairs({
 	WORLD_ITEMS[#WORLD_ITEMS + 1] = { marker = m[1], name = m[3], color = m[4], icon = RAID_ICON .. m[2] }
 end
 
--- Four icons on each row, 24px. Two tall buttons
+-- Four icons on each row, 28px (15% over the original 24). Two tall buttons
 -- on the end: red removes your target's mark, gold removes every mark.
-local ROW_ICON, ROW_GAP, ROW_PAD, ROW_SPLIT, ROW_COLS = 24, 2, 2, 4, 4
-local CLEAR_W, ALL_W = 22, 32
+local ROW_ICON, ROW_GAP, ROW_PAD, ROW_SPLIT, ROW_COLS = 28, 2, 2, 5, 4
+local CLEAR_W, ALL_W = 25, 37
 local placeTargetRow, paintTargetRow
 
 -- Each icon can sit on only one unit. Putting 8 through 1 on you pulls every
@@ -288,7 +288,7 @@ local function makeTargetRow()
 		end
 		b.icon = b:CreateTexture(nil, "ARTWORK")
 		b.icon:SetPoint("CENTER")
-		b.icon:SetSize(ROW_ICON - 4, ROW_ICON - 4)
+		b.icon:SetSize(ROW_ICON - 5, ROW_ICON - 5)
 		b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 		b.edges = ns.newEdges(b, "OVERLAY", 2)
 		ns.placeEdges(b.edges, b, 0, 1)
@@ -325,7 +325,7 @@ local function makeTargetRow()
 	all.bg:SetPoint("BOTTOMRIGHT", -1, 1)
 	all.bg:SetColorTexture(0.55, 0.38, 0.05, 0.95)
 	all.label = all:CreateFontString(nil, "OVERLAY")
-	if not all.label:SetFont("Fonts\\ARIALN.TTF", 12, "OUTLINE") then all.label:SetFontObject("GameFontNormal") end
+	if not all.label:SetFont("Fonts\\ARIALN.TTF", 14, "OUTLINE") then all.label:SetFontObject("GameFontNormal") end
 	all.label:SetPoint("CENTER")
 	all.label:SetText("ALL")
 	all.label:SetTextColor(1, 0.9, 0.45)
@@ -443,8 +443,11 @@ local function placeWorld()
 	if not worldPanel or InCombatLockdown() then return end
 	worldPanel:ClearAllPoints()
 	local p = ZydeForeverDB and ZydeForeverDB.worldMarkerPos
-	if type(p) == "table" and p.point then
-		worldPanel:SetPoint(p.point, UIParent, p.point, p.x or 0, p.y or 0)
+	if type(p) == "table" and type(p.x) == "number" and type(p.y) == "number" then
+		-- Older saves omitted rel. Those numbers are from the bottom-left.
+		-- Reading them as from the top pins the box to the top of the screen.
+		local rel = p.rel or "BOTTOMLEFT"
+		worldPanel:SetPoint(p.point or "TOPLEFT", UIParent, rel, p.x, p.y)
 	else
 		worldPanel:SetPoint("RIGHT", UIParent, "RIGHT", -24, 0)
 	end
