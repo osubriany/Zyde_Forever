@@ -10,6 +10,7 @@
 ## X-Website: https://github.com/osubriany/Zyde_Forever
 
 Zyde_Forever.lua
+Presence.lua
 Gear.lua
 XP.lua
 Plates.lua
@@ -29,6 +30,7 @@ PetCare.lua
 Reminders.lua
 MarkerWheel.lua
 MapNotes.lua
+MinimapButtons.lua
 Tidy.lua
 Guild.lua
 VendorList.lua

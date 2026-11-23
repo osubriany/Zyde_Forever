@@ -3,8 +3,8 @@
 -- item it drops) counts, if it's alive and not someone else's tag:
 --   1) a pulsing gold edge around its nameplate health bar
 --   2) a small "Quest mobs: 3" box (drag to move; hover for which mobs)
---   3) a keybind, "Target nearest quest mob" (Keybindings > AddOns > Zyde
---      Forever), that runs /target <name> for quest mobs. It
+--   3) a keybind, "Target nearest quest mob" (Keybindings > Zyde Forever),
+--      that runs /target <name> for quest mobs. It
 --      works all around you and past nameplate range: the names come
 --      from Questie's data for your zone (nearest known spawn wins), plus
 --      any quest mob on a nameplate right now (those win over the rest).
@@ -281,7 +281,7 @@ box:SetScript("OnEnter", function(self)
 	GameTooltip:AddLine(" ")
 	local key = GetBindingKey("CLICK ZydeForeverQuestMobTarget:LeftButton")
 	GameTooltip:AddLine(key and ("Press " .. key .. " to target one.")
-		or "Set a key to target them: Keybindings > AddOns > Zyde Forever.", 0.7, 0.7, 0.7, true)
+		or "Set a key to target them: Keybindings > Zyde Forever.", 0.7, 0.7, 0.7, true)
 	GameTooltip:AddLine("Only mobs with a nameplate are counted. Drag to move.", 0.5, 0.5, 0.5, true)
 	GameTooltip:Show()
 end)

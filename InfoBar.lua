@@ -1,7 +1,9 @@
 -- Zyde_Forever: a small draggable bar.
--- One line: where you are, gold, bag space, and thrown durability or ammo.
--- Max opens a second line: steps, yards swum, yards ridden, and jumps.
--- Min puts that line away. Ctrl+click the top line pastes where you are.
+-- One line: where you are, gold, bag space, the reagent bag, and thrown durability or ammo.
+-- Travel opens a second line: steps, yards swum, yards ridden, and jumps.
+-- Mining, once that profession is learned, opens a line for each ore.
+-- Herbalism does the same for herbs. Both can be open at once, so the bar
+-- can be four lines. Counts are bags and bank. Ctrl+click a line pastes it.
 -- Drag it with the left mouse button. Turn it off in /zyde.
 
 local ADDON, ns = ...
@@ -66,18 +68,76 @@ end
 local loc = piece("Interface\\Icons\\INV_Misc_Map_01")
 local gold = piece("Interface\\MoneyFrame\\UI-GoldIcon", false)
 local bags = piece("Interface\\Icons\\INV_Misc_Bag_08")
+local reagents = piece("Interface\\Icons\\INV_Misc_Bag_10")
 local ranged = piece("Interface\\Icons\\INV_ThrowingKnife_02")
 local steps = piece("Interface\\Icons\\INV_Boots_08")
 local swum = piece("Interface\\Icons\\Ability_Druid_AquaticForm")
 local ridden = piece("Interface\\Icons\\Ability_Mount_RidingHorse")
 local jumps = piece("Interface\\Icons\\Spell_Magic_FeatherFall")
 
+-- Every ore from a vein, in the order you learn to mine them.
+local ORES = {
+	{ id = 2770, name = "Copper" },
+	{ id = 2771, name = "Tin" },
+	{ id = 2775, name = "Silver" },
+	{ id = 2772, name = "Iron" },
+	{ id = 2776, name = "Gold" },
+	{ id = 3858, name = "Mithril" },
+	{ id = 7911, name = "Truesilver" },
+	{ id = 10620, name = "Thorium" },
+	{ id = 11370, name = "Dark Iron" },
+}
+-- Herbs in the order you learn to pick them. Same list the node glow knows.
+local HERB_ITEMS = {
+	{ id = 2447, name = "Peacebloom" },
+	{ id = 765, name = "Silverleaf" },
+	{ id = 2449, name = "Earthroot" },
+	{ id = 785, name = "Mageroyal" },
+	{ id = 2450, name = "Briarthorn" },
+	{ id = 3820, name = "Stranglekelp" },
+	{ id = 2453, name = "Bruiseweed" },
+	{ id = 3355, name = "Wild Steelbloom" },
+	{ id = 3369, name = "Grave Moss" },
+	{ id = 3356, name = "Kingsblood" },
+	{ id = 3357, name = "Liferoot" },
+	{ id = 3818, name = "Fadeleaf" },
+	{ id = 3821, name = "Goldthorn" },
+	{ id = 3358, name = "Khadgar's Whisker" },
+	{ id = 3819, name = "Wintersbite" },
+	{ id = 4625, name = "Firebloom" },
+	{ id = 8831, name = "Purple Lotus" },
+	{ id = 8836, name = "Arthas' Tears" },
+	{ id = 8838, name = "Sungrass" },
+	{ id = 8839, name = "Blindweed" },
+	{ id = 8845, name = "Ghost Mushroom" },
+	{ id = 8846, name = "Gromsblood" },
+	{ id = 13464, name = "Golden Sansam" },
+	{ id = 13463, name = "Dreamfoil" },
+	{ id = 13465, name = "Mountain Silversage" },
+	{ id = 13466, name = "Plaguebloom" },
+	{ id = 13467, name = "Icecap" },
+	{ id = 13468, name = "Black Lotus" },
+	{ id = 19726, name = "Bloodvine" },
+}
+local function stackPieces(items, icon)
+	local list = {}
+	for _, it in ipairs(items) do
+		local f = piece(icon)
+		f.oreId, f.oreName = it.id, it.name
+		list[#list + 1] = f
+	end
+	return list
+end
+local ores = stackPieces(ORES, "Interface\\Icons\\Trade_Mining")
+local herbs = stackPieces(HERB_ITEMS, "Interface\\Icons\\Trade_Herbalism")
+
 local ROW_H = 22
--- One line: where you are, gold, bags, ammo. The travel counts are a second
--- line, hidden until Max is clicked.
+-- Row 1 is always on. Travel, Mining and Herbs each open their own row.
 local rows = {
-	{ loc, gold, bags, ranged },
+	{ loc, gold, bags, reagents, ranged },
 	{ steps, swum, ridden, jumps },
+	ores,
+	herbs,
 }
 
 local toggle = CreateFrame("Button", nil, bar)
@@ -94,10 +154,91 @@ toggle.label = toggle:CreateFontString(nil, "OVERLAY")
 font(toggle.label, 11)
 toggle.label:SetPoint("CENTER")
 toggle.label:SetTextColor(1, 0.84, 0.35)
-toggle.label:SetText("Max")
+toggle.label:SetText("Travel")
+toggle:SetWidth(64)
+
+local mineBtn = CreateFrame("Button", nil, bar)
+mineBtn:SetSize(70, 18)
+mineBtn:RegisterForClicks("LeftButtonUp")
+mineBtn.bg = mineBtn:CreateTexture(nil, "BACKGROUND")
+mineBtn.bg:SetAllPoints()
+mineBtn.bg:SetColorTexture(0.16, 0.16, 0.18, 1)
+mineBtn.edges = ns.newEdges(mineBtn, "OVERLAY", 1)
+ns.placeEdges(mineBtn.edges, mineBtn, 0, 1)
+for _, t in ipairs(mineBtn.edges) do t:SetColorTexture(0, 0, 0, 0.95) end
+mineBtn.label = mineBtn:CreateFontString(nil, "OVERLAY")
+font(mineBtn.label, 11)
+mineBtn.label:SetPoint("CENTER")
+mineBtn.label:SetTextColor(0.65, 0.65, 0.65)
+mineBtn.label:SetText("Mining")
+mineBtn:Hide()
+
+local herbBtn = CreateFrame("Button", nil, bar)
+herbBtn:SetSize(58, 18)
+herbBtn:RegisterForClicks("LeftButtonUp")
+herbBtn.bg = herbBtn:CreateTexture(nil, "BACKGROUND")
+herbBtn.bg:SetAllPoints()
+herbBtn.bg:SetColorTexture(0.16, 0.16, 0.18, 1)
+herbBtn.edges = ns.newEdges(herbBtn, "OVERLAY", 1)
+ns.placeEdges(herbBtn.edges, herbBtn, 0, 1)
+for _, t in ipairs(herbBtn.edges) do t:SetColorTexture(0, 0, 0, 0.95) end
+herbBtn.label = herbBtn:CreateFontString(nil, "OVERLAY")
+font(herbBtn.label, 11)
+herbBtn.label:SetPoint("CENTER")
+herbBtn.label:SetTextColor(0.65, 0.65, 0.65)
+herbBtn.label:SetText("Herbs")
+herbBtn:Hide()
 
 local function expanded()
 	return ZydeForeverDB and ZydeForeverDB.infoExpanded and true or false
+end
+
+local function miningOpen()
+	return ZydeForeverDB and ZydeForeverDB.infoMining and true or false
+end
+
+local function herbOpen()
+	return ZydeForeverDB and ZydeForeverDB.infoHerbs and true or false
+end
+
+-- Apprentice through Artisan, same ranks the node glow uses.
+local MINING_SPELLS = { 2575, 2576, 3564, 10248 }
+local HERB_SPELLS = { 2366, 2368, 3570, 11993 }
+
+local function knowsProfession(name, spells)
+	for _, id in ipairs(spells) do
+		if plain(safe(IsPlayerSpell, id)) or plain(safe(IsSpellKnown, id)) then return true end
+	end
+	if GetProfessions and GetProfessionInfo then
+		local profs = { GetProfessions() }
+		for i = 1, 5 do
+			if profs[i] then
+				local got = plain(select(1, safe(GetProfessionInfo, profs[i])))
+				if got == name then return true end
+			end
+		end
+	end
+	local lines = GetNumSkillLines and plain(safe(GetNumSkillLines))
+	if lines and lines > 0 and GetSkillLineInfo then
+		for i = 1, lines do
+			local skill, header = safe(GetSkillLineInfo, i)
+			skill, header = plain(skill), plain(header)
+			if skill == name and not header then return true end
+		end
+	end
+	return false
+end
+
+local function knowsMining() return knowsProfession("Mining", MINING_SPELLS) end
+local function knowsHerbalism() return knowsProfession("Herbalism", HERB_SPELLS) end
+
+-- Which data rows are on screen, top to bottom. A profession row stays off until learned.
+local function openRows()
+	local list = { 1 }
+	if expanded() then list[#list + 1] = 2 end
+	if knowsMining() and miningOpen() then list[#list + 1] = 3 end
+	if knowsHerbalism() and herbOpen() then list[#list + 1] = 4 end
+	return list
 end
 
 local function place()
@@ -113,10 +254,11 @@ end
 bar:SetScript("OnEnter", function(self)
 	GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
 	GameTooltip:AddLine("Info bar", 1, 0.84, 0.35)
-	GameTooltip:AddLine("Where you are, gold, bag space, and ammo for a bow, gun, or throwing weapon.", 1, 1, 1, true)
-	GameTooltip:AddLine("Max opens a second line: steps, yards swum, yards mounted, and jumps.", 1, 1, 1, true)
-	GameTooltip:AddLine("Ctrl+click this line to paste where you are into chat.", 1, 1, 1, true)
-	GameTooltip:AddLine("Ctrl+click the counter line to paste those counts into chat.", 1, 1, 1, true)
+	GameTooltip:AddLine("Where you are, gold, bag space, the reagent bag, and ammo for a bow, gun, or throwing weapon.", 1, 1, 1, true)
+	GameTooltip:AddLine("Travel opens steps, yards swum, yards mounted, and jumps.", 1, 1, 1, true)
+	GameTooltip:AddLine("Mining, once learned, opens a count of each ore in your bags and bank.", 1, 1, 1, true)
+	GameTooltip:AddLine("Herbs, once Herbalism is learned, does the same for herbs. Both can be open together.", 1, 1, 1, true)
+	GameTooltip:AddLine("Ctrl+click a line to paste it into chat.", 1, 1, 1, true)
 	GameTooltip:AddLine("Drag to move.", 0.7, 0.7, 0.7)
 	GameTooltip:Show()
 end)
@@ -132,28 +274,55 @@ bar:SetScript("OnDragStop", function(self)
 	ZydeForeverDB.infoPos = { point = point, x = x, y = y }
 end)
 
+local function tintButton(btn, openRow)
+	if openRow then btn.label:SetTextColor(1, 0.84, 0.35)
+	else btn.label:SetTextColor(0.65, 0.65, 0.65) end
+end
+
 local function layout()
-	local n = expanded() and #rows or 1
+	local open = openRows()
+	local slotOf = {}
+	for slot, id in ipairs(open) do slotOf[id] = slot end
 	local maxW = 120
 	for i = 1, #rows do
-		local x, y = 6, -((i - 1) * ROW_H)
-		local showRow = i <= n
+		local slot = slotOf[i]
+		local x = 6
 		for _, f in ipairs(rows[i]) do
-			if showRow and f.on then
+			if slot and f.on then
 				local w = 14 + 4 + (f.text.GetUnboundedStringWidth and f.text:GetUnboundedStringWidth() or f.text:GetStringWidth())
 				f:SetWidth(math.max(20, w))
 				f:ClearAllPoints()
-				f:SetPoint("TOPLEFT", bar, "TOPLEFT", x, y)
+				f:SetPoint("TOPLEFT", bar, "TOPLEFT", x, -((slot - 1) * ROW_H))
 				f:Show()
 				x = x + f:GetWidth() + 12
 			else
 				f:Hide()
 			end
 		end
-		if showRow then maxW = math.max(maxW, x) end
+		if slot then maxW = math.max(maxW, x) end
 	end
-	bar:SetSize(maxW + 46, n * ROW_H)
-	toggle.label:SetText(expanded() and "Min" or "Max")
+	local miner, herbalist = knowsMining(), knowsHerbalism()
+	mineBtn:SetShown(miner)
+	herbBtn:SetShown(herbalist)
+	tintButton(toggle, expanded())
+	tintButton(mineBtn, miner and miningOpen())
+	tintButton(herbBtn, herbalist and herbOpen())
+	-- Left to right along the top: Travel, Mining, Herbs. Missing professions leave a gap closed.
+	local buttons = { toggle }
+	if miner then buttons[#buttons + 1] = mineBtn end
+	if herbalist then buttons[#buttons + 1] = herbBtn end
+	local pad = 8
+	for i = #buttons, 1, -1 do
+		local b = buttons[i]
+		b:ClearAllPoints()
+		if i == #buttons then
+			b:SetPoint("TOPRIGHT", bar, "TOPRIGHT", -4, -2)
+		else
+			b:SetPoint("TOPRIGHT", buttons[i + 1], "TOPLEFT", -4, 0)
+		end
+		pad = pad + b:GetWidth() + 4
+	end
+	bar:SetSize(maxW + pad, #open * ROW_H)
 	if on() then bar:Show() else bar:Hide() end
 end
 
@@ -219,23 +388,53 @@ local function moneyText()
 	return ("Gold: |c%s%dg|r |c%s%ds|r |c%s%dc|r"):format(GOLD, g, SILVER, s, COPPER, c)
 end
 
+-- The reagent bag is its own slot, not one of the four normal bags.
+local function reagentBagId()
+	if Enum and Enum.BagIndex and Enum.BagIndex.ReagentBag then return Enum.BagIndex.ReagentBag end
+	if REAGENTBAG_CONTAINER then return REAGENTBAG_CONTAINER end
+	return 5
+end
+
+local function fillText(label, used, slots)
+	local r, g, b = 1, 0.84, 0.35
+	if used >= slots then r, g, b = 1, 0.25, 0.2
+	elseif used / slots >= 0.9 then r, g, b = 1, 0.82, 0 end
+	return ("%s: %d/%d"):format(label, used, slots), r, g, b
+end
+
 local function bagText()
 	local numSlots = (C_Container and C_Container.GetContainerNumSlots) or GetContainerNumSlots
 	local numFree = (C_Container and C_Container.GetContainerNumFreeSlots) or GetContainerNumFreeSlots
 	if not (numSlots and numFree) then return nil end
+	local reagent = reagentBagId()
 	local slots, free = 0, 0
 	for bag = 0, (NUM_BAG_SLOTS or 4) do
-		local n, f = safe(numSlots, bag), safe(numFree, bag)
-		if isSecret(n) or isSecret(f) then return nil end
-		if n then slots = slots + n end
-		if f then free = free + f end
+		if bag ~= reagent then
+			local n, f = safe(numSlots, bag), safe(numFree, bag)
+			if isSecret(n) or isSecret(f) then return nil end
+			if n then slots = slots + n end
+			if f then free = free + f end
+		end
 	end
 	if slots <= 0 then return nil end
-	local used = math.max(0, slots - free)
-	local r, g, b = 1, 0.84, 0.35
-	if used >= slots then r, g, b = 1, 0.25, 0.2
-	elseif used / slots >= 0.9 then r, g, b = 1, 0.82, 0 end
-	return ("Bags: %d/%d"):format(used, slots), r, g, b
+	return fillText("Bags", math.max(0, slots - free), slots)
+end
+
+local function reagentText()
+	local numSlots = (C_Container and C_Container.GetContainerNumSlots) or GetContainerNumSlots
+	local numFree = (C_Container and C_Container.GetContainerNumFreeSlots) or GetContainerNumFreeSlots
+	if not (numSlots and numFree) then reagents.on = false return end
+	local n, f = safe(numSlots, reagentBagId()), safe(numFree, reagentBagId())
+	if isSecret(n) or isSecret(f) then return nil end
+	n, f = plain(n), plain(f)
+	if not n or n <= 0 then reagents.on = false return end
+	local slot = CharacterReagentBag0Slot
+	local slotId = slot and slot.GetID and slot:GetID()
+	if type(slotId) == "number" then
+		local tex = plain(safe(GetInventoryItemTexture, "player", slotId))
+		if tex then reagents.icon:SetTexture(tex) end
+	end
+	return fillText("Reagents", math.max(0, n - (f or 0)), n)
 end
 
 local function duraColor(pct)
@@ -327,7 +526,8 @@ end
 -- character name, and any older split rows are added in the first time.
 -- A step is about 2 yards walked. Swum yards are horizontal distance while
 -- swimming. Mounted yards are the distance you ride (ground or flying mount).
--- Taxi flights are not riding. Jump counts each press of the jump key.
+-- Taxi flights are not riding. A jump is leaving the ground. Presses while you
+-- are already in the air do not count.
 ---------------------------------------------------------------------------
 local STEP_YARDS = 2
 
@@ -427,6 +627,10 @@ local function onMount()
 end
 
 local lastX, lastY, lastInst
+-- False from the moment a jump starts until we have seen the ground again.
+-- leftGroundAt keeps the next sample from arming another jump before the
+-- game has reported that this one left the ground.
+local feetDown, leftGroundAt = true, 0
 
 -- UnitPosition is often empty or secret on this client. Horizontal distance
 -- then comes from movement speed (yards per second).
@@ -468,11 +672,18 @@ local function sampleMove(dt)
 		end
 	end
 	if x and y then lastX, lastY, lastInst = x, y, inst end
+	if GetTime() - leftGroundAt >= 0.35
+		and not flag(IsFlying) and not flag(IsSwimming) and not flag(IsFalling) then
+		feetDown = true
+	end
 end
 
 if hooksecurefunc and JumpOrAscendStart then
 	hooksecurefunc("JumpOrAscendStart", function()
-		if not on() then return end
+		if not on() or not feetDown then return end
+		if flag(IsFlying) or flag(IsSwimming) or flag(UnitOnTaxi, "player") or flag(UnitIsDeadOrGhost, "player") then return end
+		feetDown = false
+		leftGroundAt = GetTime()
 		local t = tally()
 		if t then t.jumps = t.jumps + 1 end
 	end)
@@ -481,7 +692,52 @@ end
 ---------------------------------------------------------------------------
 -- Refresh
 ---------------------------------------------------------------------------
--- full: also gold, bags and ammo. Those only change with an event (money, bags, gear), so the
+-- Bags plus the bank. The reagent bag counts as a bag. A secret count keeps the last number.
+local function itemCount(id)
+	local f = (C_Item and C_Item.GetItemCount) or GetItemCount
+	if not f then return nil end
+	local n = safe(f, id, true, false, true)
+	if n == nil then n = safe(f, id, true) end
+	n = plain(n)
+	if type(n) ~= "number" then return nil end
+	return n
+end
+
+local function oreIcon(id)
+	local icon
+	if C_Item and C_Item.GetItemIconByID then icon = plain(safe(C_Item.GetItemIconByID, id)) end
+	if not icon and GetItemIcon then icon = plain(safe(GetItemIcon, id)) end
+	if not icon and GetItemInfo then
+		local info = { safe(GetItemInfo, id) }
+		icon = plain(info[10])
+	end
+	return icon
+end
+
+local function refreshStacks(list, showRow)
+	if not showRow then
+		for _, f in ipairs(list) do f.on = false end
+		return false
+	end
+	local changed = false
+	for _, f in ipairs(list) do
+		local n = itemCount(f.oreId)
+		if n ~= nil then
+			local icon = oreIcon(f.oreId)
+			if icon then f.icon:SetTexture(icon) end
+			f.count = n
+			local r, g, b = 1, 0.84, 0.35
+			if n == 0 then r, g, b = 0.55, 0.55, 0.55 end
+			if show(f, commas(n), r, g, b) then changed = true end
+		end
+	end
+	return changed
+end
+
+local function refreshOres() return refreshStacks(ores, knowsMining() and miningOpen()) end
+local function refreshHerbs() return refreshStacks(herbs, knowsHerbalism() and herbOpen()) end
+
+-- full: also gold, bags, ammo and ore. Those only change with an event (money, bags, gear), so the
 -- twice-a-second timer skips them and only redoes where you are and the travel counts.
 local function update(full)
 	if not on() then bar:Hide() return end
@@ -495,8 +751,11 @@ local function update(full)
 		local r, g, b
 		text, r, g, b = bagText()
 		if text then show(bags, text, r, g, b) end
+		text, r, g, b = reagentText()
+		if text then show(reagents, text, r, g, b) end
 		text, r, g, b = rangedText()
 		if text then show(ranged, text, r, g, b) end
+		if refreshOres() or refreshHerbs() then changed = true end
 	end
 	-- the travel counts only while their line is open
 	if expanded() then
@@ -515,7 +774,9 @@ for _, e in ipairs({
 	"ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA",
 	"PLAYER_MONEY", "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP",
 	"UPDATE_INVENTORY_DURABILITY", "PLAYER_EQUIPMENT_CHANGED",
-	"BAG_UPDATE_DELAYED",
+	"BAG_UPDATE_DELAYED", "BANKFRAME_OPENED", "PLAYERBANKSLOTS_CHANGED",
+	"GET_ITEM_INFO_RECEIVED",
+	"SKILL_LINES_CHANGED", "LEARNED_SPELL_IN_TAB", "SPELLS_CHANGED",
 }) do
 	pcall(ev.RegisterEvent, ev, e)
 end
@@ -548,14 +809,66 @@ toggle:SetScript("OnClick", function()
 end)
 toggle:SetScript("OnEnter", function(self)
 	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-	GameTooltip:AddLine(expanded() and "Min" or "Max", 1, 0.84, 0.35)
+	GameTooltip:AddLine("Travel", 1, 0.84, 0.35)
 	GameTooltip:AddLine(expanded() and "Hide steps, swim, mounted, and jumps." or "Show steps, swim, mounted, and jumps.", 1, 1, 1, true)
 	GameTooltip:Show()
 end)
 toggle:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
+mineBtn:SetScript("OnClick", function()
+	if not knowsMining() then return end
+	ZydeForeverDB = ZydeForeverDB or {}
+	ZydeForeverDB.infoMining = not miningOpen()
+	update(true)
+end)
+mineBtn:SetScript("OnEnter", function(self)
+	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+	GameTooltip:AddLine("Mining", 1, 0.84, 0.35)
+	GameTooltip:AddLine(miningOpen() and "Hide the ore counts." or "Show how many of each ore are in your bags and bank.", 1, 1, 1, true)
+	GameTooltip:Show()
+end)
+mineBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+herbBtn:SetScript("OnClick", function()
+	if not knowsHerbalism() then return end
+	ZydeForeverDB = ZydeForeverDB or {}
+	ZydeForeverDB.infoHerbs = not herbOpen()
+	update(true)
+end)
+herbBtn:SetScript("OnEnter", function(self)
+	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+	GameTooltip:AddLine("Herbalism", 1, 0.84, 0.35)
+	GameTooltip:AddLine(herbOpen() and "Hide the herb counts." or "Show how many of each herb are in your bags and bank.", 1, 1, 1, true)
+	GameTooltip:Show()
+end)
+herbBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
 -- Ctrl+click a line: put that line's text into the chat box you are typing
 -- in, or open chat with it ready to send.
+local function miningReport()
+	if not knowsMining() then return nil end
+	local parts = {}
+	for _, f in ipairs(ores) do
+		local n = f.count
+		if n == nil then n = itemCount(f.oreId) end
+		if n then parts[#parts + 1] = f.oreName .. " " .. commas(n) end
+	end
+	if #parts == 0 then return nil end
+	return "Ore: " .. table.concat(parts, ", ") .. "."
+end
+
+local function herbReport()
+	if not knowsHerbalism() then return nil end
+	local parts = {}
+	for _, f in ipairs(herbs) do
+		local n = f.count
+		if n == nil then n = itemCount(f.oreId) end
+		if n then parts[#parts + 1] = f.oreName .. " " .. commas(n) end
+	end
+	if #parts == 0 then return nil end
+	return "Herbs: " .. table.concat(parts, ", ") .. "."
+end
+
 local function travelReport()
 	local t = tally()
 	if not t then return nil end
@@ -587,9 +900,33 @@ bar:SetScript("OnMouseUp", function(self, button)
 	local _, cy = GetCursorPosition()
 	cy = cy / self:GetEffectiveScale()
 	local row = math.floor((top - cy) / ROW_H) + 1
-	if row == 1 then
+	local which = openRows()[row]
+	if which == 1 then
 		pasteChat(locationReport())
-	elseif row == 2 and expanded() then
+	elseif which == 2 then
 		pasteChat(travelReport())
+	elseif which == 3 then
+		pasteChat(miningReport())
+	elseif which == 4 then
+		pasteChat(herbReport())
 	end
 end)
+
+local function stackTips(list, suffix, report)
+	for _, f in ipairs(list) do
+		f:EnableMouse(true)
+		f:SetScript("OnEnter", function(self)
+			local n = self.count
+			GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+			GameTooltip:AddLine(self.oreName .. suffix, 1, 0.84, 0.35)
+			GameTooltip:AddLine((n and commas(n) or "0") .. " in bags and bank", 1, 1, 1, true)
+			GameTooltip:Show()
+		end)
+		f:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		f:SetScript("OnMouseUp", function(_, button)
+			if button == "LeftButton" and IsControlKeyDown() then pasteChat(report()) end
+		end)
+	end
+end
+stackTips(ores, " Ore", miningReport)
+stackTips(herbs, "", herbReport)

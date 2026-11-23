@@ -410,11 +410,58 @@ local function petHappiness()
 end
 ns.PetHappiness = petHappiness
 
+-- Forever's UnitName is (first, surname). A same-realm second name on other
+-- clients is a realm, so the surname is only joined when the client says so.
+local function unitFullName(unit)
+	local first, second = UnitName(unit)
+	first = plain(first)
+	if not first then return "" end
+	second = plain(second)
+	local regional = false
+	if type(RegionalUniqueNamesEnabled) == "function" then
+		local ok, on = pcall(RegionalUniqueNamesEnabled)
+		regional = ok and on
+	end
+	if regional and second and second ~= "" then
+		local consts = Constants and Constants.CharacterNameSeparatorConsts
+		local sep = consts and consts.CHARACTERNAME_SURNAME_SEPARATOR
+		if type(sep) ~= "string" or sep == "" then sep = " " end
+		return first .. sep .. second
+	end
+	return first
+end
+
+-- A hidden name still draws if it is handed to the font as-is. Reading it,
+-- or gluing a level onto it, turns the line blank. A fixed width is worse:
+-- the line tries to measure the hidden name, and that loop hits the script limit.
+-- One anchor, no width, so the line is as wide as the name and never measures it.
+local function freeName(fs)
+	local n = fs.GetNumPoints and fs:GetNumPoints() or 0
+	if n > 1 then
+		local p, rel, relPt, x, y = fs:GetPoint(1)
+		fs:ClearAllPoints()
+		if type(p) == "string" then fs:SetPoint(p, rel, relPt, x or 0, y or 0) end
+	end
+	local cur = fs.GetText and fs:GetText()
+	if not isSecret(cur) then fs:SetWidth(0) end
+	fs:SetWordWrap(false)
+end
+
+local function writeName(fs, unit, prefix)
+	local raw = UnitName(unit)
+	if isSecret(raw) then
+		freeName(fs)
+		fs:SetText(raw)
+		return
+	end
+	local name = (unit == "target" or unit == "targettarget") and unitFullName(unit) or (type(raw) == "string" and raw or "")
+	fs:SetText((prefix or "") .. name)
+end
+
 local function updateName(f)
 	if not f.name or not UnitExists(f.unit) then return end
-	local name = plain(UnitName(f.unit)) or ""
 	if f.unit == "pet" then
-		f.name:SetText(name)
+		writeName(f.name, f.unit)
 		local happy = petHappiness()
 		local c = HAPPINESS[happy or 0]
 		if c then f.name:SetTextColor(c[1], c[2], c[3]) else f.name:SetTextColor(1, 1, 1) end
@@ -429,11 +476,11 @@ local function updateName(f)
 				f.happy:Hide()
 			end
 		end
-	elseif f.isGroup then
-		f.name:SetText(name)
+	elseif f.unit == "targettarget" or f.isGroup then
+		writeName(f.name, f.unit)
 	else
 		-- (with the portrait style the level sits in a badge under the portrait)
-		f.name:SetText((f.badge and "" or levelText(f.unit)) .. name)
+		writeName(f.name, f.unit, f.badge and "" or levelText(f.unit))
 	end
 end
 
@@ -797,6 +844,49 @@ local function showAura(grid, n, a, index, mine)
 	b:Show()
 end
 
+-- Which auras sit on your own frame. The /zyde list under unit frames sets this.
+UF.AURA_MODES = {
+	{ key = "all", label = "All buffs and debuffs", desc = "Every buff and every debuff on you, above your frame" },
+	{ key = "debuffs", label = "All debuffs", desc = "Every debuff on you. Your buffs stay hidden" },
+	{ key = "dispellable", label = "Dispellable debuffs", desc = "Only debuffs with a dispel type: magic, curse, disease, poison, and the like" },
+}
+
+function UF.GetPlayerAuras()
+	local db = ZydeForeverDB
+	local want = db and db.playerAuras
+	for _, s in ipairs(UF.AURA_MODES) do
+		if s.key == want then return want end
+	end
+	return "all"
+end
+
+function UF.SetPlayerAuras(key)
+	ZydeForeverDB = ZydeForeverDB or {}
+	ZydeForeverDB.playerAuras = key
+	if UF.RefreshPlayerAuras then UF.RefreshPlayerAuras() end
+end
+
+-- A hidden (secret) dispel name counts as not dispellable.
+function UF.KeepPlayerAura(grid, a)
+	if grid.unit ~= "player" then return true end
+	local mode = UF.GetPlayerAuras()
+	if mode == "all" then return true end
+	if not grid.harmful then return false end
+	if mode ~= "dispellable" then return true end
+	local name = plain(a.dispelName)
+	if type(name) == "string" and name ~= "" and name ~= "None" then return true end
+	return plain(a.isDispellable) == true
+end
+
+-- Camp Tent's hour-long "no more rest" aura. It sits on you the whole hour
+-- and isn't something to watch, so it stays off the frames.
+local BOOSTED_REST = 1229451
+local function skipAura(a)
+	local id, name = plain(a.spellId), plain(a.name)
+	if id == BOOSTED_REST then return true end
+	return type(name) == "string" and name:lower():find("boosted rest", 1, true) ~= nil
+end
+
 -- Fill the grid: on the target, your own debuffs come first. `base` is the
 -- gap between the frame's edge and the first row. Returns the room it took.
 local others, othersAt = {}, {}
@@ -808,11 +898,13 @@ local function fillGrid(grid, base)
 		for i = 1, 40 do
 			local a = safe(C_UnitAuras.GetAuraDataByIndex, unit, i, grid.filter)
 			if not a then break end
-			if ownFirst and not plain(a.isFromPlayerOrPlayerPet) then
-				others[#others + 1], othersAt[#others + 1] = a, i
-			elseif n < grid.max then
-				n = n + 1
-				showAura(grid, n, a, i, true)
+			if not skipAura(a) and UF.KeepPlayerAura(grid, a) then
+				if ownFirst and not plain(a.isFromPlayerOrPlayerPet) then
+					others[#others + 1], othersAt[#others + 1] = a, i
+				elseif n < grid.max then
+					n = n + 1
+					showAura(grid, n, a, i, true)
+				end
 			end
 		end
 		for k, a in ipairs(others) do
@@ -843,8 +935,8 @@ end
 local targetDebuffs = auraGrid(target, "target", true, 24, 8, 16, false)
 local targetBuffs = auraGrid(target, "target", false, 20, 10, 20, true)
 -- Player: debuffs above your frame (the pet frame sits below it), buffs above those.
-local playerDebuffs = auraGrid(player, "player", true, 24, 8, 16, true)
-local playerBuffs = auraGrid(player, "player", false, 20, 10, 20, true)
+local playerDebuffs = auraGrid(player, "player", true, 24, 8, 40, true)
+local playerBuffs = auraGrid(player, "player", false, 20, 10, 40, true)
 
 -- In combat Forever won't let addons read the target's auras at all, but the
 -- game's own target frame still draws them. So when it has aura icons, those
@@ -1010,6 +1102,7 @@ local function updatePlayerDebuffs()
 	local used = fillGrid(playerDebuffs, 16)
 	fillGrid(playerBuffs, used + 4) -- (used includes the time under the top row)
 end
+function UF.RefreshPlayerAuras() updatePlayerDebuffs() end
 
 -- Pet: a smaller box, shown only while you have a pet out.
 local pet = createUnitFrame("ZydeForeverPetFrame", "pet", LAYOUT.pet)
@@ -1248,9 +1341,29 @@ end
 player:SetMovable(true)
 target:SetMovable(true)
 
+-- Blizzard's frames, which used to open the unit tooltip, are hidden.
+-- These buttons only had click and drag, so hovering them did nothing.
+local function showUnitTip(self)
+	local unit = self.unit
+	if type(unit) ~= "string" and self.GetAttribute then unit = self:GetAttribute("unit") end
+	if type(unit) ~= "string" or not UnitExists(unit) then return end
+	if GameTooltip_SetDefaultAnchor then
+		GameTooltip_SetDefaultAnchor(GameTooltip, self)
+	else
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+	end
+	if not pcall(GameTooltip.SetUnit, GameTooltip, unit) then GameTooltip:Hide() return end
+	GameTooltip:Show()
+end
+local function hideUnitTip() GameTooltip:Hide() end
+
 for _, f in ipairs(frames) do
 	f:HookScript("OnShow", function(self) updateAll(self, true) end)
 	if f.watched then RegisterUnitWatch(f) end
+	if f.unit ~= "pet" then
+		f:HookScript("OnEnter", showUnitTip)
+		f:HookScript("OnLeave", hideUnitTip)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -1342,6 +1455,10 @@ local function styleRaidButton(b)
 		if self.unit then updateAll(self, true) end
 	end)
 	b:HookScript("OnHide", rebuildRaidMap)
+	if not InCombatLockdown() then
+		b:HookScript("OnEnter", showUnitTip)
+		b:HookScript("OnLeave", hideUnitTip)
+	end
 	-- Shift-drag moves the whole raid (buttons are styled out of combat).
 	if not InCombatLockdown() then
 		b:RegisterForDrag("LeftButton")
@@ -1562,6 +1679,7 @@ end
 -- ZydeForeverDB.frameStyle, and built once at login, so a change needs a /reload.
 --   slant  Gilded Slant (default): round portrait in a class-colored ring,
 --          level badge, slanted bar ends, glossy class gradient, name on a tab
+--   bold   Gilded Bold: that same look, a little shorter, with a heavier font
 --   flat   Clean Flat: the plain flat boxes, no portraits
 --   hex    Hex Crest: hexagon portraits in a steel rim, bars ending in an
 --          arrow point, a gold line between health and power
@@ -1573,6 +1691,7 @@ end
 ---------------------------------------------------------------------------
 UF.STYLES = {
 	{ key = "slant", label = "Gilded Slant", desc = "Round portrait in a ring of the class color, level badge, slanted bar ends with a glossy class gradient, name on a dark tab" },
+	{ key = "bold", label = "Gilded Bold", desc = "Gilded Slant, a little shorter, with heavier text. Click a portrait to target that unit" },
 	{ key = "flat", label = "Clean Flat", desc = "The plain flat boxes: no portraits, least screen space" },
 	{ key = "hex", label = "Hex Crest", desc = "Hexagon portraits in a steel rim, bars that end in an arrow point, a thin gold line between health and power" },
 	{ key = "glass", label = "Glass Glow", desc = "Dark rounded cards, a soft glow around a round portrait, pill-shaped bars" },
@@ -1611,6 +1730,9 @@ local CLAMP = "CLAMPTOBLACKADDITIVE"
 local SPEC = {
 	slant = { bar = "Slant", back = "SlantBack", whole = true, portrait = ROUND, ring = "class", badge = "disc",
 		name = "tab", border = "dark", shade = "shine", gap = 22 },
+	bold = { bar = "Slant", back = "SlantBack", whole = true, portrait = ROUND, ring = "class", badge = "disc",
+		name = "tab", border = "dark", shade = "shine", gap = 22,
+		font = FRIZ, fontFlag = "THICKOUTLINE", fontAdd = 2, short = 0.8, portraitPad = 12 },
 	hex = { bar = "Arrow", back = "ArrowBack", whole = true, portrait = MEDIA .. "Hex", ring = "steel", badge = "hex",
 		name = "inside", border = "steel", shade = "gloss", divider = true, font = FRIZ, gap = 16 },
 	glass = { bar = "Pill", back = "Pill", whole = false, portrait = ROUND, ring = "glow", badge = "chip",
@@ -1731,7 +1853,10 @@ local function shaped(owner, shape, layer, sub)
 end
 
 local function addPortrait(f, spec, onRight)
-	local d = frameHeight(f.cfg) + (f.isParty and 12 or 16)
+	local hp = f.hp:GetHeight()
+	local extra = f.cfg.power > 0 and (f.cfg.power + 1) or 0
+	local pad = spec.portraitPad or (f.isParty and 12 or 16)
+	local d = hp + extra + pad
 	local s = CreateFrame("Frame", nil, f)
 	s:SetSize(d, d)
 	s:SetPoint("CENTER", f, onRight and "RIGHT" or "LEFT", onRight and -2 or 2, 0)
@@ -1759,7 +1884,7 @@ local function addPortrait(f, spec, onRight)
 	local small = f.isParty
 	local size = small and 9 or 10
 	if spec.badge == "disc" then
-		local bs = small and 18 or 21
+		local bs = (small and 18 or 21) + (spec.fontAdd or 0) * 2
 		f.badgeEdge = shaped(s, ROUND, "ARTWORK", 6)
 		f.badgeEdge:SetSize(bs + 2, bs + 2)
 		f.badgeEdge:SetPoint("CENTER", s, "BOTTOM", 0, 4)
@@ -1771,6 +1896,7 @@ local function addPortrait(f, spec, onRight)
 		gradient(disc, "VERTICAL", 0.02, 0.02, 0.02, 1, 0.20, 0.18, 0.16, 1)
 		f.badge = makeText(s, size)
 		f.badge:SetPoint("CENTER", disc, "CENTER", 0, 0)
+		if spec.font then f.badge:SetFont(spec.font, size + (spec.fontAdd or 0), spec.fontFlag or "OUTLINE") end
 	elseif spec.badge == "hex" then
 		local hb = shaped(s, MEDIA .. "Hex", "ARTWORK", 7)
 		hb:SetSize(small and 22 or 26, small and 16 or 19)
@@ -1802,15 +1928,48 @@ local function addPortrait(f, spec, onRight)
 	end
 	f.portraitSize = d
 	f.ringKind = spec.ring
+	-- The portrait hangs off the bar, so the bar's own click misses it.
+	-- This button is a child of the unit frame and aimed with the frame's own
+	-- points, which stays allowed once a fight starts.
+	if not InCombatLockdown() then
+		local hit = CreateFrame("Button", nil, f, "SecureUnitButtonTemplate")
+		hit:SetSize(d, d)
+		hit:SetPoint("CENTER", f, onRight and "RIGHT" or "LEFT", onRight and -2 or 2, 0)
+		hit:SetFrameLevel(s:GetFrameLevel() + 5)
+		hit:RegisterForClicks("AnyUp")
+		hit:RegisterForDrag("LeftButton")
+		hit:SetScript("OnDragStart", function() startDrag(f) end)
+		hit:SetScript("OnDragStop", stopDrag)
+		hit:SetAttribute("unit", f.unit)
+		hit:SetAttribute("*type1", "target")
+		hit:SetAttribute("*type2", "togglemenu")
+		hit:EnableMouse(true)
+		hit.unit = f.unit
+		if f.unit ~= "pet" then
+			hit:HookScript("OnEnter", showUnitTip)
+			hit:HookScript("OnLeave", hideUnitTip)
+		end
+		local bg = hit:CreateTexture(nil, "BACKGROUND")
+		bg:SetAllPoints()
+		bg:SetColorTexture(1, 1, 1, 0)
+	end
 end
 
 -- Names. tab: on a dark slanted tab sitting on the bar's top edge.
 -- inside: in the health bar, on the left. above: plain text just above the bar.
 local function placeName(f, spec, file, left, width)
-	local size = f.unit == "target" and 13 or 11
+	local size = (f.unit == "target" and 13 or 11) + (spec.fontAdd or 0)
+	-- Thick outline at the full size is wider than the tab, so long target names clip.
+	if spec.fontFlag == "THICKOUTLINE" and f.unit == "target" then size = 12 end
+	local face = spec.font or FONT
+	local flag = spec.fontFlag or "OUTLINE"
+	-- Target of target: a smaller tab, wide enough for a first and last name.
+	if f.unit == "targettarget" then size, flag = 9, "OUTLINE" end
 	if spec.name == "tab" then
 		local tab = CreateFrame("Frame", nil, f)
-		tab:SetSize(width, size + 5)
+		local tabH = size + (f.unit == "targettarget" and 4 or (spec.fontFlag == "THICKOUTLINE" and 8 or 5))
+		local pad = f.unit == "targettarget" and 6 or 10
+		tab:SetSize(width, tabH)
 		tab:SetPoint("BOTTOMLEFT", f, "TOPLEFT", left, -3)
 		tab:SetFrameLevel(f.hp:GetFrameLevel() + 3)
 		local bg = plainTex(tab, "BACKGROUND")
@@ -1819,10 +1978,12 @@ local function placeName(f, spec, file, left, width)
 		cut(tab, file, bg, { bg })
 		f.name:SetParent(tab)
 		f.name:ClearAllPoints()
-		f.name:SetPoint("LEFT", tab, "LEFT", 10, 0)
-		f.name:SetPoint("RIGHT", tab, "RIGHT", -10, 0)
-		f.name:SetFont(FONT, size, "OUTLINE")
-		f.name:SetJustifyH(f.unit == "target" and "LEFT" or "CENTER")
+		-- One side only. A right anchor gives the line a width, and a hidden
+		-- name in a fixed-width line trips the script limit.
+		f.name:SetPoint("LEFT", tab, "LEFT", pad, 0)
+		f.name:SetFont(face, size, flag)
+		f.name:SetWordWrap(false)
+		f.name:SetJustifyH("LEFT")
 		if f.mark then
 			f.mark:ClearAllPoints()
 			f.mark:SetPoint("CENTER", tab, "RIGHT", 12, -2)
@@ -1831,15 +1992,13 @@ local function placeName(f, spec, file, left, width)
 		f.name:SetParent(f.hp)
 		f.name:ClearAllPoints()
 		f.name:SetPoint("LEFT", f.hp, "LEFT", left + 6, 0)
-		f.name:SetPoint("RIGHT", f.text, "LEFT", -6, 0)
-		f.name:SetFont(spec.font or FONT, size - (spec.font and 1 or 0), "OUTLINE")
+		f.name:SetFont(face, size - (spec.font and 1 or 0), flag)
 		f.name:SetJustifyH("LEFT")
 	else -- above
 		f.name:SetParent(f)
 		f.name:ClearAllPoints()
 		f.name:SetPoint("BOTTOMLEFT", f, "TOPLEFT", left + 2, 4)
-		f.name:SetWidth(width)
-		f.name:SetFont(spec.font or FONT, size - 1, "OUTLINE")
+		f.name:SetFont(face, size - 1, flag)
 		f.name:SetJustifyH("LEFT")
 		if f.mark then
 			f.mark:ClearAllPoints()
@@ -1897,7 +2056,9 @@ end
 -- Where the right end of the bars sits in, at the health text's height.
 local function endInset(spec, f)
 	local lean = LEAN * f.cfg.w
-	local mid = (f.cfg.h / 2) / frameHeight(f.cfg)
+	local h = f.hp and f.hp:GetHeight() or f.cfg.h
+	local total = h + (f.cfg.power > 0 and (f.cfg.power + 1) or 0)
+	local mid = (h / 2) / math.max(1, total)
 	if spec.bar == "Slant" then return lean * mid end
 	if spec.bar == "Arrow" then return lean * math.abs(2 * mid - 1) end
 	if spec.bar == "Pill" then return f.cfg.h * 0.3 end
@@ -1914,6 +2075,17 @@ function UF.applySkin(style)
 		local isTarget = f == target
 		local file = MEDIA .. (isTarget and spec.back or spec.bar)
 		local w = f.cfg.w
+		-- Pet and target-of-target are already short; only the tall bars shrink.
+		if spec.short and not f.shortened and not InCombatLockdown() and f.hp:GetHeight() >= 28 then
+			f.shortened = true
+			local h = math.max(14, math.floor(f.hp:GetHeight() * spec.short + 0.5))
+			f.hp:SetHeight(h)
+			if f.hp.sheen then f.hp.sheen:SetHeight(math.max(2, h * 0.5)) end
+			f:SetHeight(h + (f.power and (f.power:GetHeight() + 1) or 0))
+		end
+		local face = spec.font or FONT
+		local flag = spec.fontFlag or "OUTLINE"
+		local add = spec.fontAdd or 0
 		if spec.card then
 			f.hp:SetFrameLevel(f:GetFrameLevel() + 3)
 			if f.power then f.power:SetFrameLevel(f:GetFrameLevel() + 3) end
@@ -1924,10 +2096,25 @@ function UF.applySkin(style)
 		-- Keep the health number clear of the bar's right end.
 		f.text:ClearAllPoints()
 		f.text:SetPoint("RIGHT", f.hp, "RIGHT", -math.floor(endInset(spec, f) + 8), 0)
-		f.text:SetFont(spec.font or FONT, f.cfg.font + (spec.font and 0 or 1), "OUTLINE")
+		f.text:SetFont(face, f.cfg.font + (spec.font and 0 or 1) + add, flag)
 		if f.ptext then
 			f.ptext:ClearAllPoints()
 			f.ptext:SetPoint("RIGHT", f.power, "RIGHT", -math.floor((spec.bar == "Slant" and LEAN * w or 2) + 4), 0)
+			f.ptext:SetFont(face, 10 + math.min(add, 1), flag)
+		end
+		if f.name and f ~= player and not isTarget and not f.isParty then
+			f.name:SetFont(face, f.cfg.font + add, flag)
+		end
+		-- The pet bar is short. The heavy font fills it with the health number
+		-- and the name, anchored to that number, disappears.
+		if spec.fontFlag == "THICKOUTLINE" and f.compact and f.name and f.unit ~= "targettarget" then
+			f.text:SetFont(face, 11, "OUTLINE")
+			f.name:SetFont(face, 11, "OUTLINE")
+			f.name:SetWordWrap(false)
+			f.name:ClearAllPoints()
+			f.name:SetPoint("LEFT", f.hp, "LEFT", 7, 0)
+			f.name:SetWidth(math.floor(w * 0.58))
+			f.name:SetJustifyH("LEFT")
 		end
 		if f == player or isTarget or f.isParty then
 			addPortrait(f, spec, isTarget)
@@ -1939,7 +2126,9 @@ function UF.applySkin(style)
 			if isTarget then
 				f.text:ClearAllPoints()
 				f.text:SetPoint("RIGHT", f.hp, "RIGHT", -math.floor(r + 6), 0)
-				placeName(f, spec, file, spec.name == "tab" and 4 or 0, math.floor(w * 0.72))
+				local nameW = math.floor(w * 0.72)
+				if spec.fontFlag == "THICKOUTLINE" then nameW = math.floor(w - r - 6) end
+				placeName(f, spec, file, spec.name == "tab" and 4 or 0, nameW)
 				if f.classEdge then for _, t in ipairs(f.classEdge) do t:Hide() end end
 				f.classEdge = nil -- (the ring shows elite and rare instead)
 			else
@@ -1950,6 +2139,10 @@ function UF.applySkin(style)
 				end
 				if f.isParty then placeName(f, spec, file, math.floor(r + 2), math.floor(w * 0.62)) end
 			end
+		elseif f.unit == "targettarget" and f.name and spec.name == "tab" then
+			-- Same width as the bar, so the slant lines up with it instead of
+			-- hanging off the ends.
+			placeName(f, spec, file, 0, w)
 		elseif spec.card then
 			addCard(f, 7, 7)
 		end
@@ -1972,11 +2165,21 @@ function UF.applySkin(style)
 		player:SetClampRectInsets(-pr, 0, 0, 0)
 		target:SetClampRectInsets(0, math.floor(target.portraitSize / 2 + 2), 18, 0)
 		local gap = spec.gap
+		local ph = party[1]:GetHeight()
 		for i = 1, 4 do
 			party[i]:ClearAllPoints()
-			party[i]:SetPoint("TOPLEFT", partyHolder, "TOPLEFT", 0, -(i - 1) * (pheight + gap))
+			party[i]:SetPoint("TOPLEFT", partyHolder, "TOPLEFT", 0, -(i - 1) * (ph + gap))
 		end
-		partyHolder:SetHeight(pheight * 4 + gap * 3)
+		partyHolder:SetHeight(ph * 4 + gap * 3)
+	end
+	if spec.fontFlag then
+		for _, grid in ipairs({ playerBuffs, playerDebuffs }) do
+			local sz = grid.size < 22 and 11 or 13
+			for _, b in ipairs(grid.buttons) do
+				b.time:SetFont(spec.font or FONT, sz, spec.fontFlag)
+				b.count:SetFont(spec.font or FONT, sz, spec.fontFlag)
+			end
+		end
 	end
 end
 end -- frame styles

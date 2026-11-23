@@ -273,7 +273,8 @@ local function build(plate)
 
 	f.name = text(f, 10)
 	f.name:SetPoint("BOTTOM", f, "TOP", 0, 3)
-	f.name:SetWidth(W + 60)
+	-- No fixed width. A width makes the line measure the text, and a hidden
+	-- mob name cannot be measured, so the line comes out blank.
 	f.name:SetWordWrap(false)
 	f.name:SetTextColor(1, 1, 1)
 	makeCombo(f)
@@ -571,11 +572,24 @@ end
 local function updateName(f)
 	local unit = f.unit
 	updateMark(f)
-	if not pcall(f.name.SetText, f.name, UnitName(unit)) then f.name:SetText("") end
-	-- a boss: a skull before its name, and the name in purple (the bar colour shows threat in a fight)
+	-- Same as any unit frame: hand the name to the font. A hidden name still
+	-- draws. Reading it, or building a new string out of it, blanks the line.
+	-- Don't touch the game's own name from here. Moving or fading it makes the
+	-- plate update again, and that loop hits the script limit.
+	f.name:Show()
+	local raw = UnitName(unit)
+	if isSecret(raw) then
+		-- No width. Measuring a hidden name to fit a width hits the script limit.
+		local cur = f.name:GetText()
+		if not isSecret(cur) then f.name:SetWidth(0) end
+		f.name:SetText(raw)
+	elseif f.boss and type(raw) == "string" then
+		f.name:SetText(SKULL .. raw)
+	else
+		f.name:SetText(type(raw) == "string" and raw or "")
+	end
+	-- a boss: the name in purple (the bar colour shows threat in a fight)
 	if f.boss then
-		local n = plain(UnitName(unit))
-		if type(n) == "string" then f.name:SetText(SKULL .. n) end
 		f.name:SetTextColor(0.85, 0.6, 1)
 	else
 		f.name:SetTextColor(1, 1, 1)
@@ -870,14 +884,22 @@ end
 ---------------------------------------------------------------------------
 -- Skinning plates as they come and go
 ---------------------------------------------------------------------------
-local function hideBlizzard(plate, hide)
-	local uf = plate.UnitFrame
-	if not uf then return end
-	uf.zydeHidden = hide
-	if not uf.zydeHooked then
-		uf.zydeHooked = true
-		-- The game may set its own plate's alpha back: keep it invisible while ours shows.
-		hooksecurefunc(uf, "SetAlpha", function(self, a)
+-- The game fades these back in (on target, threat, health), and some of them
+-- ignore the plate's alpha, so each one is held at 0. Alpha only: moving the
+-- name is what hit the script limit. The debuff row is left alone.
+local HIDE_PARTS = {
+	"HealthBarsContainer", "healthBar", "HealthBar",
+	"CastBarsContainer", "castBar", "CastBar",
+	"PlayerLevelDiffFrame", "LevelFrame", "ClassificationFrame",
+	"selectionHighlight", "aggroHighlight", "RaidTargetFrame", "name",
+}
+
+local function keepHidden(region, hide)
+	if not region or not region.SetAlpha then return end
+	region.zydeHidden = hide
+	if not region.zydeAlphaHook and hooksecurefunc then
+		region.zydeAlphaHook = true
+		hooksecurefunc(region, "SetAlpha", function(self, a)
 			if self.zydeHidden and a ~= 0 and not self.zydeSetting then
 				self.zydeSetting = true
 				self:SetAlpha(0)
@@ -885,9 +907,20 @@ local function hideBlizzard(plate, hide)
 			end
 		end)
 	end
-	uf.zydeSetting = true
-	uf:SetAlpha(hide and 0 or 1)
-	uf.zydeSetting = nil
+	if not region.zydeSetting then
+		region.zydeSetting = true
+		region:SetAlpha(hide and 0 or 1)
+		region.zydeSetting = nil
+	end
+end
+
+local function hideBlizzard(plate, hide)
+	local uf = plate.UnitFrame
+	if not uf then return end
+	keepHidden(uf, hide)
+	for i = 1, #HIDE_PARTS do
+		keepHidden(uf[HIDE_PARTS[i]], hide)
+	end
 end
 
 -- Enemies and neutral mobs only: not you, not friends, not objects.

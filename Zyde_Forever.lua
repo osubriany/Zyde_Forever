@@ -1,11 +1,12 @@
 -- Zyde_Forever
--- 1) Warrior reminders: shows an icon to the right of your character when
---    Battle Shout is NOT on you, and when Overpower is ready to use.
---    Active icons stack in a column.
+-- 1) Warrior reminders: a bar of icons beside your character. Battle Shout
+--    missing and Overpower ready are two of them. The urgent ones pulse.
+--    Ctrl+click the bar to lay it out in a row or a column. Alt+click cycles
+--    the size. Shift-drag to move it.
 -- 2) Hides the main action bar art, the bag bar, the micro menu and the
 --    experience bar.
 -- 3) A small draggable "XP 45.2%" readout in place of the experience bar.
--- 4) One Button Fishing keybind (Keybindings > AddOns > Zyde Forever).
+-- 4) One Button Fishing keybind (Keybindings > Zyde Forever).
 -- 5) Flight masters open the flight map directly (hold Shift to talk instead).
 -- 6) Rarity-colored borders on equipped gear in the character screen.
 -- 8) Minimap tracking (e.g. Find Minerals) comes back on after you die.
@@ -15,16 +16,31 @@
 -- 12) Vendor / auction / keep advice per bag item, sell panel at merchants (VendorList.lua).
 -- 13) Group finder helper: groups with room for you first, whisper the leader (LFGHelper.lua).
 -- 14) A small draggable info bar, one line: location, gold, bags, and ammo.
---     Max opens a second line: steps, swim, mounted, and jumps
---     (InfoBar.lua).
+--     Travel opens a second line: steps, swim, mounted, and jumps.
+--     Mining and Herbalism, once learned, each open a count line (InfoBar.lua).
 -- 15) Tank threat list: a table of mobs you have threat on, your percent,
 --     and the next two people (ThreatBox.lua).
+-- 16) Minimap button bag: one button on the minimap holds the other addon
+--     buttons. A key opens those and the game menu at the cursor (MinimapButtons.lua).
 --
 -- /zyde test     - toggle preview of both icons (to see where they sit)
 -- /zyde resetxp  - put the XP readout back at its default spot
 -- /zyde quest <id> - is that quest flagged complete, plus its Questie name
 
 local ADDON, ns = ...
+
+-- The reload dialog names the addon and not the call. Say which function
+-- it was, once, so the next reload is enough to find it.
+do
+	local told = false
+	local watch = CreateFrame("Frame")
+	watch:RegisterEvent("ADDON_ACTION_FORBIDDEN")
+	watch:SetScript("OnEvent", function(_, _, addon, func)
+		if told or addon ~= ADDON then return end
+		told = true
+		print("|cff66ccffZyde_Forever|r was blocked calling " .. tostring(func))
+	end)
+end
 
 ---------------------------------------------------------------------------
 -- Settings
@@ -52,6 +68,12 @@ end
 local function safe(fn, ...)
 	if type(fn) ~= "function" then return nil end
 	return passResults(pcall(fn, ...))
+end
+
+-- The global SetCVar is a Blizzard-only action on this client and raises
+-- the reload dialog. C_CVar.SetCVar is the call the other addons here use.
+local function setCVar(name, value)
+	if C_CVar and C_CVar.SetCVar then pcall(C_CVar.SetCVar, name, value) end
 end
 
 local function knows(id)
@@ -134,14 +156,14 @@ end
 -- AHledger) is off when that addon isn't loaded.
 ---------------------------------------------------------------------------
 local FEATURES = {
-	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "Icons to the right of your character (Shift-drag one to move them). Warriors: in a fight, Battle Shout, Thunder Clap and being out of melee range pulse on your character. Also Overpower / Execute / Revenge / Victory Rush ready, wrong stance, and Sunder stacks when tanking. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing (solo), target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Shamans: weapon imbue missing or running out, Lightning Shield missing or low, Earth Shock to interrupt, a totem out of range, no Ankh. Everyone: Well-Rested low, gear needs repair, low on food or water" },
+	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "A bar of icons beside you. Shift-drag it to move it. Ctrl+click it to switch between a column and a row. Alt+click it to cycle the size (-60%, -30%, normal, +30%, +60%). Size is also the option under this one. Battle Shout, Thunder Clap, being out of melee range, Eviscerate and Seal of Righteousness pulse. Warriors: in a fight, Battle Shout, Thunder Clap and being out of melee range. Also Overpower / Execute / Revenge / Victory Rush ready, Shield Block flashing when ready and counting down while it recharges, wrong stance, and Sunder stacks in Defensive Stance. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing (solo), target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Shamans: weapon imbue missing or running out, Lightning Shield missing or low, Earth Shock to interrupt, a totem out of range, no Ankh. Everyone: Well-Rested low, eat when Well Fed is down, use a Camp Tent when rested XP is under 5% and Boosted Rest is off, gear needs repair, low on food or water" },
 	{ key = "ammo", class = "HUNTER", short = "count, refill, warning", label = "Hunter ammo", desc = "Arrows or bullets left and how long they last (in the XP readout), a warning when you leave town low, and a Fill quiver button at ammo vendors (hunters)" },
 	{ key = "petCare", class = "HUNTER", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast reminder: off in a group, on when solo (hunters)" },
 	{ key = "markerWheel", short = "marks on the target", label = "Target markers", desc = "Hold the marker key and two rows of four icons show just under your cursor. Top: skull, X, square, moon. Bottom: triangle, diamond, circle, star. The red button removes the mark on your target. The gold ALL button removes every mark. Clicking the icon already on your target removes that mark too. Click a different icon to change it. Letting go hides the icons. World markers stay a separate key: press it to show or hide the squares, drag the title to move them, click a square, then the ground. The last square clears those." },
 	{ key = "hideBars", short = "cleaner action bars", label = "Hide Blizzard bar art", desc = "Hides the action bar art and the bag bar", reload = true },
 	{ key = "hideMicroMenu", short = "game menu buttons", label = "Hide micro menu", desc = "Hides the row of small game menu buttons (character, spellbook, talents, quest log, social, game menu...). Their keybinds still work", reload = true },
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
-	{ key = "infoBar", short = "location, gold, bags", label = "Info bar", desc = "One line you can drag: where you are, gold, bag space, and ammo for a bow, gun, or throwing weapon. Max opens a second line with steps, yards swum, yards mounted, and jumps. Min hides that line. Those counts are kept for this character. Ctrl+click the top line to paste where you are into chat. Ctrl+click the counter line to paste the counts" },
+	{ key = "infoBar", short = "location, gold, bags", label = "Info bar", desc = "One line you can drag: where you are, gold, bag space, and ammo for a bow, gun, or throwing weapon. Travel opens a second line with steps, yards swum, yards mounted, and jumps. Mining, once learned, opens a count of each ore in your bags and bank. Herbs does the same for Herbalism. Both lines can be open at once. Those travel counts are kept for this character. Ctrl+click a line to paste it into chat" },
 	{ key = "threatBox", short = "tank threat table", label = "Tank threat list", desc = "While you are set to the tank role in a party or raid: a draggable table of mobs you have threat on. Columns are the mob, your threat percent, then the two people closest behind you and their percent. Only mobs with a nameplate, bosses, and your target can be listed. Drag the title to move it" },
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames with buffs and debuffs, mana / rage / energy on party frames. Shift-drag a frame to move it", reload = true },
 	{ key = "targetTarget", short = "small frame by target", label = "Target of target", desc = "A small frame beside the target frame showing who your target is targeting (with the Zyde unit frames on). Shift-drag it to move it" },
@@ -151,6 +173,7 @@ local FEATURES = {
 	{ key = "barTidy", short = "short keys, no empty slots", label = "Tidy action bars", desc = "Short keybind labels on action buttons (a-1 becomes A1, Mouse Button 4 becomes M4) and empty slots hidden - they show again while you drag a spell or item" },
 	{ key = "gear", short = "borders, item levels", label = "Character screen gear", desc = "Rarity borders and item levels; a green arrow when your bags hold an upgrade for a slot (scored by GearAdvisor if loaded), empty slots quiet gray unless your bags can fill them, and your average item level in the header", reload = true },
 	{ key = "fishing", short = "one-key fishing", label = "One Button Fishing", desc = "Same key casts and reels in (set the key in Keybindings)" },
+	{ key = "buttonBag", short = "one button, a key for the rest", label = "Minimap button bag", desc = "Gathers the other addon buttons on the minimap onto one button. Click that button to spread them out. Drag it around the minimap to move it. Hold Buttons at cursor (Options > Keybindings > Zyde Forever) to show the game menu and those buttons in circles around your mouse" },
 	{ key = "mapNotes", short = "alt-click to mark", label = "Map markers", desc = "Your own named markers on the world map, kept between sessions. Alt-click the map to drop one and name it, alt-click a marker to remove it, right-click to rename it" },
 	{ key = "flight", short = "skip flight chat", label = "Flight master shortcut", desc = "Flight masters open the map directly (hold Shift to talk)" },
 	{ key = "tracking", short = "re-enable after death", label = "Keep tracking after death", desc = "Turns Find Minerals, Find Herbs... back on after you die" },
@@ -304,7 +327,7 @@ local icons = {
 	{ key = "quest", frame = makeIcon("ZydeForeverQuestItem", "Interface\\GossipFrame\\AvailableQuestIcon") },
 	{ key = "rested", frame = makeIcon("ZydeForeverWellRested", "Interface\\Icons\\INV_Misc_Bag_08") },
 }
--- Battle Shout sits on the character, large, until you put it on.
+-- Battle Shout pulses in the bar until you put it on.
 icons[1].frame.prominent = true
 -- (a font from the start: SetText runs before layout() sets the small font)
 icons[1].frame.label = icons[1].frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -324,13 +347,57 @@ function ns.AddReminder(key, name, tex, check)
 end
 
 ---------------------------------------------------------------------------
--- Moving the column: Shift-drag any icon (out of combat). The icons only take
--- the mouse while Shift is held, so they never block clicks otherwise.
--- /zyde resetreminders puts the column back beside your character.
+-- Moving the bar: Shift-drag any icon (out of combat). Ctrl+click flips between
+-- a column and a row. Alt+click cycles the size. The icons only take the mouse
+-- while Shift, Ctrl, or Alt is held, so they never block clicks otherwise.
+-- /zyde resetreminders puts the bar back beside your character.
 ---------------------------------------------------------------------------
 do -- own scope (200-local limit)
 anchor:SetMovable(true)
 anchor:SetClampedToScreen(true)
+
+-- Saved size, as a percent off the original 44px. Older saves used small / normal / large.
+local SIZE_MUL = { ["-60"] = 0.4, ["-30"] = 0.7, ["0"] = 1, ["30"] = 1.3, ["60"] = 1.6, small = 0.7, normal = 1, large = 1.3 }
+local SIZE_ORDER = { "-60", "-30", "0", "30", "60" }
+local SIZE_ALIAS = { small = "-30", normal = "0", large = "30" }
+
+local function sizeKey()
+	local key = ZydeForeverDB and ZydeForeverDB.reminderSize
+	key = SIZE_ALIAS[key] or key
+	if key and SIZE_MUL[key] then return key end
+	return "0"
+end
+
+function ns.ReminderMetrics()
+	local db = ZydeForeverDB
+	local mul = SIZE_MUL[db and db.reminderSize] or 1
+	local size = math.floor(ICON_SIZE * mul + 0.5)
+	local gap = math.max(2, math.floor(SPACING * mul + 0.5))
+	return size, gap, db and db.reminderLayout == "horizontal"
+end
+
+function ns.SetReminderSize(key)
+	ZydeForeverDB = ZydeForeverDB or {}
+	key = SIZE_ALIAS[key] or key
+	if not SIZE_MUL[key] then key = "0" end
+	ZydeForeverDB.reminderSize = key
+	if ns.RefreshReminders then ns.RefreshReminders() end
+end
+
+function ns.CycleReminderSize()
+	local cur = sizeKey()
+	local i = 1
+	for n, k in ipairs(SIZE_ORDER) do
+		if k == cur then i = n end
+	end
+	ns.SetReminderSize(SIZE_ORDER[i % #SIZE_ORDER + 1])
+end
+
+function ns.ToggleReminderLayout()
+	ZydeForeverDB = ZydeForeverDB or {}
+	ZydeForeverDB.reminderLayout = ZydeForeverDB.reminderLayout == "horizontal" and "vertical" or "horizontal"
+	if ns.RefreshReminders then ns.RefreshReminders() end
+end
 
 local function placeAnchor()
 	anchor:ClearAllPoints()
@@ -351,7 +418,14 @@ local function setDraggable(on)
 		if on and not f.zydeDrag then
 			f.zydeDrag = true
 			f:RegisterForDrag("LeftButton")
-			f:SetScript("OnDragStart", function() if not InCombatLockdown() then anchor:StartMoving() end end)
+			f:SetScript("OnDragStart", function()
+				if IsShiftKeyDown() and not InCombatLockdown() then anchor:StartMoving() end
+			end)
+			f:SetScript("OnMouseUp", function(_, button)
+				if button ~= "LeftButton" or IsShiftKeyDown() or InCombatLockdown() then return end
+				if IsAltKeyDown() and not IsControlKeyDown() then ns.CycleReminderSize()
+				elseif IsControlKeyDown() and not IsAltKeyDown() then ns.ToggleReminderLayout() end
+			end)
 			f:SetScript("OnDragStop", function()
 				anchor:StopMovingOrSizing()
 				local point, _, rel, x, y = anchor:GetPoint(1)
@@ -359,7 +433,7 @@ local function setDraggable(on)
 				ZydeForeverDB.reminderPos = { point = point, rel = rel, x = x, y = y }
 			end)
 		end
-		f:EnableMouse(on and not f.prominent)
+		f:EnableMouse(on)
 	end
 end
 
@@ -370,7 +444,7 @@ dragEv:RegisterEvent("PLAYER_REGEN_DISABLED")
 dragEv:SetScript("OnEvent", function(_, event)
 	if event == "PLAYER_LOGIN" then placeAnchor() return end
 	if event == "PLAYER_REGEN_DISABLED" then anchor:StopMovingOrSizing() end
-	setDraggable(IsShiftKeyDown() and not InCombatLockdown())
+	setDraggable((IsShiftKeyDown() or IsControlKeyDown() or IsAltKeyDown()) and not InCombatLockdown())
 end)
 
 ns.ResetReminderPosition = function()
@@ -380,10 +454,10 @@ ns.ResetReminderPosition = function()
 end
 end -- reminder dragging
 
--- Stack the shown icons. Runs 10 times a second, so an icon is only moved
--- when its place in the column changes.
-local BIG, BIG_GAP, BIG_Y = 38, 8, 86
-local BIG_EDGE = {
+-- Stack the shown icons in a column or a row. Runs 10 times a second, so an
+-- icon is only moved when its place, size, or direction changes. Urgent icons
+-- stay in the bar and pulse (their border color is EDGE).
+local EDGE = {
 	shout = { 0.95, 0.72, 0.15, 1 },
 	meleeRange = { 0.95, 0.15, 0.1, 1 },
 	thunderClap = { 0.25, 0.55, 1, 1 },
@@ -391,42 +465,51 @@ local BIG_EDGE = {
 	sealRighteousness = { 1, 0.85, 0.35, 1 },
 }
 local function layout(states)
-	local n, big = 0, {}
+	local size, gap, horizontal = ns.ReminderMetrics()
+	local cursor, n = 0, 0
 	for _, icon in ipairs(icons) do
 		local f = icon.frame
-		if states[icon.key] and f.prominent then
-			big[#big + 1] = f
-			f.pulseFast = icon.key == "meleeRange"
-			local edge = BIG_EDGE[icon.key]
-			if edge then f.border:SetColorTexture(edge[1], edge[2], edge[3], edge[4]) end
-		elseif states[icon.key] then
-			if f.zydeSlot ~= n or not f:IsShown() or f:GetWidth() ~= ICON_SIZE then
-				f.zydeSlot = n
-				f:SetSize(ICON_SIZE, ICON_SIZE)
+		if states[icon.key] then
+			local step = size
+			if horizontal and f.label then
+				local text = f.label:GetText()
+				if text and text ~= "" then step = math.max(size, math.ceil(f.label:GetStringWidth()) + 8) end
+			end
+			local along = horizontal and (cursor + (step - size) / 2) or 0
+			local down = horizontal and 0 or -cursor
+			if f.zydeSlot ~= n or f.zydeHoriz ~= horizontal or not f:IsShown() or f:GetWidth() ~= size or f.zydeAlong ~= along then
+				f.zydeSlot, f.zydeHoriz, f.zydeAlong = n, horizontal, along
+				f:SetSize(size, size)
 				f:ClearAllPoints()
-				f:SetPoint("TOP", anchor, "TOP", 0, -n * (ICON_SIZE + SPACING))
+				if horizontal then
+					f:SetPoint("TOPLEFT", anchor, "TOPLEFT", along, 0)
+				else
+					f:SetPoint("TOP", anchor, "TOP", 0, down)
+				end
+				if f.label then
+					f.label:ClearAllPoints()
+					if horizontal then
+						f.label:SetPoint("TOP", f, "BOTTOM", 0, -2)
+						f.label:SetJustifyH("CENTER")
+					else
+						f.label:SetPoint("LEFT", f, "RIGHT", 6, 0)
+						f.label:SetJustifyH("LEFT")
+					end
+				end
 				f:Show()
 			end
+			if f.prominent then
+				f.pulseFast = icon.key == "meleeRange"
+				local edge = EDGE[icon.key]
+				if edge then f.border:SetColorTexture(edge[1], edge[2], edge[3], edge[4]) end
+			end
+			cursor = cursor + step + gap
 			n = n + 1
 		elseif f:IsShown() then
 			f:Hide()
 			f:SetAlpha(1)
-			f:SetSize(ICON_SIZE, ICON_SIZE)
+			f:SetSize(size, size)
 		end
-	end
-	-- On the character, not in the side column: large, and centered as a row.
-	local total = #big * BIG + math.max(0, #big - 1) * BIG_GAP
-	local x = -total / 2 + BIG / 2
-	for i, f in ipairs(big) do
-		f:SetSize(BIG, BIG)
-		f:ClearAllPoints()
-		f:SetPoint("CENTER", UIParent, "CENTER", x + (i - 1) * (BIG + BIG_GAP), BIG_Y)
-		if f.label then
-			f.label:ClearAllPoints()
-			f.label:SetPoint("TOP", f, "BOTTOM", 0, -2)
-			if not f.label:SetFont("Fonts\\ARIALN.TTF", 10, "OUTLINE") then f.label:SetFontObject("GameFontNormal") end
-		end
-		f:Show()
 	end
 end
 
@@ -684,9 +767,10 @@ local function update()
 	end
 	layout(states)
 end
+ns.RefreshReminders = update
 
 anchor:SetScript("OnUpdate", function(_, elapsed)
-	-- The big icons on your character pulse every frame. The side column does not.
+	-- Urgent icons pulse every frame. The rest of the bar stays steady.
 	local now = GetTime()
 	for _, icon in ipairs(icons) do
 		local f = icon.frame
@@ -791,11 +875,11 @@ local function applyQuestRange()
 	if not db or InCombatLockdown() then return end
 	-- An earlier version raised the nameplate draw distance; put yours back.
 	if db.plateDistOrig ~= nil then
-		pcall(SetCVar, "nameplateMaxDistance", db.plateDistOrig)
+		setCVar("nameplateMaxDistance", db.plateDistOrig)
 		db.plateDistOrig = nil
 		db.questRange = 30 -- and the pickup range back to the usual 30
 	end
-	if db.questRange then pcall(SetCVar, "SoftTargetInteractRange", db.questRange) end
+	if db.questRange then setCVar("SoftTargetInteractRange", db.questRange) end
 end
 
 local function applyQuestIcons()
@@ -807,15 +891,15 @@ local function applyQuestIcons()
 	local objects = on or F("nodeGlow")
 	if objects then
 		if not gamepadUI() and (tonumber(GetCVar("SoftTargetInteract")) or 0) < 3 then
-			pcall(SetCVar, "SoftTargetInteract", 3)
+			setCVar("SoftTargetInteract", 3)
 		end
-		pcall(SetCVar, "SoftTargetInteractArc", 2)    -- objects all around you, not only in front
-		pcall(SetCVar, "SoftTargetInteractRange", 30) -- yards (default 10)
+		setCVar("SoftTargetInteractArc", 2)    -- objects all around you, not only in front
+		setCVar("SoftTargetInteractRange", 30) -- yards (default 10)
 		-- No nameplate popping up on friendly NPCs you face.
-		pcall(SetCVar, "SoftTargetNameplateInteract", 0)
+		setCVar("SoftTargetNameplateInteract", 0)
 	end
-	pcall(SetCVar, "SoftTargetIconGameObject", on and 1 or 0)
-	pcall(SetCVar, "SoftTargetIconInteract", on and 1 or 0)
+	setCVar("SoftTargetIconGameObject", on and 1 or 0)
+	setCVar("SoftTargetIconInteract", on and 1 or 0)
 end
 
 local questFrame = icons[3].frame
@@ -1465,7 +1549,7 @@ end
 
 ---------------------------------------------------------------------------
 -- One Button Fishing
--- Bind a key in Options > Keybindings > AddOns > Zyde Forever.
+-- Bind a key in Options > Keybindings > Zyde Forever.
 -- Press 1: casts Fishing. While the line is out, the same key is
 -- temporarily rebound to "Interact With Target", which reels in the bobber.
 ---------------------------------------------------------------------------
@@ -1527,7 +1611,7 @@ local function startReelMode()
 	local cur = GetCVar and tonumber(GetCVar("SoftTargetInteract"))
 	if cur and cur < 3 then
 		savedSoftInteract = cur
-		SetCVar("SoftTargetInteract", 3)
+		setCVar("SoftTargetInteract", 3)
 	end
 	for _, key in ipairs({ GetBindingKey(FISH_BINDING) }) do
 		SetOverrideBinding(fishOwner, true, key, "INTERACTTARGET")
@@ -1539,7 +1623,7 @@ local function stopReelMode()
 	fishing = false
 	if not InCombatLockdown() then ClearOverrideBindings(fishOwner) end
 	if savedSoftInteract then
-		SetCVar("SoftTargetInteract", savedSoftInteract)
+		setCVar("SoftTargetInteract", savedSoftInteract)
 		savedSoftInteract = nil
 	end
 end
@@ -1770,10 +1854,11 @@ local COL_W = 330    -- width of one column of features
 local CATEGORIES = {
 	{
 		{ "Interface", {
-			{ "unitFrames", children = { "unitAuras", "targetTarget" }, chooser = "frameStyle" },
-			{ "plates", children = { "comboPoints" } }, "xp", "reminders",
+			{ "unitFrames", children = { "unitAuras", "targetTarget" }, choosers = { "frameStyle", "playerAuras" } },
+			{ "plates", children = { "comboPoints" } }, "xp",
+			{ "reminders", children = {}, choosers = { "reminderSize" } },
 			{ group = "Action bars", children = { "hideBars", "hideMicroMenu", "barTidy" } },
-			"gear",
+			"buttonBag", "gear",
 		} },
 		{ "Hunter", { "ammo", "petCare" } },
 		{ "Groups", { "lfg", "guildRoster", "markerWheel", "pullLight" } },
@@ -1831,6 +1916,36 @@ local function buildOptions()
 				return UF and UF.styleAtLoad and UF.styleAtLoad ~= UF.GetStyle() or false
 			end,
 		},
+		reminderSize = {
+			label = "Icon size", parent = "reminders", width = 110,
+			desc = "How big the reminder icons are, compared with the original size. Alt+click the bar to cycle these. Ctrl+click switches between a column and a row. Shift-drag moves it.",
+			options = function()
+				return {
+					{ key = "-60", label = "-60%", desc = "60% smaller than the original size." },
+					{ key = "-30", label = "-30%", desc = "30% smaller than the original size." },
+					{ key = "0", label = "Normal", desc = "The original size." },
+					{ key = "30", label = "+30%", desc = "30% bigger than the original size." },
+					{ key = "60", label = "+60%", desc = "60% bigger than the original size." },
+				}
+			end,
+			get = function()
+				local s = ZydeForeverDB and ZydeForeverDB.reminderSize
+				if s == "small" then return "-30" end
+				if s == "large" then return "30" end
+				if s == "-60" or s == "-30" or s == "30" or s == "60" then return s end
+				return "0"
+			end,
+			set = function(k) ns.SetReminderSize(k) end,
+			changed = function() return false end,
+		},
+		playerAuras = {
+			label = "Your auras", parent = "unitFrames", width = 168,
+			desc = "What is drawn above your own frame. Applies right away, while buffs / debuffs are on.",
+			options = function() return ns.UnitFrames and ns.UnitFrames.AURA_MODES or {} end,
+			get = function() return ns.UnitFrames and ns.UnitFrames.GetPlayerAuras() or "all" end,
+			set = function(k) if ns.UnitFrames then ns.UnitFrames.SetPlayerAuras(k) end end,
+			changed = function() return false end,
+		},
 	}
 
 	-- Shown here? Class options only for that class; addon features only
@@ -1885,10 +2000,15 @@ local function buildOptions()
 	title:SetTextColor(0.69, 0.35, 1)
 	local sub = o:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -3)
-	sub:SetText("Hover an option for details.  /zyde help for commands.")
+	sub:SetText("Hover an option for details.")
 
 	local close = CreateFrame("Button", nil, o, "UIPanelCloseButton")
 	close:SetPoint("TOPRIGHT", 2, 2)
+	local cmds = CreateFrame("Button", nil, o, "UIPanelButtonTemplate")
+	cmds:SetSize(108, 22)
+	cmds:SetPoint("RIGHT", close, "LEFT", -4, 0)
+	cmds:SetText("Commands")
+	cmds:SetScript("OnClick", function() ns.ToggleCommandList() end)
 
 	o.rows, o.sliders, o.choosers = {}, {}, {}
 
@@ -1982,18 +2102,22 @@ local function buildOptions()
 
 	-- "Style  [ Gilded Slant  v ]": click for the list, hover a choice for what it looks like.
 	local function chooserRow(def, x, y)
+		local wide = def.width or 150
 		local c = CreateFrame("Button", nil, o, "BackdropTemplate")
 		c.def = def
 		c.label = o:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		c.label:SetPoint("TOPLEFT", x + 4, y - 6)
 		c.label:SetText(def.label)
-		c:SetSize(150, 20)
+		c:SetSize(wide, 20)
 		c:SetPoint("LEFT", c.label, "RIGHT", 10, 0)
 		c:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
 		c:SetBackdropColor(0, 0, 0, 0.6)
 		c:SetBackdropBorderColor(0.69, 0.35, 1, 0.5)
 		c.text = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-		c.text:SetPoint("LEFT", 8, 0)
+		c.text:SetPoint("LEFT", 6, 0)
+		c.text:SetPoint("RIGHT", -16, 0)
+		c.text:SetJustifyH("LEFT")
+		c.text:SetWordWrap(false)
 		local arrow = c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 		arrow:SetPoint("RIGHT", -7, 0)
 		arrow:SetText("v")
@@ -2011,13 +2135,16 @@ local function buildOptions()
 		local list = def.options()
 		for i, opt in ipairs(list) do
 			local b = CreateFrame("Button", nil, menu)
-			b:SetSize(148, 20)
+			b:SetSize(wide - 2, 20)
 			b:SetPoint("TOPLEFT", 1, -1 - (i - 1) * 20)
 			local hl = b:CreateTexture(nil, "HIGHLIGHT")
 			hl:SetAllPoints()
 			hl:SetColorTexture(0.69, 0.35, 1, 0.3)
 			b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-			b.text:SetPoint("LEFT", 8, 0)
+			b.text:SetPoint("LEFT", 6, 0)
+			b.text:SetPoint("RIGHT", -4, 0)
+			b.text:SetJustifyH("LEFT")
+			b.text:SetWordWrap(false)
 			b.text:SetText(opt.label)
 			b:SetScript("OnClick", function()
 				def.set(opt.key)
@@ -2032,7 +2159,7 @@ local function buildOptions()
 			end)
 			b:SetScript("OnLeave", function() GameTooltip:Hide() end)
 		end
-		menu:SetSize(150, #list * 20 + 2)
+		menu:SetSize(wide, #list * 20 + 2)
 		c:SetScript("OnClick", function() menu:SetShown(not menu:IsShown()) end)
 		c:SetScript("OnHide", function() menu:Hide() end)
 		c:SetScript("OnEnter", function(self)
@@ -2109,9 +2236,14 @@ local function buildOptions()
 						checkbox(FEATURE_BY_KEY[e[1]], x, y)
 						y = y - ROW
 						y = y - ROW * childLine(e.children, x, y, e[1], x + COL_W - 16)
-						if e.chooser and CHOOSERS[e.chooser] then
-							chooserRow(CHOOSERS[e.chooser], x + INDENT, y)
-							y = y - ROW
+						local chooserKeys = e.choosers or (e.chooser and { e.chooser })
+						if chooserKeys then
+							for _, key in ipairs(chooserKeys) do
+								if CHOOSERS[key] then
+									chooserRow(CHOOSERS[key], x + INDENT, y)
+									y = y - ROW
+								end
+							end
 						end
 					end
 				end
@@ -2119,6 +2251,31 @@ local function buildOptions()
 		end
 		tallest = math.max(tallest, -y)
 	end
+
+	-- Who else is running Zyde. Officers of Blackrock Breakfast Club can click it.
+	o.users = CreateFrame("Button", nil, o)
+	o.users:SetPoint("BOTTOMLEFT", 12, 46)
+	o.users:SetSize(420, 18)
+	o.users:SetFrameLevel(o:GetFrameLevel() + 20)
+	o.users:RegisterForClicks("LeftButtonUp")
+	o.usersLabel = o.users:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	o.usersLabel:SetPoint("LEFT", 2, 0)
+	o.usersLabel:SetText("0 ZydeForever Users Currently Online")
+	o.usersLabel:SetTextColor(1, 0.82, 0.2)
+	local usersHl = o.users:CreateTexture(nil, "HIGHLIGHT")
+	usersHl:SetAllPoints()
+	usersHl:SetColorTexture(1, 0.82, 0.2, 0.12)
+	o.users:SetScript("OnClick", function()
+		if ns.ZydePresence and ns.ZydePresence.IsWatcher() then ns.ZydePresence.ToggleList() end
+	end)
+	o.users:SetScript("OnEnter", function(self)
+		if not (ns.ZydePresence and ns.ZydePresence.IsWatcher()) then return end
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:AddLine("ZydeForever users", 1, 0.82, 0.2)
+		GameTooltip:AddLine("Click for everyone who has checked in since you logged in.", 1, 1, 1)
+		GameTooltip:Show()
+	end)
+	o.users:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 	-- Bottom: the other addons Zyde works with, and what's hidden without them.
 	o.addonLine = o:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -2160,7 +2317,7 @@ local function buildOptions()
 	o.reloadHint:SetPoint("RIGHT", reload, "LEFT", -8, 0)
 	o.reloadHint:SetText("Some changes need a reload")
 
-	o:SetSize(24 + 2 * COL_W, 46 + tallest + 58)
+	o:SetSize(24 + 2 * COL_W, 46 + tallest + 76)
 
 	function o:Refresh()
 		local needReload = false
@@ -2224,6 +2381,12 @@ local function buildOptions()
 			parts[#parts + 1] = color .. a.title .. "|r"
 		end
 		self.addonLine:SetText("Addons:  " .. table.concat(parts, "  "))
+		if ns.ZydePresence and self.usersLabel then
+			self.usersLabel:SetText(ns.ZydePresence.Line())
+			local watch = ns.ZydePresence.IsWatcher()
+			self.users:EnableMouse(watch)
+			self.usersLabel:SetTextColor(watch and 1 or 0.92, watch and 0.82 or 0.82, watch and 0.35 or 0.75)
+		end
 	end
 	o:SetScript("OnShow", function(self) self:Refresh() end)
 	o:Hide()
@@ -2284,6 +2447,138 @@ local function printQuestFlag(id)
 	else
 		print(p .. label .. " " .. tostring(done))
 	end
+end
+
+-- Every /zyde command. The options window and /zyde help both read this.
+ns.ZydeCommands = {
+	{ cmd = "/zyde", about = "Open the options window: turn features on or off." },
+	{ cmd = "/zyde help", about = "Print this list in chat." },
+	{ cmd = "/zyde unlock", about = "Unlock the player, target, party and raid frames so you can drag them." },
+	{ cmd = "/zyde lock", about = "Lock those frames in place. Combat locks them too." },
+	{ cmd = "/zyde resetframes", about = "Put the unit frames back in their default spots." },
+	{ cmd = "/zyde resetxp", about = "Move the XP readout back to the top of the screen." },
+	{ cmd = "/zyde resetquests", about = "Move the quest tracker back to its default spot." },
+	{ cmd = "/zyde resetmobs", about = "Move the quest mob count back to its default spot." },
+	{ cmd = "/zyde resetreminders", about = "Move the reminder icons back beside your character. Shift-drag the bar to move it. Ctrl+click it to switch between a column and a row. Alt+click it to cycle the size." },
+	{ cmd = "/zyde errors", about = "Show the last Lua errors from any addon, even with error pop-ups turned off." },
+	{ cmd = "/zyde petdebug", about = "Hunters: what the game reports about your pet's mood, buffs and food." },
+	{ cmd = "/zyde rangedebug", about = "Hunters and warriors: what the game says about your target's range." },
+	{ cmd = "/zyde light", about = "Show the Pull Traffic Light with your own mana, to drag it into place. Run it again to hide it." },
+	{ cmd = "/zyde lightreset", about = "Put the Pull Traffic Light back in its first place." },
+	{ cmd = "/zyde healer <name>", paste = "/zyde healer ", about = "The healer the Pull Traffic Light watches. No name: back to role, then a guess by class." },
+	{ cmd = "/zyde sealdebug", about = "Paladins: why the Seal of Righteousness tile is or isn't showing." },
+	{ cmd = "/zyde evisdebug", about = "Rogues: the damage numbers behind the Eviscerate tile for your target." },
+	{ cmd = "/zyde mapnotes", about = "How many map markers you have. Alt-click the map to add one." },
+	{ cmd = "/zyde mapnotes clear", about = "Remove every marker on the map you have open." },
+	{ cmd = "/zyde auradebug", about = "List your target's debuffs as the game reports them." },
+	{ cmd = "/zyde bossdebug", about = "Target a mob: what the game tells addons about it." },
+	{ cmd = "/zyde mobsdebug", about = "List nearby nameplates and why each is or isn't counted as a quest mob." },
+	{ cmd = "/zyde markdebug", about = "What the game says about your target's raid marker." },
+	{ cmd = "/zyde wheeldebug", about = "Whether the marker wheel's macro lines ran." },
+	{ cmd = "/zyde microdebug", about = "Where the micro menu buttons are, and what moved them." },
+	{ cmd = "/zyde test", about = "Preview the Battle Shout, Overpower and quest item icons." },
+	{ cmd = "/zyde questalert", about = "Turn the quest item nearby alert on or off." },
+	{ cmd = "/zyde questicons", about = "Turn the icons over nearby objects on or off." },
+	{ cmd = "/zyde scrap", about = "Turn the full-bags scrap list on or off." },
+	{ cmd = "/zyde scraptest", about = "Preview the scrap list now, even with bags not full." },
+	{ cmd = "/zyde scrapreset", about = "Let items you chose to keep be suggested again." },
+	{ cmd = "/zyde vendor", about = "Turn the vendor, auction and keep advice on or off." },
+	{ cmd = "/zyde ammovendor", about = "Hunters: waypoint to the nearest arrow or bullet vendor." },
+	{ cmd = "/zyde ammowarn <number>", paste = "/zyde ammowarn ", about = "Hunters: warn when leaving town with fewer shots than this. 0 turns it off." },
+	{ cmd = "/zyde questrange <yards>", paste = "/zyde questrange ", about = "How far away quest objects are spotted." },
+	{ cmd = "/zyde questheight <pixels>", paste = "/zyde questheight ", about = "The tallest the quest tracker gets before it scrolls. 0 goes to the bottom of the screen." },
+	{ cmd = "/zyde quest <id>", paste = "/zyde quest ", about = "Whether that quest is flagged complete, and its name from Questie." },
+	{ cmd = "/zyde questdebug", about = "Stand facing a quest object and run this to see why it is or isn't detected." },
+}
+
+ns.ToggleCommandList = function()
+	local w = ns.commandWindow
+	if w then
+		w:SetShown(not w:IsShown())
+		if w:IsShown() then w:Raise() end
+		return
+	end
+	local PURPLE, GOLD = { 0.69, 0.35, 1 }, { 1, 0.82, 0.2 }
+	local ROW = 46
+	w = CreateFrame("Frame", "ZydeForeverCommands", UIParent, "BackdropTemplate")
+	ns.commandWindow = w
+	w:SetSize(540, 520)
+	w:SetPoint("CENTER", 40, 0)
+	w:SetFrameStrata("DIALOG")
+	w:SetFrameLevel(50)
+	w:SetMovable(true)
+	w:EnableMouse(true)
+	w:RegisterForDrag("LeftButton")
+	w:SetScript("OnDragStart", w.StartMoving)
+	w:SetScript("OnDragStop", w.StopMovingOrSizing)
+	w:SetClampedToScreen(true)
+	w:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+	w:SetBackdropColor(0.07, 0.07, 0.08, 0.97)
+	w:SetBackdropBorderColor(PURPLE[1], PURPLE[2], PURPLE[3], 0.9)
+	tinsert(UISpecialFrames, "ZydeForeverCommands")
+	local title = w:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+	title:SetPoint("TOPLEFT", 14, -12)
+	title:SetText("Zyde commands")
+	title:SetTextColor(PURPLE[1], PURPLE[2], PURPLE[3])
+	local sub = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -2)
+	sub:SetText("Ctrl-click a line to put it in the chat box.")
+	local close = CreateFrame("Button", nil, w, "UIPanelCloseButton")
+	close:SetPoint("TOPRIGHT", 2, 2)
+	local scroll = CreateFrame("ScrollFrame", nil, w, "UIPanelScrollFrameTemplate")
+	scroll:SetPoint("TOPLEFT", 10, -48)
+	scroll:SetPoint("BOTTOMRIGHT", -30, 14)
+	local content = CreateFrame("Frame", nil, scroll)
+	local list = ns.ZydeCommands
+	local width = 480
+	content:SetSize(width, #list * ROW)
+	scroll:SetScrollChild(content)
+	scroll:EnableMouseWheel(true)
+	scroll:SetScript("OnMouseWheel", function(self, delta)
+		local cur = self:GetVerticalScroll()
+		local max = self:GetVerticalScrollRange()
+		self:SetVerticalScroll(math.min(max, math.max(0, cur - delta * ROW)))
+	end)
+	local function putInChat(text)
+		local edit = ChatEdit_GetActiveWindow and ChatEdit_GetActiveWindow()
+		if not edit and ChatFrame1EditBox then edit = ChatFrame1EditBox end
+		if edit and edit.IsShown and edit:IsShown() then
+			edit:SetText(text)
+			edit:SetFocus()
+		elseif ChatFrame_OpenChat then
+			ChatFrame_OpenChat(text)
+		end
+	end
+	for i, c in ipairs(list) do
+		local b = CreateFrame("Button", nil, content)
+		b:SetSize(width, ROW - 4)
+		b:SetPoint("TOPLEFT", 4, -((i - 1) * ROW))
+		b:RegisterForClicks("AnyUp")
+		local hl = b:CreateTexture(nil, "HIGHLIGHT")
+		hl:SetAllPoints()
+		hl:SetColorTexture(PURPLE[1], PURPLE[2], PURPLE[3], 0.16)
+		local cmd = b:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+		cmd:SetPoint("TOPLEFT", 8, -4)
+		cmd:SetText(c.cmd)
+		cmd:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+		local about = b:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+		about:SetPoint("TOPLEFT", cmd, "BOTTOMLEFT", 0, -1)
+		about:SetPoint("RIGHT", b, "RIGHT", -8, 0)
+		about:SetJustifyH("LEFT")
+		about:SetText(c.about)
+		about:SetTextColor(0.82, 0.82, 0.82)
+		b:SetScript("OnClick", function()
+			if IsControlKeyDown() then putInChat(c.paste or c.cmd) end
+		end)
+		b:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:AddLine(c.cmd, GOLD[1], GOLD[2], GOLD[3])
+			GameTooltip:AddLine("Ctrl-click to put this in chat.", 1, 1, 1)
+			GameTooltip:Show()
+		end)
+		b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	end
+	w:Show()
 end
 
 SLASH_ZYDEFOREVER1 = "/zyde"
@@ -2428,44 +2723,9 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			print("|cff66ccffZyde_Forever|r: unknown command \"" .. msg .. "\"")
 		end
 		print("|cff66ccffZyde_Forever|r commands:")
-		for _, c in ipairs({
-			{ "", "(no command) open the options window: turn features on or off" },
-			{ "help", "show this list" },
-			{ "unlock", "unlock the player, target, party and raid frames so you can drag them" },
-			{ "lock", "lock those frames in place (also happens when combat starts)" },
-			{ "resetframes", "put the unit frames back in their default spots" },
-			{ "resetxp", "move the XP % readout back to the top of the screen" },
-			{ "resetquests", "move the quest tracker back to its default spot" },
-			{ "resetmobs", "move the quest mob count back to its default spot" },
-			{ "resetreminders", "move the reminder icons back beside your character (Shift-drag one to move them)" },
-			{ "errors", "show the last Lua errors (from any addon), even with error pop-ups turned off" },
-			{ "petdebug", "hunters: show what the game reports about your pet's mood, buffs and food" },
-			{ "rangedebug", "hunters and warriors: show what the game says about your target's range" },
-			{ "light", "show the Pull Traffic Light with your own mana, to drag it into place (again to hide)" },
-			{ "lightreset", "put the Pull Traffic Light back in its first place" },
-			{ "healer <name>", "the healer the Pull Traffic Light watches (no name: back to role, then a guess by class)" },
-			{ "sealdebug", "paladins: why the Seal of Righteousness tile is or isn't showing" },
-			{ "evisdebug", "rogues: the damage numbers behind the Eviscerate tile for your target" },
-			{ "mapnotes", "how many map markers you have (alt-click the map to add one); /zyde mapnotes clear empties the open map" },
-			{ "auradebug", "list your target's debuffs as the game reports them (for the Sunder and Thunder Clap tiles)" },
-			{ "bossdebug", "target a mob: what the game tells addons about it (for the boss nameplates)" },
-			{ "mobsdebug", "list nearby nameplates and why each is or isn't counted as a quest mob" },
-			{ "test", "preview the Battle Shout, Overpower and quest item icons" },
-			{ "questalert", "turn the quest item nearby alert on or off" },
-			{ "questicons", "turn the icons over nearby objects on or off" },
-			{ "scrap", "turn the full-bags \"scrap first\" list on or off" },
-			{ "scraptest", "preview the scrap first list now, even with bags not full" },
-			{ "scrapreset", "let items you chose to keep be suggested again (scrap and vendor lists)" },
-			{ "vendor", "turn the vendor / auction / keep advice in item tooltips and at merchants on or off" },
-			{ "ammovendor","hunters: waypoint to the nearest arrow or bullet vendor (or click the Arrows line)" },
-			{ "ammowarn <number>", "hunters: warn when leaving town with fewer arrows or bullets than this (default 600, 0 = off)" },
-			{ "questrange <yards>", "how far away quest objects are spotted (default 30)" },
-			{ "questheight <pixels>", "the tallest the quest tracker gets before it scrolls (0 = down to the bottom of the screen)" },
-			{ "quest <id>", "whether that quest is flagged complete (C_QuestLog.IsQuestFlaggedCompleted), and its name from Questie" },
-			{ "questdebug", "stand facing a quest object and run this to see why it is or isn't detected" },
-		}) do
-			print(("  |cffffd200/zyde %s|r - %s"):format(c[1], c[2]))
+		for _, c in ipairs(ns.ZydeCommands) do
+			print(("  |cffffd200%s|r - %s"):format(c.cmd, c.about))
 		end
-		print("  Keybinds (Fishing, nearest quest mob, feed pet, call or revive pet, target markers (hold), world marker squares): Options > Keybindings > AddOns > Zyde Forever")
+		print("  Keybinds (Fishing, nearest quest mob, feed pet, call or revive pet, target markers (hold), world marker squares): Options > Keybindings > Zyde Forever")
 	end
 end

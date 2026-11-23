@@ -1,21 +1,23 @@
 <Bindings>
-	<Binding name="CLICK ZydeForeverFishButton:LeftButton" header="ZYDEFOREVER" category="ADDONS">
+	<Binding name="CLICK ZydeForeverFishButton:LeftButton" category="Zyde Forever">
 		-- Handled by the secure button ZydeForeverFishButton in Zyde_Forever.lua
 	</Binding>
-	<Binding name="CLICK ZydeForeverQuestMobTarget:LeftButton" category="ADDONS">
+	<Binding name="CLICK ZydeForeverQuestMobTarget:LeftButton" category="Zyde Forever">
 	</Binding>
-	<Binding name="CLICK ZydeForeverFeedPet:LeftButton" category="ADDONS">
+	<Binding name="CLICK ZydeForeverFeedPet:LeftButton" category="Zyde Forever">
 	</Binding>
-	<Binding name="CLICK ZydeForeverCallPet:LeftButton" category="ADDONS">
+	<Binding name="CLICK ZydeForeverCallPet:LeftButton" category="Zyde Forever">
 	</Binding>
-	<Binding name="CLICK ZydeForeverMarkerKey:LeftButton" category="ADDONS">
+	<Binding name="CLICK ZydeForeverMarkerKey:LeftButton" category="Zyde Forever">
 	</Binding>
-	<Binding name="CLICK ZydeForeverWorldMarkerKey:LeftButton" category="ADDONS">
+	<Binding name="CLICK ZydeForeverWorldMarkerKey:LeftButton" category="Zyde Forever">
 	</Binding>
-	<Binding name="CLICK LevelPlannerItemButton:LeftButton" header="LEVELPLANNER" category="ADDONS">
+	<Binding name="CLICK ZydeForeverButtonBagKey:LeftButton" category="Zyde Forever">
+	</Binding>
+	<Binding name="CLICK LevelPlannerItemButton:LeftButton" category="Zyde Forever">
 		-- Level planner: uses the current quest's item (secure button LevelPlannerItemButton)
 	</Binding>
-	<Binding name="CLICK LevelPlannerTargetNPC:LeftButton" category="ADDONS">
+	<Binding name="CLICK LevelPlannerTargetNPC:LeftButton" category="Zyde Forever">
 		-- Level planner: targets the next step's NPC and stars it (secure button LevelPlannerTargetNPC)
 	</Binding>
 </Bindings>

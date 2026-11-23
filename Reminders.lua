@@ -1,8 +1,11 @@
 -- Zyde_Forever: more reminder icons in the column beside your character
 -- (all under the "Reminder icons" toggle).
---   Warrior: Execute ready, Revenge ready, Victory Rush ready, Thunder Clap
---            missing on your target, wrong stance (out of combat),
---            Sunder Armor stacks while tanking, target too far for melee.
+--   Warrior: Execute ready, Revenge ready, Victory Rush ready, Shield Block
+--            flashing when ready and counting down while it recharges,
+--            Thunder Clap missing on your target, wrong stance
+--            (out of combat, and not while a one-hand and shield are equipped),
+--            Sunder Armor stacks in Defensive Stance,
+--            target too far for melee.
 --   Hunter:  Cheetah / Pack on in combat (flashing), Hunter's Mark missing on
 --            an elite / rare / player target (solo only), target too far or
 --            too close to shoot, Mongoose Bite ready, Mend Pet when your pet is low.
@@ -11,7 +14,9 @@
 --            of range (its buff gone), no Ankh for Reincarnation.
 --   Rogue:   Eviscerate when your combo points will (nearly) kill, or you're at max.
 --   Paladin: Seal of Righteousness missing or running out, no aura, no blessing on you, Judgement and Holy Strike ready.
---   Everyone: gear badly damaged, running low on food (and water for hunters).
+--   Everyone: gear badly damaged, running low on food (and water for hunters),
+--            eat when Well Fed is down, sit at a Camp Tent (yours or someone
+--            else's) when rested XP is under 5% and Boosted Rest is not on you.
 -- Battle Shout running out (under 10 seconds) blinks in Zyde_Forever.lua.
 
 local ADDON, ns = ...
@@ -37,7 +42,7 @@ end
 -- A spell you know that the game says you can use now, and whose own
 -- cooldown isn't running (the global cooldown doesn't count).
 local function ready(ids)
-	local id = knownRank(ids)
+	local id = type(ids) == "number" and ids or knownRank(ids)
 	if not id then return false end
 	local usable
 	if C_Spell and C_Spell.IsSpellUsable then usable = safe(C_Spell.IsSpellUsable, id)
@@ -126,44 +131,304 @@ end
 ---------------------------------------------------------------------------
 local EXECUTE = { 5308, 20658, 20660, 20661, 20662 }
 local REVENGE = { 6572, 6574, 7379, 11600, 11601, 25288 }
-local SUNDER  = { 7386, 7405, 8380, 11596, 11597 }
+local SUNDER  = { 7386, 7405, 8380, 11596, 11597, 25225 }
 local SUNDER_SET = set(SUNDER)
 SUNDER_SET[58567] = true -- (the Sunder Armor debuff itself on newer clients)
 local BATTLE_STANCE, DEFENSIVE_STANCE = 2457, 71
 local BATTLE_STANCE_IDS, DEFENSIVE_STANCE_IDS = { BATTLE_STANCE }, { DEFENSIVE_STANCE } -- (knownRank caches by table)
-local VICTORY_RUSH = { 34428 }
+local VICTORY_RUSH = { 34428, 402927 } -- 34428 classic, 402927 Forever's first rank
+local SHIELD_BLOCK = { 2565, 12169 }
+local VICTORIOUS = { 32216, 402975 } -- the 20s buff that makes Victory Rush usable
+local VICTORIOUS_SET = set(VICTORIOUS)
+
+-- Forever adds ranks under new spell ids. The spellbook is the list of ranks
+-- you actually have; the arrays above are only the ones already known.
+local function bookIds(spellName)
+	local want, found = spellName:lower(), {}
+	local function consider(name, id)
+		name, id = plain(name), plain(id)
+		if type(name) == "string" and type(id) == "number" and name:lower() == want then
+			found[#found + 1] = id
+		end
+	end
+	if GetSpellBookItemName then
+		local book = BOOKTYPE_SPELL or "spell"
+		for i = 1, 1024 do
+			local ok, name = pcall(GetSpellBookItemName, i, book)
+			if not ok then break end
+			name = plain(name)
+			if name == "" then break end
+			if type(name) == "string" then
+				local id
+				if GetSpellBookItemInfo then
+					local ok2, a, b = pcall(GetSpellBookItemInfo, i, book)
+					if ok2 then
+						a, b = plain(a), plain(b)
+						if type(a) == "table" then id = plain(a.spellID) or plain(a.spellId)
+						elseif type(b) == "number" then id = b
+						elseif type(a) == "number" then id = a end
+					end
+				end
+				consider(name, id)
+			end
+		end
+	end
+	local bookApi = C_SpellBook
+	if bookApi and bookApi.GetNumSpellBookSkillLines and bookApi.GetSpellBookItemInfo then
+		local bank = Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player or 0
+		local n = safe(bookApi.GetNumSpellBookSkillLines) or 0
+		if type(n) == "number" then
+			for line = 1, n do
+				local info = safe(bookApi.GetSpellBookSkillLineInfo, line)
+				if type(info) == "table" and type(info.itemIndexOffset) == "number" and type(info.numSpellBookItems) == "number" then
+					for slot = info.itemIndexOffset + 1, info.itemIndexOffset + info.numSpellBookItems do
+						local item = safe(bookApi.GetSpellBookItemInfo, slot, bank)
+						if type(item) == "table" then consider(item.name, item.spellID or item.spellId) end
+					end
+				end
+			end
+		end
+	end
+	return found
+end
+
+-- Last spellbook id for that name, and any new ones are kept on the list.
+-- IsPlayerSpell stays false for Shield Block outside Defensive, so the book
+-- id has to be used on its own.
+local function absorbRanks(dest, auraSet, spellName)
+	local seen, last = {}, nil
+	for _, id in ipairs(dest) do seen[id] = true end
+	for _, id in ipairs(bookIds(spellName)) do
+		last = id
+		if not seen[id] then
+			seen[id] = true
+			dest[#dest + 1] = id
+			if auraSet then auraSet[id] = true end
+		end
+	end
+	return last
+end
+
+-- knownRank remembers an answer per list. A list we keep adding to would stay
+-- stuck on the first rank it saw, so these two spells are looked up fresh.
+local function bestKnown(ids)
+	for i = #ids, 1, -1 do
+		local id = ids[i]
+		if (IsPlayerSpell and safe(IsPlayerSpell, id))
+			or (IsSpellKnown and safe(IsSpellKnown, id))
+			or (C_SpellBook and C_SpellBook.IsSpellKnown and safe(C_SpellBook.IsSpellKnown, id)) then
+			return id
+		end
+	end
+end
+
+local blockFromBook
+local function refreshBookSpells()
+	absorbRanks(VICTORY_RUSH, nil, "Victory Rush")
+	absorbRanks(SUNDER, SUNDER_SET, "Sunder Armor")
+	blockFromBook = absorbRanks(SHIELD_BLOCK, nil, "Shield Block") or blockFromBook
+end
+local rankEv = CreateFrame("Frame")
+rankEv:RegisterEvent("PLAYER_LOGIN")
+rankEv:RegisterEvent("SPELLS_CHANGED")
+rankEv:SetScript("OnEvent", refreshBookSpells)
+refreshBookSpells()
 local THUNDER_CLAP = { 6343, 8198, 8204, 8205, 11580, 11581, 25264 }
 local THUNDER_SET = set(THUNDER_CLAP)
 local REND = { 772, 6546, 6547, 6548, 11572, 11573, 11574, 25208 } -- (an instant melee attack: its range is melee reach)
 
 if WARRIOR then
+	-- COMBAT_LOG_EVENT_UNFILTERED is reserved for the Blizzard UI here.
+	-- Registering it raises the login dialog, so these frames never do.
+	-- Revenge listens to UNIT_COMBAT. Sunder listens to the cast.
+	local revengeEv = CreateFrame("Frame")
+	local sunderEv = CreateFrame("Frame")
+
 	ns.AddReminder("execute", "ZydeForeverExecute", icon(EXECUTE, "INV_Sword_48"), function(preview)
 		if preview then return true end
 		return on() and inCombat() and hostileTarget() and ready(EXECUTE)
 	end)
 
-	ns.AddReminder("revenge", "ZydeForeverRevenge", icon(REVENGE, "Ability_Warrior_Revenge"), function(preview)
-		if preview then return true end
-		return on() and inCombat() and hostileTarget() and ready(REVENGE)
+	-- Revenge stays usable for 5 seconds after you block, dodge, or parry.
+	-- A new avoid starts that window over. Using it clears the countdown.
+	local REVENGE_WINDOW, revengeExpires, revengeWas = 5, 0, false
+	local function revengeAvoid() revengeExpires = GetTime() + REVENGE_WINDOW end
+	local function revengeMiss(kind)
+		kind = plain(kind)
+		return kind == "DODGE" or kind == "PARRY" or kind == "BLOCK"
+	end
+	revengeEv:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	pcall(revengeEv.RegisterEvent, revengeEv, "UNIT_COMBAT")
+	revengeEv:SetScript("OnEvent", function(_, event, a, b, c)
+		if event == "UNIT_COMBAT" then
+			a, b = plain(a), plain(b)
+			if a == "player" and revengeMiss(b) then revengeAvoid() end
+			return
+		end
+		if event == "UNIT_SPELLCAST_SUCCEEDED" then
+			c = plain(c)
+			if type(c) == "number" then
+				for i = 1, #REVENGE do
+					if REVENGE[i] == c then revengeExpires = 0 return end
+				end
+			end
+			return
+		end
+		if not CombatLogGetCurrentEventInfo then return end
+		local _, sub, _, _, _, _, _, destGUID, _, _, _, a12, _, _, a15, a16, _, _, a19 = safe(CombatLogGetCurrentEventInfo)
+		sub, destGUID = plain(sub), plain(destGUID)
+		local me = plain(UnitGUID("player"))
+		if type(sub) ~= "string" or type(destGUID) ~= "string" or destGUID ~= me then return end
+		a12, a15, a16, a19 = plain(a12), plain(a15), plain(a16), plain(a19)
+		if (sub == "SWING_MISSED" and revengeMiss(a12))
+			or ((sub == "SPELL_MISSED" or sub == "RANGE_MISSED") and revengeMiss(a15))
+			or (sub == "SWING_DAMAGE" and type(a16) == "number" and a16 > 0)
+			or ((sub == "SPELL_DAMAGE" or sub == "RANGE_DAMAGE") and type(a19) == "number" and a19 > 0) then
+			revengeAvoid()
+		end
 	end)
+	local function revengeCooling(id)
+		local start, duration
+		if C_Spell and C_Spell.GetSpellCooldown then
+			local cd = safe(C_Spell.GetSpellCooldown, id)
+			if type(cd) == "table" then start, duration = cd.startTime, cd.duration end
+		elseif GetSpellCooldown then
+			start, duration = safe(GetSpellCooldown, id)
+		end
+		start, duration = plain(start), plain(duration)
+		return start and duration and duration > GCD and start + duration - GetTime() > 0
+	end
+	local function revengeUsable(id)
+		local usable, noPower
+		if C_Spell and C_Spell.IsSpellUsable then usable, noPower = safe(C_Spell.IsSpellUsable, id)
+		elseif IsUsableSpell then usable, noPower = safe(IsUsableSpell, id) end
+		return plain(usable), plain(noPower)
+	end
+	local revengeTile
+	revengeTile = ns.AddReminder("revenge", "ZydeForeverRevenge", icon(REVENGE, "Ability_Warrior_Revenge"), function(preview)
+		local function show(left)
+			local w = revengeTile:GetWidth()
+			if revengeTile.timerSize ~= w then
+				revengeTile.timerSize = w
+				if not revengeTile.timer:SetFont("Fonts\\FRIZQT__.TTF", math.max(10, math.floor(w * 0.5)), "OUTLINE") then
+					revengeTile.timer:SetFontObject("GameFontNormalLarge")
+				end
+			end
+			revengeTile.timer:SetText(left or "")
+			return true, left and ("Revenge %ds"):format(left) or "Revenge"
+		end
+		if preview then return show(4) end
+		if not on() or not inCombat() or not hostileTarget() or UnitIsDeadOrGhost("player") then return false end
+		local id = bestKnown(REVENGE)
+		if not id or revengeCooling(id) then return false end
+		local usable, noPower = revengeUsable(id)
+		local now = GetTime()
+		if usable and not revengeWas and revengeExpires <= now then revengeExpires = now + REVENGE_WINDOW end
+		revengeWas = usable and true or false
+		if now >= revengeExpires or (not usable and not noPower) then return false end
+		return show(math.max(1, math.ceil(revengeExpires - now)))
+	end)
+	revengeTile.timer = revengeTile:CreateFontString(nil, "OVERLAY")
+	revengeTile.timer:SetPoint("CENTER", revengeTile, "CENTER", 1, 0)
+	revengeTile.timer:SetTextColor(1, 0.95, 0.6)
+
+	-- Seconds left on the spell's own cooldown. 0 is ready.
+	-- A hidden cooldown is returned as-is (the number still draws) plus true,
+	-- so the icon counts down instead of flashing. The global cooldown does
+	-- not count. Ready comes back as 0, 0. Called directly: pcall drops a
+	-- hidden number and the icon would flash for the whole cooldown.
+	local function cooldownLeft(id)
+		local start, duration, secret
+		local function take(a, b)
+			if isSecret(a) or isSecret(b) then return a, b, true end
+			if type(a) == "table" then
+				local s, d = a.startTime, a.duration
+				if s == nil then s = a.start end
+				if isSecret(s) or isSecret(d) then return s, d, true end
+				return plain(s), plain(d), false
+			end
+			return plain(a), plain(b), false
+		end
+		if C_Spell and C_Spell.GetSpellCooldown then
+			start, duration, secret = take(C_Spell.GetSpellCooldown(id))
+		end
+		if not secret and (type(start) ~= "number" or type(duration) ~= "number") and GetSpellCooldown then
+			start, duration, secret = take(GetSpellCooldown(id))
+		end
+		if secret then
+			local remain
+			if C_Spell and C_Spell.GetSpellCooldownDuration then
+				local d = C_Spell.GetSpellCooldownDuration(id)
+				if d and d.IsZero then
+					local ok, z = pcall(d.IsZero, d)
+					if ok and not isSecret(z) and z == true then return 0 end
+				end
+				if d and d.GetRemainingDuration then remain = d:GetRemainingDuration() end
+			end
+			if remain ~= nil then return remain end
+			return nil, true
+		end
+		if type(start) ~= "number" or type(duration) ~= "number" then return nil end
+		if duration <= GCD then return 0 end
+		local left = start + duration - GetTime()
+		if left <= 0 then return 0 end
+		return left
+	end
 
 	-- 1 Battle, 2 Defensive, 3 Berserker (the stance bar's order).
+	-- In a fight the form can be hidden, so the last one we could read still counts.
+	local stanceSeen = 0
 	local function stance()
 		local f = plain(GetShapeshiftForm and GetShapeshiftForm())
-		return f
+		if type(f) == "number" and f > 0 then stanceSeen = f end
+		return (type(f) == "number" and f > 0) and f or stanceSeen
 	end
+	local function equipLoc(slot)
+		local id = plain(GetInventoryItemID and GetInventoryItemID("player", slot))
+		local instant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+		if id and instant then
+			local _, _, _, loc, _, classID, subID = instant(id)
+			loc, classID, subID = plain(loc), plain(classID), plain(subID)
+			if type(loc) == "string" and loc ~= "" then return loc, classID, subID end
+			return nil, classID, subID
+		end
+		local link = GetInventoryItemLink and GetInventoryItemLink("player", slot)
+		if link and GetItemInfo then
+			local loc = plain(select(9, GetItemInfo(link)))
+			if type(loc) == "string" and loc ~= "" then return loc end
+		end
+	end
+	-- Off-hand slot 17. "Shields" from IsEquippedItemType misses on this client.
 	local function hasShield()
-		return IsEquippedItemType and IsEquippedItemType("Shields") or false
+		local loc, classID, subID = equipLoc(17)
+		if loc == "INVTYPE_SHIELD" then return true end
+		if classID == 4 and subID == 6 then return true end
+		if IsEquippedItemType then
+			local a, b = plain(IsEquippedItemType("Shields")), plain(IsEquippedItemType("Shield"))
+			if a == true or b == true then return true end
+		end
+		return false
+	end
+	-- A shield means stay in Defensive. Only a main hand we can see is a
+	-- two-hander overrides that.
+	local function oneHandAndShield()
+		if not hasShield() then return false end
+		local loc = equipLoc(16)
+		if loc == "INVTYPE_2HWEAPON" or loc == "INVTYPE_RANGED" or loc == "INVTYPE_RANGEDRIGHT" then
+			return false
+		end
+		return true
 	end
 
-	-- Out of combat only: Defensive while questing alone, or Battle while
-	-- you're the shield-wearer in a dungeon group.
+	-- Out of combat only: Defensive while questing alone with no shield, or
+	-- Battle while you're the shield-wearer in a dungeon group. One-hand and
+	-- a shield stays in Defensive Stance.
 	local stanceTile
 	stanceTile = ns.AddReminder("stance", "ZydeForeverStance", "Interface\\Icons\\Ability_Warrior_OffensiveStance", function(preview)
 		if preview then return true, "Battle Stance?" end
 		if not on() or InCombatLockdown() or UnitIsDeadOrGhost("player") or UnitOnTaxi("player") then return false end
 		local s = stance()
-		if s == 2 and not IsInGroup() and not inDungeon() and knownRank(BATTLE_STANCE_IDS) then
+		if s == 2 and not IsInGroup() and not inDungeon() and not oneHandAndShield() and knownRank(BATTLE_STANCE_IDS) then
 			stanceTile.tex:SetTexture(ns.spellTexture(BATTLE_STANCE, "Interface\\Icons\\Ability_Warrior_OffensiveStance"))
 			return true, "Battle Stance?"
 		end
@@ -174,15 +439,177 @@ if WARRIOR then
 		return false
 	end)
 
-	-- Tanking (Defensive Stance, in a group): your target has fewer than 5 Sunders.
+	-- Shield Block: flash while it is ready. After a cast, stay up and count
+	-- down the cooldown, then flash again when it is ready. Defensive, shield on.
+	-- An unread stance still counts: the form is often hidden in a fight.
+	local blockTile
+	blockTile = ns.AddReminder("shieldBlock", "ZydeForeverShieldBlock", ns.spellTexture(2565, "Interface\\Icons\\Ability_Defend"), function(preview)
+		local function show(left, flash)
+			local w = blockTile:GetWidth()
+			if blockTile.timerSize ~= w then
+				blockTile.timerSize = w
+				if not blockTile.timer:SetFont("Fonts\\FRIZQT__.TTF", math.max(10, math.floor(w * 0.5)), "OUTLINE") then
+					blockTile.timer:SetFontObject("GameFontNormalLarge")
+				end
+			end
+			if flash then blink(blockTile, true) else blockTile:SetAlpha(1) end
+			-- A hidden time still draws. Comparing it, or folding it into the
+			-- label, blanks the line. Whole seconds only: a fraction reads as 0
+			-- and the icon should be flashing by then.
+			if isSecret(left) then
+				blockTile.timer:SetFormattedText("%.0f", left)
+				return true, "Block"
+			end
+			local secs = (type(left) == "number" and left > 0) and math.ceil(left) or nil
+			blockTile.timer:SetText(secs and tostring(secs) or "")
+			return true, secs and ("Block %ds"):format(secs) or "Block"
+		end
+		if preview then return show(5, false) end
+		if not on() or not inCombat() or UnitIsDeadOrGhost("player") or not hasShield() then return false end
+		local s = stance()
+		if s == 1 or s == 3 then return false end
+		local id = blockFromBook or bestKnown(SHIELD_BLOCK)
+		if not id then return false end
+		if blockTile.iconId ~= id then
+			blockTile.tex:SetTexture(ns.spellTexture(id, blockTile.fallback))
+			blockTile.iconId = id
+		end
+		local left = cooldownLeft(id)
+		local castLeft = (blockTile.busyUntil or 0) - GetTime()
+		-- After a cast, count whole seconds from that cast. At 0, flash.
+		-- The game's own remaining time is a fraction and sits on 0.
+		if blockTile.sawCast then
+			if castLeft > 0 then return show(castLeft, false) end
+			return show(nil, true)
+		end
+		if blockTile.blockReady then return show(nil, true) end
+		if isSecret(left) then return show(left, false) end
+		if type(left) == "number" and left > 0 then return show(left, false) end
+		return show(nil, true)
+	end)
+	-- The cooldown read often comes back empty in a fight. The cast itself
+	-- starts the countdown, from the spell's base cooldown (5s if that is hidden too).
+	blockTile.busyUntil = 0
+	blockTile:SetScript("OnEvent", function(_, _, _, _, spellID)
+		if isSecret(spellID) or type(spellID) ~= "number" then return end
+		local mine
+		for i = 1, #SHIELD_BLOCK do
+			if SHIELD_BLOCK[i] == spellID then mine = true break end
+		end
+		if not mine then
+			local name
+			if C_Spell and C_Spell.GetSpellName then name = C_Spell.GetSpellName(spellID)
+			elseif GetSpellInfo then name = GetSpellInfo(spellID) end
+			name = plain(name)
+			if type(name) == "string" and name:lower() == "shield block" then mine = true end
+		end
+		if not mine then return end
+		local ms
+		if C_Spell and C_Spell.GetSpellBaseCooldown then
+			local a = C_Spell.GetSpellBaseCooldown(spellID)
+			if type(a) == "table" then ms = plain(a.duration) or plain(a.baseCooldown) else ms = plain(a) end
+		end
+		if type(ms) ~= "number" and GetSpellBaseCooldown then ms = plain(GetSpellBaseCooldown(spellID)) end
+		local secs = (type(ms) == "number" and ms > 1500) and (ms / 1000) or 5
+		blockTile.busyUntil = GetTime() + secs
+		blockTile.sawCast = true
+		blockTile.blockReady = false
+		blockTile.armed = false
+	end)
+	pcall(blockTile.RegisterUnitEvent, blockTile, "UNIT_SPELLCAST_SUCCEEDED", "player")
+	blockTile.timer = blockTile:CreateFontString(nil, "OVERLAY")
+	blockTile.timer:SetPoint("CENTER", blockTile, "CENTER", 1, 0)
+	blockTile.timer:SetTextColor(1, 0.95, 0.6)
+
+	-- Defensive Stance, in a fight: stacks of Sunder on your target, up to 5.
+	-- In combat the aura list is often hidden, so a landed cast keeps the
+	-- count until the debuff can be read again.
+	local sunderMem, sunderNow, sunderMiss = {}, { n = 0, exp = 0 }, {}
+	local function sunderSpell(spellId, spellName)
+		spellId, spellName = plain(spellId), plain(spellName)
+		if type(spellId) == "number" and SUNDER_SET[spellId] then return true end
+		return type(spellName) == "string" and spellName:lower():find("sunder armor", 1, true) ~= nil
+	end
+	local function sunderSave(guid, n, exp)
+		n = math.max(0, math.min(5, n or 0))
+		if exp == nil then exp = GetTime() + 30 end
+		if guid then sunderMem[guid] = { n = n, exp = exp, touch = GetTime() } end
+		local cur = plain(UnitGUID("target"))
+		if guid == nil or cur == nil or cur == guid then sunderNow.n, sunderNow.exp = n, exp end
+	end
+	local function sunderRecall()
+		local now = GetTime()
+		local guid = plain(UnitGUID("target"))
+		if guid then
+			local row = sunderMem[guid]
+			if row and row.exp > now then return row.n end
+			return 0
+		end
+		if sunderNow.exp > now then return sunderNow.n end
+		return 0
+	end
+	sunderEv:RegisterEvent("PLAYER_TARGET_CHANGED")
+	sunderEv:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	sunderEv:SetScript("OnEvent", function(_, event, _, _, spellID)
+		if event == "PLAYER_TARGET_CHANGED" then
+			local guid = plain(UnitGUID("target"))
+			local row = guid and sunderMem[guid]
+			if row and row.exp > GetTime() then sunderNow.n, sunderNow.exp = row.n, row.exp
+			else sunderNow.n, sunderNow.exp = 0, 0 end
+			return
+		end
+		if event == "UNIT_SPELLCAST_SUCCEEDED" then
+			if not sunderSpell(spellID) then return end
+			local guid = plain(UnitGUID("target"))
+			local at = GetTime()
+			C_Timer.After(0.4, function()
+				local row = guid and sunderMem[guid]
+				if row and row.touch and row.touch >= at then return end
+				if guid and sunderMiss[guid] and sunderMiss[guid] >= at then return end
+				local base = 0
+				if row and row.exp > GetTime() then base = row.n
+				elseif not guid and sunderNow.exp > GetTime() then base = sunderNow.n end
+				sunderSave(guid, base + 1, at + 30)
+			end)
+			return
+		end
+		if not CombatLogGetCurrentEventInfo then return end
+		local _, sub, _, sourceGUID, _, _, _, destGUID, _, _, _, spellId, spellName, _, _, amount = safe(CombatLogGetCurrentEventInfo)
+		sub, spellId, spellName, amount = plain(sub), plain(spellId), plain(spellName), plain(amount)
+		destGUID, sourceGUID = plain(destGUID), plain(sourceGUID)
+		if type(sub) ~= "string" or not sunderSpell(spellId, spellName) then return end
+		if sub == "SPELL_MISSED" and sourceGUID == plain(UnitGUID("player")) then
+			if destGUID then sunderMiss[destGUID] = GetTime() end
+			return
+		end
+		if sub ~= "SPELL_AURA_APPLIED" and sub ~= "SPELL_AURA_APPLIED_DOSE" and sub ~= "SPELL_AURA_REFRESH"
+			and sub ~= "SPELL_AURA_REMOVED" and sub ~= "SPELL_AURA_REMOVED_DOSE" then return end
+		local n
+		if sub == "SPELL_AURA_REMOVED" then n = 0
+		elseif type(amount) == "number" then n = amount
+		elseif sub == "SPELL_AURA_APPLIED" then n = 1
+		else
+			local prev = destGUID and sunderMem[destGUID]
+			n = prev and prev.n or 1
+		end
+		sunderSave(destGUID, n, sub == "SPELL_AURA_REMOVED" and 0 or nil)
+	end)
 	ns.AddReminder("sunder", "ZydeForeverSunder", icon(SUNDER, "Ability_Warrior_Sunder"), function(preview)
 		if preview then return true, "Sunder 2/5" end
-		if not on() or not inCombat() or not hostileTarget() or not IsInGroup() or stance() ~= 2 then return false end
-		if not knownRank(SUNDER) then return false end
+		if not on() or not inCombat() or not hostileTarget() or stance() ~= 2 then return false end
+		if not bestKnown(SUNDER) then return false end
 		local found, hidden, a = hasAura("target", "HARMFUL", SUNDER_SET)
-		if hidden and not found then return false end -- can't tell: stay quiet
-		-- (one Sunder can read as 0 applications: stacks only count from 2)
-		local stacks = found and math.max(1, plain(a.applications) or 1) or 0
+		local stacks
+		if found then
+			-- (one Sunder can read as 0 applications: a stack only counts from 2)
+			stacks = math.max(1, plain(a.applications) or 1)
+			local exp = a and plain(a.expirationTime)
+			sunderSave(plain(UnitGUID("target")), stacks, (type(exp) == "number" and exp > 0) and exp or nil)
+		elseif hidden then
+			stacks = sunderRecall()
+		else
+			stacks = 0
+		end
 		if stacks >= 5 then return false end
 		return true, ("Sunder %d/5"):format(stacks)
 	end)
@@ -195,7 +622,7 @@ if WARRIOR then
 	local REACH = { REND, HAMSTRING, SUNDER }
 	local function inReach()
 		for _, ids in ipairs(REACH) do
-			local id = knownRank(ids)
+			local id = bestKnown(ids)
 			local r = id and inRange(id)
 			if r ~= nil then return r end
 		end
@@ -208,7 +635,7 @@ if WARRIOR then
 		local p = "|cff66ccffZyde_Forever|r range: "
 		print(p .. "target " .. tostring(plain(UnitName("target"))) .. ", " .. (InCombatLockdown() and "IN COMBAT" or "out of combat"))
 		for _, s in ipairs({ { "Rend", REND }, { "Hamstring", HAMSTRING }, { "Sunder Armor", SUNDER } }) do
-			local id = knownRank(s[2])
+			local id = bestKnown(s[2])
 			print(p .. s[1] .. (id and (" (" .. id .. ") in range " .. tostring(inRange(id))) or " not known"))
 		end
 		local raw = CheckInteractDistance and safe(CheckInteractDistance, "target", 3)
@@ -223,12 +650,81 @@ if WARRIOR then
 	end)
 	meleeTile.prominent = true
 
-	-- Victory Rush: usable for a short while after a kill that gives XP.
-	ns.AddReminder("victoryRush", "ZydeForeverVictoryRush", icon(VICTORY_RUSH, "Ability_Warrior_Devastate"), function(preview)
-		if preview then return true end
-		if not on() or UnitIsDeadOrGhost("player") then return false end
-		return ready(VICTORY_RUSH)
+	-- Victory Rush: only while the Victorious buff is on you, the 20 seconds
+	-- after a kill that awards it. A hidden buff list must not start the
+	-- countdown; that was restarting it forever.
+	local victoryExpires = 0
+	local victorySeen = false
+	local function victoryCooling()
+		local id = bestKnown(VICTORY_RUSH)
+		if not id then return false end
+		local start, duration
+		if C_Spell and C_Spell.GetSpellCooldown then
+			local cd = safe(C_Spell.GetSpellCooldown, id)
+			if type(cd) == "table" then start, duration = cd.startTime, cd.duration end
+		elseif GetSpellCooldown then
+			start, duration = safe(GetSpellCooldown, id)
+		end
+		start, duration = plain(start), plain(duration)
+		return start and duration and duration > GCD and start + duration - GetTime() > 0
+	end
+	local function victoriousNow()
+		-- The player's own aura by spell id still answers when the full buff
+		-- list is hidden. A table means Victorious is on you.
+		if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
+			for i = 1, #VICTORIOUS do
+				local a = safe(C_UnitAuras.GetPlayerAuraBySpellID, VICTORIOUS[i])
+				if type(a) == "table" then return true, a end
+			end
+		end
+		local found, hidden, a = hasAura("player", "HELPFUL", VICTORIOUS_SET)
+		if found then return true, a end
+		return false, nil, hidden
+	end
+	local function victoryWindow()
+		local found, a, hidden = victoriousNow()
+		if found then
+			local exp = type(a) == "table" and plain(a.expirationTime)
+			if exp and exp > 0 then victoryExpires = exp
+			elseif not victorySeen or victoryExpires <= GetTime() then victoryExpires = GetTime() + 20 end
+			victorySeen = true
+			return GetTime() < victoryExpires
+		end
+		-- Couldn't see buffs. Finish a countdown that already started from the
+		-- real buff. Never start one just because the list is hidden.
+		if hidden and victorySeen and GetTime() < victoryExpires then return true end
+		victorySeen = false
+		return false
+	end
+	local victoryTile
+	victoryTile = ns.AddReminder("victoryRush", "ZydeForeverVictoryRush", ns.spellTexture(402927, "Interface\\Icons\\Ability_Warrior_Devastate"), function(preview)
+		local function show(left)
+			local w = victoryTile:GetWidth()
+			if victoryTile.timerSize ~= w then
+				victoryTile.timerSize = w
+				if not victoryTile.timer:SetFont("Fonts\\FRIZQT__.TTF", math.max(10, math.floor(w * 0.5)), "OUTLINE") then
+					victoryTile.timer:SetFontObject("GameFontNormalLarge")
+				end
+			end
+			victoryTile.timer:SetText(left or "")
+			return true, left and ("Victory %ds"):format(left) or "Victory"
+		end
+		if preview then return show(12) end
+		local id = bestKnown(VICTORY_RUSH)
+		if not on() or UnitIsDeadOrGhost("player") or not id then return false end
+		if not victoryTile.iconSet or victoryTile.iconId ~= id then
+			victoryTile.tex:SetTexture(ns.spellTexture(id, victoryTile.fallback))
+			victoryTile.iconSet, victoryTile.iconId = true, id
+		end
+		if victoryCooling() then return false end
+		if not victoryWindow() then return false end
+		local left = victoryExpires - GetTime()
+		if left <= 0 then return show(nil) end
+		return show(math.max(1, math.ceil(left)))
 	end)
+	victoryTile.timer = victoryTile:CreateFontString(nil, "OVERLAY")
+	victoryTile.timer:SetPoint("CENTER", victoryTile, "CENTER", 1, 0)
+	victoryTile.timer:SetTextColor(1, 0.95, 0.6)
 
 	-- Thunder Clap's slow lasts 30 seconds. In a fight the game often hides the
 	-- debuff, so a cast you just made keeps the icon down until that time is up.
@@ -1009,6 +1505,8 @@ end
 ---------------------------------------------------------------------------
 local REPAIR_AT = 0.20
 local FOOD_LOW = 5
+local CAMP_TENT = 279978 -- icon for the tent reminder
+local BOOSTED_REST = 1229451 -- the hour-long "no more tent rest" debuff
 local worstDurability, food, drink = 1, 0, 0
 
 local function scanDurability()
@@ -1029,9 +1527,9 @@ local function scanFood()
 	local getSpell = (C_Item and C_Item.GetItemSpell) or GetItemSpell
 	local load = C_Item and C_Item.RequestLoadItemDataByID
 	for _, info in ipairs(ns.Bags.items()) do
+		local n = tonumber(info.stackCount) or 1
 		local spell = plain(safe(getSpell, info.itemID))
 		if type(spell) == "string" then
-			local n = tonumber(info.stackCount) or 1
 			local s = spell:lower()
 			local refresh = s:find("refresh", 1, true) ~= nil
 			if refresh or s:find("food", 1, true) then food = food + n end
@@ -1080,6 +1578,79 @@ foodTile = ns.AddReminder("food", "ZydeForeverFood", "Interface\\Icons\\INV_Misc
 	if lowFood then parts[#parts + 1] = "Food " .. food end
 	if lowDrink then parts[#parts + 1] = "Water " .. drink end
 	return true, table.concat(parts, ", ")
+end)
+
+-- A buff or debuff on you whose name contains `needle`, or whose spell ID is `id`.
+-- Returns found, unknown (unknown = the game hid the list).
+local function selfAura(needle, id)
+	local function hit(a)
+		local sid, name = plain(a.spellId), plain(a.name)
+		if id and sid == id then return true end
+		return type(name) == "string" and name:lower():find(needle, 1, true) ~= nil
+	end
+	if ns.PlayerBuffs then
+		local buffs = ns.PlayerBuffs()
+		if buffs then
+			for _, a in ipairs(buffs.list) do
+				if hit(a) then return true, false end
+			end
+		end
+	end
+	if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return false, true end
+	local hidden = false
+	for _, filter in ipairs({ "HELPFUL", "HARMFUL" }) do
+		for i = 1, 40 do
+			local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, filter)
+			if not ok then hidden = true break end
+			if not a then break end
+			if hit(a) then return true, false end
+		end
+	end
+	return false, hidden
+end
+
+local function restedShare()
+	local maxv = plain(UnitXPMax("player"))
+	if not maxv or maxv <= 0 then return nil end
+	local rested = GetXPExhaustion and safe(GetXPExhaustion)
+	if isSecret(rested) then return nil end
+	if type(rested) ~= "number" or rested <= 0 then return 0 end
+	return rested / maxv
+end
+
+local function atMaxLevel()
+	if IsPlayerAtEffectiveMaxLevel then
+		local ok, maxed = pcall(IsPlayerAtEffectiveMaxLevel)
+		if ok and maxed ~= nil and not isSecret(maxed) then return maxed and true or false end
+	end
+	local cap = (GetMaxPlayerLevel and GetMaxPlayerLevel()) or MAX_PLAYER_LEVEL or 60
+	return UnitLevel("player") >= cap
+end
+
+-- Out of combat, with food in your bags, and the Well Fed buff down.
+ns.AddReminder("eatFood", "ZydeForeverEatFood", "Interface\\Icons\\INV_Misc_Food_15", function(preview)
+	if preview then return true, "Eat food" end
+	if not on() or not quietTime() or food < 1 then return false end
+	local fed, hidden = selfAura("well fed")
+	if fed or hidden then return false end
+	return true, "Eat food"
+end)
+
+-- A Camp Tent, yours or someone else's, tops rested XP up to 5% of a level.
+-- It does nothing above that, and nothing while Boosted Rest is on you.
+local tentTile
+tentTile = ns.AddReminder("tent", "ZydeForeverTent", "Interface\\Icons\\INV_Misc_Bag_10", function(preview)
+	if preview then return true, "Use tent" end
+	if not on() or not quietTime() or atMaxLevel() then return false end
+	local share = restedShare()
+	if not share or share >= 0.05 then return false end
+	local locked, hidden = selfAura("boosted rest", BOOSTED_REST)
+	if locked or hidden then return false end
+	if not tentTile.iconSet then
+		local tex = C_Item and C_Item.GetItemIconByID and safe(C_Item.GetItemIconByID, CAMP_TENT)
+		if tex then tentTile.tex:SetTexture(tex) tentTile.iconSet = true end
+	end
+	return true, "Use tent"
 end)
 
 -- /zyde auradebug: what the game says about your target's debuffs (name, spell ID,

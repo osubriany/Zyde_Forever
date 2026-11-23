@@ -9,7 +9,8 @@
 -- "Nearest" uses Questie's locations of the mobs, objects and turn-in NPCs
 -- (falls back to the quest log's zone headings without Questie).
 -- Click a quest to follow it (like the game's own "..." button: map
--- highlight); right-click opens it in the quest log. Shift-drag the title to move.
+-- highlight); right-click opens it in the quest log. Shift-click pastes
+-- the quest into chat. Shift-drag the title to move.
 
 local ADDON, ns = ...
 
@@ -445,6 +446,51 @@ local function toggleTrack(q)
 	refresh()
 end
 
+-- The same link the quest log copies. Prefer the game's own link, and build
+-- one only if that call doesn't know this client.
+local function questLink(q)
+	local id = plain(q.questID)
+	if type(id) ~= "number" then return end
+	local index = plain(q.index)
+	if C_QuestLog and C_QuestLog.GetLogIndexForQuestID then
+		local got = plain(safe(C_QuestLog.GetLogIndexForQuestID, id))
+		if type(got) == "number" then index = got end
+	end
+	local function matches(link)
+		return type(link) == "string" and link:find("|Hquest:" .. id .. ":", 1, true) ~= nil
+	end
+	if GetQuestLink then
+		local byID = plain(safe(GetQuestLink, id))
+		if matches(byID) then return byID end
+		if type(index) == "number" then
+			local byIndex = plain(safe(GetQuestLink, index))
+			if matches(byIndex) then return byIndex end
+		end
+	end
+	local title = plain(q.title)
+	if type(title) ~= "string" or title == "" then return end
+	local level = plain(q.level)
+	if type(level) ~= "number" then level = 0 end
+	local hex = "ffffff00"
+	if level > 0 and GetQuestDifficultyColor then
+		local c = safe(GetQuestDifficultyColor, level)
+		local r = type(c) == "table" and plain(c.r)
+		local g = type(c) == "table" and plain(c.g)
+		local b = type(c) == "table" and plain(c.b)
+		if type(r) == "number" and type(g) == "number" and type(b) == "number" then
+			hex = format("ff%02x%02x%02x", r * 255, g * 255, b * 255)
+		end
+	end
+	return format("|c%s|Hquest:%d:%d|h[%s]|h|r", hex, id, level, title)
+end
+
+local function linkQuest(q)
+	local link = questLink(q)
+	if not link then return end
+	if ChatEdit_InsertLink and plain(safe(ChatEdit_InsertLink, link)) then return end
+	if ChatFrame_OpenChat then ChatFrame_OpenChat(link) end
+end
+
 local function openInLog(q)
 	-- Several ways, as clients differ; stop at the first that opens the log.
 	local function logOpen()
@@ -518,7 +564,9 @@ local function questRow(i)
 	r:SetScript("OnClick", function(self, button)
 		local q = self.quest
 		if not q then return end
-		if button == "RightButton" then openInLog(q) else toggleTrack(q) end
+		if button == "RightButton" then openInLog(q)
+		elseif IsShiftKeyDown() then linkQuest(q)
+		else toggleTrack(q) end
 	end)
 	r:SetScript("OnEnter", function(self)
 		self.title:SetAlpha(0.75)
@@ -526,6 +574,7 @@ local function questRow(i)
 		GameTooltip:AddLine(self.quest and self.quest.title or "Quest")
 		if self.quest and self.quest.elite then GameTooltip:AddLine("Elite quest: a group is suggested", 1, 0.82, 0) end
 		GameTooltip:AddLine("Click: follow this quest (map highlight). Click again to stop.", 1, 1, 1, true)
+		GameTooltip:AddLine("Shift-click: paste it into chat.", 1, 1, 1, true)
 		GameTooltip:AddLine("Right-click: open it in the quest log.", 0.7, 0.7, 0.7, true)
 		GameTooltip:Show()
 	end)

@@ -6,7 +6,7 @@
 --     nothing if it's already out. Reminder icon when you have no pet out.
 --   * Growl warning: on autocast in a group (or dungeon) it pulls mobs off your
 --     tank; off autocast when solo you're missing your pet's taunt.
--- Set the keys in Options > Keybindings > AddOns > Zyde Forever.
+-- Set the keys in Options > Keybindings > Zyde Forever.
 --
 -- Which food your pet eats: the game only tells us its diet ("Meat",
 -- "Fish"...), not which diet each item is. So we use a list of common foods,
