@@ -475,6 +475,7 @@ local function topUp(state, pool, ctx)
 			if d and d <= camp then killsHere[#killsHere + 1] = e.point end
 		end
 	end
+	local routeSet -- (the quests in the route, kept up to date below)
 	local function gatherHere(q)
 		if q.stops[1] and q.stops[1].kind == "pickup" then return false end
 		for _, s in ipairs(q.stops) do
@@ -495,7 +496,6 @@ local function topUp(state, pool, ctx)
 		end
 		return false
 	end
-	local routeSet
 	local changed = true
 	while changed do
 		changed = false
