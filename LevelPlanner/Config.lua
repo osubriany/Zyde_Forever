@@ -135,6 +135,7 @@ LevelPlannerConfig = {
 	roamHereNeighbours = 3,     -- a quest in your log whose roaming mobs are among this many route quests counts as "here"
 	onWayList = true,           -- roaming-mob steps go to the step list's "On the way" section (no arrow, no travel steps)
 	onWayShown = 3,             -- lines shown in that section
+	onWayHereYards = 100,       -- ...but a step whose mobs are this close to you stays a numbered step (do it now)
 	eventSeconds = 20,          -- explore / reach-a-place objectives once you are there
 	defaultDropRate = 0.5,      -- chance a quest item drops when Questie has no rate (0-1)
 	-- Quest items no mob drops (crafted, sold): buy them. A vendor Questie knows sells it comes

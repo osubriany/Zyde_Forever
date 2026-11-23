@@ -1122,9 +1122,13 @@ local function finalize(state, ctx)
 	-- it's a normal step again ("finish it now").
 	local wayIdx = {}
 	if wayIn and cfg.onWayList ~= false then
+		-- (not when you're standing among its mobs: you're there now, so it's a step to do now - the
+		-- Vile Fin murlocs of A New Plague right where you are)
+		local hereYards = cfg.onWayHereYards or 100
 		for idx, e in ipairs(route) do
 			if e.stop.kind == "objective" and e.stop.roam and not hearthLegs[idx] and P.WayShare(e.stop, wayIn) > 0 then
-				wayIdx[idx] = true
+				local d = start and ns.Geo.Distance(start, e.point)
+				if not (d and d <= hereYards) then wayIdx[idx] = true end
 			end
 		end
 		-- (its own quest's other steps - buy the thread - don't count as "something else first")
