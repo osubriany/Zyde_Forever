@@ -219,8 +219,10 @@ function QS.ScanCandidates()
 			elseif lvl - player > above then
 				bump(QS.ColourReason(lvl - player, grouped), id)
 				if not area then soon(id, lvl - above) end
-			elseif isTrivial(lvl) then
+			elseif isTrivial(lvl) and not (cfg.classQuests ~= false and not area and QS.IsClassQuest(id)
+					and ns.safe(QDB.IsDoable, id) and not excluded(id)) then
 				-- grey: kept aside; quick ones near you may still be worth doing (checked below)
+				-- (a grey class quest isn't: its reward is a spell or gear, not XP - planned like the rest)
 				if cfg.greyQuests ~= false and not area and lvl >= player - (cfg.greyMaxLevelsBelow or 8) then
 					greyIds[#greyIds + 1] = id
 				end
@@ -264,7 +266,12 @@ function QS.ScanCandidates()
 	table.sort(result.available, function(a, b) return a.roughRate > b.roughRate end)
 	for i, q in ipairs(result.available) do QS.ranks[q.id] = { rank = i, of = #result.available, rate = q.roughRate } end
 	local keep = cfg.maxCandidates or 60
-	for i = #result.available, keep + 1, -1 do result.available[i] = nil end
+	for i = #result.available, keep + 1, -1 do
+		-- (class quests stay: a trip to your trainer is slow XP, but the spell is worth it)
+		if not (cfg.classQuests ~= false and QS.IsClassQuest(result.available[i].id)) then
+			table.remove(result.available, i)
+		end
+	end
 
 	-- quests that open at your next level: the planner takes one only when the route's XP gets you
 	-- there first (its pick-up waits for the level-up, see Planner.lua). The most promising few.
@@ -286,7 +293,11 @@ function QS.ScanCandidates()
 			end
 		end
 		table.sort(result.upcoming, function(a, b) return a.roughRate > b.roughRate end)
-		for i = #result.upcoming, (cfg.levelUpCandidates or 15) + 1, -1 do result.upcoming[i] = nil end
+		for i = #result.upcoming, (cfg.levelUpCandidates or 15) + 1, -1 do
+			if not (cfg.classQuests ~= false and QS.IsClassQuest(result.upcoming[i].id)) then
+				table.remove(result.upcoming, i)
+			end
+		end
 	end
 	stats["next level, plannable"] = #result.upcoming
 
@@ -404,6 +415,28 @@ function QS.ScanCandidates()
 		end
 	end
 
+	-- class quests: their reward (a spell, the paladin's mount, gear) is worth more than their XP -
+	-- Config.classQuestWorthMinutes of your route's XP on top, so a trip to your trainer can win
+	if cfg.classQuests ~= false then
+		local perMin = ns.plan and ns.plan.rate and ns.plan.rate > 0 and ns.plan.rate or nil
+		if not perMin and #result.available > 0 then
+			perMin = result.available[math.ceil(#result.available / 2)].roughRate * 60 -- (median nearby quest)
+		end
+		local bonus = (perMin or cfg.classQuestDefaultRate or 200) * (cfg.classQuestWorthMinutes or 15)
+		local n = 0
+		for _, list in ipairs({ result.log, result.available, result.locked or {}, result.upcoming or {} }) do
+			for _, q in ipairs(list) do
+				if QS.IsClassQuest(q.id) then
+					q.classQuest = true
+					q.classBonus = bonus
+					q.value = (q.value or q.xp) + bonus
+					n = n + 1
+				end
+			end
+		end
+		stats["class quests (valued for their reward)"] = n
+	end
+
 	-- dungeons: each one as a single planned run with its quests and pre-quests
 	result.dungeons = {}
 	if cfg.dungeons ~= false then
@@ -418,6 +451,19 @@ function QS.ScanCandidates()
 	result.grind = cfg.grinding ~= false and ns.Extras.GrindCandidates(here) or {}
 	stats["grinding camps offered"] = #result.grind
 	return result
+end
+
+-- A class quest (paladin's Tome of Divinity, Forever's A Lesson in Divinity...): only one or two
+-- classes may take it. Its reward is a spell, a mount or gear, not just XP (Config.classQuestWorthMinutes).
+function QS.IsClassQuest(id)
+	local classes = QS.Quest(id, "requiredClasses")
+	if type(classes) ~= "number" or classes <= 0 then return false end
+	local bits = 0
+	while classes > 0 and bits <= 2 do
+		if classes % 2 == 1 then bits = bits + 1 end
+		classes = math.floor(classes / 2)
+	end
+	return bits >= 1 and bits <= 2
 end
 
 -- If a quest is held back only by pre-quests that are themselves candidates, returns the list of

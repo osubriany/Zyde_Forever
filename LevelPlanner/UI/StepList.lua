@@ -393,6 +393,7 @@ local function groupSteps(plan)
 				questId = s.questId, objIndex = s.objIndex, objType = s.objType, buy = s.buy,
 				chain = q and not q.isDungeon and (q.chainValue or 0) > 0,
 				grey = q and q.grey,
+				classQuest = q and q.classQuest,
 			}
 		end
 	end
@@ -474,7 +475,9 @@ local function describe(step, plan)
 		icon = step.icon or ICON.default
 		detail = (step.pinLabel or "NPC") .. "  |cff999999· right-click to remove|r"
 	end
-	if step.grey and (k == "pickup" or k == "turnin" or k == "objective") then
+	if step.classQuest and (k == "pickup" or k == "turnin" or k == "objective") then
+		detail = detail .. "  |cfff58cba· class quest|r"
+	elseif step.grey and (k == "pickup" or k == "turnin" or k == "objective") then
 		detail = detail .. "  |cff9d9d9d· grey, but quick|r"
 	end
 	return titleText, detail, xp, icon

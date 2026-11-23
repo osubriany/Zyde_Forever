@@ -1470,6 +1470,10 @@ function P.Diagnose(questId)
 		out[#out + 1] = string.format("  step: %s - %ds work, %d place(s)%s%s", s.label or s.key, math.floor(s.work or 0),
 			#(s.points or {}), (s.bagDelta or 0) ~= 0 and string.format(", bags %+d", s.bagDelta) or "", way)
 	end
+	if q.classQuest then
+		out[#out + 1] = string.format("  Class quest: its reward (a spell, mount or gear) counts as +%s XP - %d min of your route's XP (Config.classQuestWorthMinutes).",
+			ns.short(q.classBonus or 0), ns.cfg.classQuestWorthMinutes or 15)
+	end
 	failWhy = nil
 	local r, t = insertQuest(state.route, q, ctx)
 	if not r then

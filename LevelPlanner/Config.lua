@@ -136,6 +136,10 @@ LevelPlannerConfig = {
 	onWayList = true,           -- roaming-mob steps go to the step list's "On the way" section (no arrow, no travel steps)
 	onWayShown = 3,             -- lines shown in that section
 	onWayHereYards = 100,       -- ...but a step whose mobs are this close to you stays a numbered step (do it now)
+	-- class quests (paladin Tome of Divinity, Forever's A Lesson in Divinity...): planned for their reward
+	classQuests = true,
+	classQuestWorthMinutes = 15, -- the reward (spell, mount, gear) counts as this many minutes of your route's XP
+	classQuestDefaultRate = 200, -- (XP per minute to price it with before there's a plan)
 	eventSeconds = 20,          -- explore / reach-a-place objectives once you are there
 	defaultDropRate = 0.5,      -- chance a quest item drops when Questie has no rate (0-1)
 	-- Quest items no mob drops (crafted, sold): buy them. A vendor Questie knows sells it comes

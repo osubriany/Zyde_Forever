@@ -909,6 +909,7 @@ function S.BuildQuest(questId, logEntry, opts)
 	quest.mobXp = mobXp
 	quest.workSeconds = work
 	quest.xp = quest.questXp * (cfg.questXpWeight or 1) + mobXp * (cfg.mobXpWeight or 1)
-	if quest.xp <= 0 then return nil, "no XP" end
+	-- (a class quest is planned for its reward - a spell, a mount - even when it gives no XP)
+	if quest.xp <= 0 and not ns.QuestSource.IsClassQuest(questId) then return nil, "no XP" end
 	return quest
 end
