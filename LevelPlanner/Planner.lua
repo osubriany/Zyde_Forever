@@ -1480,6 +1480,8 @@ function P.Plan(candidates, previous, opts)
 		local starts = {}
 		if quick then return best end
 		if cfg.regretStart ~= false then starts[#starts + 1] = { regret = true } end
+		-- (not on every re-plan: a kill ticking an objective changes little - opts.thorough, Core)
+		local tryLoose = not ctx.loose and cfg.tightTriesLoose ~= false and not (opts and opts.thorough == false)
 		for k = 1, (cfg.graspStarts or 2) do
 			starts[#starts + 1] = { topK = cfg.graspTopK or 3, rand = rng(#list * 7919 + k * 104729) }
 		end
@@ -1487,6 +1489,22 @@ function P.Plan(candidates, previous, opts)
 			local s = topUp(improve(greedyFill(empty(), list, ctx, o), list, ctx), list, ctx)
 			local r = rateOf(s, ctx)
 			if r > bestRate * 1.001 then best, bestRate = s, r end
+		end
+		-- tight pick-ups: the loose search too. A quest it takes on the way can lead to a better route
+		-- overall (loose planned 255 XP/min where tight found 231): tight wants the fastest route, so
+		-- it keeps that one when it's faster
+		if tryLoose then
+			ctx.loose = true
+			local s = topUp(improve(greedyFill(empty(), list, ctx), list, ctx), list, ctx)
+			ctx.loose = false
+			-- (then tight's own top-up: a quest at its giver, ground pick-ups among your kills...)
+			s = topUp(s, list, ctx)
+			local r = rateOf(s, ctx)
+			-- (clearly faster only: a hair's lead here can be gone once extras like the hearthstone go in)
+			if r > bestRate * (1 + (cfg.tightLooseMinGain or 0.01)) then
+				s.looseTaken = nil -- (not "added by loose pick-ups": it's simply the faster route)
+				best, bestRate = s, r
+			end
 		end
 		return best
 	end

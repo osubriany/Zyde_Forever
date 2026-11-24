@@ -330,7 +330,10 @@ local function startWork()
 	local rescan = pendingRescan or not ns.candidates
 	local previous = (not ns.forceFresh) and ns.plan or nil
 	local opts = { threshold = ns.offTrail and (ns.cfg.offTrailSwitchThreshold or 0.02) or nil,
-		quick = ns.quickPlanUntil and GetTime() < ns.quickPlanUntil }
+		quick = ns.quickPlanUntil and GetTime() < ns.quickPlanUntil,
+		-- (the extra searches - tight also trying loose's route - only when quests were re-read or the
+		-- plan starts fresh, not on every kill; Planner search)
+		thorough = rescan or ns.forceFresh or not previous }
 	local why = (ns.forceFresh and "fresh" or (ns.offTrail and "off the trail, 2% bar" or "10% bar")) .. (rescan and ", quests re-read" or "")
 	pendingRescan, ns.forceFresh, ns.offTrail = false, false, false
 	if ns.StepList then ns.StepList.SetPlanning(true) end
