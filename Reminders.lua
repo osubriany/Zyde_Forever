@@ -1636,8 +1636,7 @@ ns.AddReminder("eatFood", "ZydeForeverEatFood", "Interface\\Icons\\INV_Misc_Food
 	return true, "Eat food"
 end)
 
--- A Camp Tent tops rested XP up to 5% of a level. Shown only when this character has one
--- (in the bags, or a learned toy).
+-- A Camp Tent, yours or someone else's, tops rested XP up to 5% of a level.
 -- It does nothing above that, and nothing while Boosted Rest is on you.
 local tentTile
 tentTile = ns.AddReminder("tent", "ZydeForeverTent", "Interface\\Icons\\INV_Misc_Bag_10", function(preview)
@@ -1647,11 +1646,6 @@ tentTile = ns.AddReminder("tent", "ZydeForeverTent", "Interface\\Icons\\INV_Misc
 	if not share or share >= 0.05 then return false end
 	local locked, hidden = selfAura("boosted rest", BOOSTED_REST)
 	if locked or hidden then return false end
-	-- Only when this character has a tent to use: in the bags, or learned as a toy.
-	local count = (C_Item and C_Item.GetItemCount and safe(C_Item.GetItemCount, CAMP_TENT))
-		or (GetItemCount and safe(GetItemCount, CAMP_TENT))
-	local toy = PlayerHasToy and safe(PlayerHasToy, CAMP_TENT)
-	if not ((type(plain(count)) == "number" and plain(count) > 0) or plain(toy) == true) then return false end
 	if not tentTile.iconSet then
 		local tex = C_Item and C_Item.GetItemIconByID and safe(C_Item.GetItemIconByID, CAMP_TENT)
 		if tex then tentTile.tex:SetTexture(tex) tentTile.iconSet = true end
