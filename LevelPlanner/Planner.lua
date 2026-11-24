@@ -807,8 +807,44 @@ function P.TargetNpc()
 end
 
 local hereFirstInner -- (below: then the escort, if one is running, goes in front of everything)
+
+-- The quest you're in the middle of stays in the route: a quest in your log whose mobs you're
+-- standing among (Config.amongYards) or fighting. A re-plan mid-kill found a route without Raptor
+-- Mastery "better" and sent you elsewhere at 3/10 - you'd have to come back. (hereFirstInner then
+-- puts it first.)
+local function keepHere(state, ctx)
+	if ns.cfg.keepCurrentQuest == false or not ctx.start or not ctx.pool then return state end
+	local among = ns.cfg.amongYards or 80
+	for _, q in ipairs(ctx.pool) do
+		local first = q.stops[1]
+		if not state.used[q] and first and first.kind ~= "pickup" then
+			local here = false
+			for _, s in ipairs(q.stops) do
+				if s.kind == "objective" and s.mobs then
+					if ctx.targetNpc and s.mobs[ctx.targetNpc] then here = true end
+					for _, p in ipairs(here and {} or s.points or {}) do
+						local d = ns.Geo.Distance(ctx.start, p)
+						if d and d <= among then here = true break end
+					end
+				end
+				if here then break end
+			end
+			if here then
+				local r, t = insertQuest(state.route, q, ctx)
+				if r then
+					state.used[q] = true
+					state.route, state.total, state.xp = r, t, (state.xp or 0) + (q.xp or 0)
+					state.value = (state.value or 0) + value(q)
+					state.mobXp = (state.mobXp or 0) + mobOf(q)
+				end
+			end
+		end
+	end
+	return state
+end
+
 local function hereFirst(state, ctx)
-	return escortFirst(hereFirstInner(state, ctx), ctx)
+	return escortFirst(hereFirstInner(keepHere(state, ctx), ctx), ctx)
 end
 
 function hereFirstInner(state, ctx)
