@@ -119,6 +119,55 @@ function P.WayShare(stop, inRoute)
 	return math.min(max, n * (cfg.wayPerNeighbour or 0.1))
 end
 
+-- Overlap areas. Two steps that need the same mobs (the Primitive Key drops from all Bloodscalp
+-- trolls, Shrunken Heads only from the Headhunters) each get their areas from their own mobs, so
+-- their places rarely coincide and "kill once for both" (addedWork) never applies. Each such step
+-- also gets the other's areas whose mobs count for it: then the route can do both in the one camp,
+-- and the arrow points there. Rebuilt every plan from stop.basePoints (the step's own areas).
+function P.SharePoints(pool)
+	local cfg = ns.cfg
+	local near = cfg.overlapYards or 60
+	local maxAdd = cfg.sharedAreasMax or 4
+	local objs = {}
+	for _, q in ipairs(pool) do
+		for _, s in ipairs(q.stops) do
+			if s.kind == "objective" and s.mobs and next(s.mobs) and s.points then
+				s.basePoints = s.basePoints or s.points
+				s.points = s.basePoints
+				objs[#objs + 1] = s
+			end
+		end
+	end
+	for i, a in ipairs(objs) do
+		if i % 20 == 0 then ns.Check() end
+		local added
+		for _, b in ipairs(objs) do
+			if b ~= a and b.quest ~= a.quest and sharesMobs(a, b) then
+				for _, p in ipairs(b.basePoints) do
+					-- (that area's own mob must count for this step too)
+					if p.npc and a.mobs[p.npc] and (not added or #added < maxAdd) then
+						local close = false
+						for _, own in ipairs(a.points) do
+							local d = ns.Geo.Distance(own, p)
+							if d and d <= near then close = true break end
+						end
+						if not close then
+							if not added then
+								added = {}
+								local list = {}
+								for k, own in ipairs(a.basePoints) do list[k] = own end
+								a.points = list
+							end
+							added[#added + 1] = p
+							a.points[#a.points + 1] = p
+						end
+					end
+				end
+			end
+		end
+	end
+end
+
 -- Sets stop.wayNb on every kill / gather step of the pool: the other quests with a step within
 -- Config.wayYards of its mobs or pick-ups (Stops.lua stop.spread). A grid keeps it quick.
 function P.WayNeighbours(pool)
@@ -1319,6 +1368,8 @@ function P.Plan(candidates, previous, opts)
 		end
 	end
 	ctx.pool = pool -- (escortFirst looks here for an escort you have started)
+	-- steps that need the same mobs can use each other's areas (do both in the one camp)
+	if cfg.sharedAreas ~= false then P.SharePoints(pool) end
 	-- which kill / gather steps lie among other quests' steps (along the way: P.WayShare)
 	ctx.wayOn = cfg.alongTheWay ~= false and P.WayNeighbours(pool) or nil
 
