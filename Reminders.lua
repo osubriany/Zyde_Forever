@@ -1566,11 +1566,13 @@ ns.AddReminder("repair", "ZydeForeverRepair", "Interface\\Icons\\Trade_BlackSmit
 	return true, ("Repair %d%%"):format(math.floor(worstDurability * 100))
 end)
 
+-- Classes that heal themselves between fights don't need the low-food warning.
+local SELF_HEALERS = { PALADIN = true, PRIEST = true, DRUID = true, SHAMAN = true }
 local foodTile
 foodTile = ns.AddReminder("food", "ZydeForeverFood", "Interface\\Icons\\INV_Misc_Food_14", function(preview)
 	if preview then return true, "Food 3" end
 	if not on() or not quietTime() or UnitLevel("player") < 5 then return false end
-	local lowFood = food < FOOD_LOW
+	local lowFood = food < FOOD_LOW and not SELF_HEALERS[playerClass]
 	local lowDrink = HUNTER and drink < FOOD_LOW -- warriors don't need water
 	if not (lowFood or lowDrink) then return false end
 	foodTile.tex:SetTexture(lowFood and "Interface\\Icons\\INV_Misc_Food_14" or "Interface\\Icons\\INV_Drink_07")
