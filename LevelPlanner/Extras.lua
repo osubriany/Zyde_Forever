@@ -325,7 +325,9 @@ function X.CleanupAdvice(plan, candidates, ctx, force)
 					reason, rank = string.format("slow: ~%s XP/min", ns.fmt(q.cleanupRate)), 4
 				end
 			end
-			list[#list + 1] = { name = name, reason = reason, rank = rank, rate = q and q.cleanupRate or 0 }
+			list[#list + 1] = { name = name, reason = reason, rank = rank, rate = q and q.cleanupRate or 0,
+				id = questId, grey = grey and true or false, complete = entry.isComplete == 1,
+				classQuest = ns.QuestSource.IsClassQuest and ns.QuestSource.IsClassQuest(questId) or false }
 		end
 	end
 	table.sort(list, function(a, b)

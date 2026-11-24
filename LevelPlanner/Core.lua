@@ -122,6 +122,72 @@ function ns.SetPickupMode(mode)
 	if ns.RequestReplan then ns.RequestReplan(true) end
 end
 
+-- Cleanup quests (the step list's "..." menu, /lp cleanup grey): abandons the grey quests in your log
+-- that the plan doesn't use. Grey only gets greyer as you level, so one left out now stays out.
+-- Kept: grey quests ready to turn in (free XP / a reward on the way) and class quests (the spell).
+function ns.GreyCleanupList()
+	local out = {}
+	for _, c in ipairs(ns.plan and ns.plan.cleanup or {}) do
+		if c.grey and c.id and not c.complete and not c.classQuest then out[#out + 1] = c end
+	end
+	return out
+end
+
+local function abandonQuest(questId)
+	-- the quest log's own abandon, by its line in the log (indexes shift after each one: look it up)
+	if GetNumQuestLogEntries and GetQuestLogTitle and SelectQuestLogEntry and SetAbandonQuest and AbandonQuest then
+		for i = 1, (GetNumQuestLogEntries()) do
+			local _, _, _, isHeader, _, _, _, id = GetQuestLogTitle(i)
+			if not isHeader and id == questId then
+				SelectQuestLogEntry(i)
+				SetAbandonQuest()
+				AbandonQuest()
+				return true
+			end
+		end
+		return false
+	end
+	local QL = C_QuestLog
+	if QL and QL.SetSelectedQuest and QL.SetAbandonQuest and QL.AbandonQuest then
+		QL.SetSelectedQuest(questId)
+		QL.SetAbandonQuest()
+		QL.AbandonQuest()
+		return true
+	end
+	return false
+end
+
+StaticPopupDialogs["LEVELPLANNER_CLEANUP_QUESTS"] = {
+	text = "Abandon %d grey quest(s) the plan doesn't use?\n\n%s",
+	button1 = ABANDON_QUEST_ABBREV or "Abandon",
+	button2 = CANCEL or "Cancel",
+	OnAccept = function(_, data)
+		local done = {}
+		for _, c in ipairs(data or {}) do
+			if abandonQuest(c.id) then done[#done + 1] = c.name end
+		end
+		ns.print(#done > 0 and ("abandoned: " .. table.concat(done, ", ") .. ".") or "nothing was abandoned.")
+		if ns.RequestReplan then ns.RequestReplan(true) end
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
+function ns.ConfirmGreyCleanup()
+	if not ns.plan then ns.print("no plan yet - try again in a moment.") return end
+	local list = ns.GreyCleanupList()
+	if #list == 0 then
+		ns.print("no grey quests to clean up: every grey quest in your log is in the plan, ready to turn in, or a class quest.")
+		return
+	end
+	local names = {}
+	for _, c in ipairs(list) do names[#names + 1] = c.name end
+	local popup = StaticPopup_Show("LEVELPLANNER_CLEANUP_QUESTS", #list, table.concat(names, "\n"))
+	if popup then popup.data = list end
+end
+
 function ns.AllowElite(level, rank)
 	local mode = ns.EliteMode()
 	if mode == "on" or ns.IsGrouped() then return true end
@@ -721,6 +787,8 @@ SlashCmdList.LEVELPLANNER = function(msg)
 		if zyde.setFeature then zyde.setFeature("autoQuests", on) end
 		ns.print("automatic accept / turn-in of planned quests " .. (on and "on" or "off")
 			.. ". The Auto complete quests checkbox in /zyde keeps this.")
+	elseif msg == "cleanup grey" then
+		ns.ConfirmGreyCleanup()
 	elseif msg == "cleanup" then
 		local list = ns.plan and ns.plan.cleanup
 		if not list or #list == 0 then
@@ -747,6 +815,7 @@ SlashCmdList.LEVELPLANNER = function(msg)
 		ns.print("/lp pickup tight|loose - only quests that speed the route up, or quick ones on the way too")
 		ns.print("/lp arrow - show or hide the built-in arrow")
 		ns.print("/lp cleanup - quests in your log the plan doesn't use")
+		ns.print("/lp cleanup grey - abandon the grey ones (asks first)")
 		ns.print("/lp auto on|off - automatic accept / turn-in of planned quests")
 		ns.print("/lp why <quest name or ID> - why a quest is or isn't in the plan")
 		ns.print("/lp learned - what LevelPlanner has learned about your pace")
