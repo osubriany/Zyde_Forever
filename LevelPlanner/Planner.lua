@@ -997,8 +997,54 @@ end
 -- saves or gains later - goes up.
 ----------------------------------------------------------------------------------------
 local standingAt, addExtrasInner -- (below)
+local chainNext -- (below)
 local function addExtras(state, ctx)
-	return standingAt(addExtrasInner(state, ctx), ctx)
+	return standingAt(chainNext(addExtrasInner(state, ctx), ctx), ctx)
+end
+
+-- A follow-up you pick up from the NPC you just turned in to (Where's the Key? -> Zimmix's Great
+-- Escape) is taken there and then: walking off to kill raptors and coming back for it looks cheap on
+-- paper but isn't how anyone plays. Its escort run comes with it. Allowed to cost a little time
+-- (Config.chainNextSlackSeconds).
+chainNext = function(state, ctx)
+	local cfg = ns.cfg
+	if cfg.chainNext == false or #state.route < 3 then return state end
+	local atYards = cfg.hereTurninAtYards or 40
+	local slack = cfg.chainNextSlackSeconds or 180
+	local i = 1
+	while i <= #state.route do
+		local e = state.route[i]
+		if e.stop.kind == "turnin" then
+			local id = e.stop.quest.id
+			for j = i + 2, #state.route do
+				local f = state.route[j]
+				local q = f.stop.quest
+				local opens = false
+				for _, r in ipairs(f.stop.kind == "pickup" and q.requires or {}) do
+					if r == id then opens = true break end
+				end
+				local d = opens and ns.Geo.Distance(e.point, f.point)
+				if d and d <= atYards then
+					-- the pick-up, and an escort's run right behind it
+					local n = 1
+					local nx = state.route[j + 1]
+					if q.escort and nx and nx.stop.quest == q and nx.stop.kind == "objective" then n = 2 end
+					local r = copy(state.route)
+					local block = {}
+					for k = 1, n do block[k] = table.remove(r, j) end
+					for k = n, 1, -1 do table.insert(r, i + 1, block[k]) end
+					failWhy = nil
+					if feasible(r, ctx) then
+						local t = routeSeconds(r, ctx)
+						if t <= state.total + slack then state.route, state.total = r, t end
+					end
+					break
+				end
+			end
+		end
+		i = i + 1
+	end
+	return state
 end
 
 -- A turn-in or extra stop (set your hearthstone, vendor, trainer) whose NPC you're standing at
