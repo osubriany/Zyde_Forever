@@ -136,6 +136,7 @@ LevelPlannerConfig = {
 	onWayList = true,           -- roaming-mob steps go to the step list's "On the way" section (no arrow, no travel steps)
 	onWayShown = 3,             -- lines shown in that section
 	onWayHereYards = 100,       -- ...but a step whose mobs are this close to you stays a numbered step (do it now)
+	togetherYards = 200,        -- steps this close to the current one, right after it, are shown as done together ("here too")
 	-- class quests (paladin Tome of Divinity, Forever's A Lesson in Divinity...): planned for their reward
 	classQuests = true,
 	classQuestWorthMinutes = 15, -- the reward (spell, mount, gear) counts as this many minutes of your route's XP

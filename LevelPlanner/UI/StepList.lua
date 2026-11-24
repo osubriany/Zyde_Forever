@@ -698,6 +698,20 @@ function L.Update(plan)
 		y = y - 2
 	end
 
+	-- the steps right after the current one in the same area (Zul'kunda: the key, the shipment and
+	-- the shrunken heads) are done together with it: highlighted with it, marked "here too"
+	local together = {}
+	local first = steps[1]
+	if first and first.kind == "objective" and first.point then
+		local yards = ns.cfg.togetherYards or ns.cfg.sameCampYards or 200
+		for i = 2, shown do
+			local st = steps[i]
+			local d = st.kind == "objective" and st.point and ns.Geo.Distance(first.point, st.point)
+			if not (d and d <= yards) then break end
+			together[i] = true
+		end
+	end
+
 	for i = 1, shown do
 		local s, r = steps[i], rows[i]
 		local zone = zoneOf(s.point)
@@ -723,16 +737,19 @@ function L.Update(plan)
 		r.time:SetText(s.work and s.work > 0 and ns.shortTime(s.work) or "")
 
 		local current = (i == 1)
-		r.highlight:SetShown(current)
+		local here = together[i]
+		if here then r.detail:SetText("|cff66ccffhere too|r  |cff777777·|r " .. detail) end
+		r.highlight:SetShown(current or here)
+		r.highlight:SetAlpha(here and 0.55 or 1)
 		local c = stripeOf(s)
-		r.stripe:SetVertexColor(c[1], c[2], c[3], current and 1 or 0.7)
-		r:SetAlpha(current and 1 or 0.78)
-		r.title:SetTextColor(current and 1 or 0.9, current and 1 or 0.9, current and 1 or 0.9)
+		r.stripe:SetVertexColor(c[1], c[2], c[3], (current or here) and 1 or 0.7)
+		r:SetAlpha((current or here) and 1 or 0.78)
+		r.title:SetTextColor((current or here) and 1 or 0.9, (current or here) and 1 or 0.9, (current or here) and 1 or 0.9)
 
 		-- progress bar: always on the current step; on later steps once they have some progress
 		-- (kills or items that counted for them along the way)
 		local done, needed = progressOf(s)
-		if done and (current or done > 0) then
+		if done and (current or here or done > 0) then
 			r.bar:SetMinMaxValues(0, needed)
 			if current then
 				-- the bar eases toward the new value (see OnUpdate); a new step starts from its real value
