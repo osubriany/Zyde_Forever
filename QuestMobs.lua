@@ -123,13 +123,37 @@ local function check(unit)
 	return true, name
 end
 
--- Quest mobs with a nameplate right now: list of { unit, name }.
+-- How close a unit is, roughly: 0 within ~10 yards, 1 within ~28, 2 further or
+-- the game won't say (its interact distance checks).
+local function closeness(unit)
+	-- (Out of combat only: the checked nameplates only go in the macro then, and some
+	-- clients restrict this check in a fight.)
+	if InCombatLockdown() then return 2 end
+	local near = plain(ns.safe(CheckInteractDistance, unit, 3))
+	if near == true or near == 1 then return 0 end
+	local mid = plain(ns.safe(CheckInteractDistance, unit, 4))
+	if mid == true or mid == 1 then return 1 end
+	return 2
+end
+
+-- Quest mobs with a nameplate right now: list of { unit, name }, nearest first.
+-- found.tagged: names whose every mob on a nameplate is someone else's tag (the
+-- target key leaves those names out: /target <name> would pick one of them).
 local function scan()
-	local found = {}
+	local found, tagged, free = {}, {}, {}
 	for _, unit in ipairs(plateUnits()) do
 		local ok, name = check(unit)
-		if ok then found[#found + 1] = { unit = unit, name = name } end
+		if ok then
+			found[#found + 1] = { unit = unit, name = name, near = closeness(unit) }
+			free[name] = true
+		elseif name == "someone else's tag" then
+			local n = mobName(unit, npcFromGUID(UnitGUID(unit)))
+			if n then tagged[n] = true end
+		end
 	end
+	for n in pairs(free) do tagged[n] = nil end
+	table.sort(found, function(a, b) return a.near < b.near end)
+	found.tagged = tagged
 	return found
 end
 
@@ -380,7 +404,9 @@ end
 -- by nearest known spawn.
 local function macroNames(mobs)
 	local plates = byName(mobs) -- most numerous last
+	-- Names whose mobs in view are all someone else's tag count as seen: left out.
 	local seen, names = {}, {}
+	for n in pairs(mobs.tagged or {}) do seen[n] = true end
 	-- Rares you've just seen come first (Rares.lua).
 	for _, name in ipairs(ns.Rares and ns.Rares.names() or {}) do
 		if #names >= MAX_NAMES then break end
@@ -410,8 +436,9 @@ end
 -- macro first targets specific nameplate units (nameplate3...) that this
 -- addon checked are alive and not tagged by anyone else. The macro is
 -- rebuilt every half second and whenever a nameplate comes or goes, so
--- those stay current. Only if none of them is there do the name lines run
--- (those can still hit a tagged mob). When combat starts the macro can't
+-- those stay current, nearest first. Only if none of them is there do the name
+-- lines run (those can still hit a tagged mob out of view, so a name whose mobs in
+-- view are all tagged is left out). When combat starts the macro can't
 -- be rebuilt any more, so it switches to names only (namesOnly) and a
 -- stale nameplate number can't pick some other mob mid-fight.
 --
