@@ -394,6 +394,7 @@ local function groupSteps(plan)
 				chain = q and not q.isDungeon and (q.chainValue or 0) > 0,
 				grey = q and q.grey,
 				classQuest = q and q.classQuest,
+				dropFrom = s.dropFrom, mobs = s.mobs,
 			}
 		end
 	end
@@ -447,6 +448,13 @@ local function describe(step, plan)
 	elseif k == "objective" then
 		icon = ICON[objectiveType(step) or ""] or ICON.monster
 		detail = step.names[1] or ""
+		-- an item that drops: what to kill for it. The mob of the area you're sent to (the area's
+		-- centre spawn, Stops clusterAreas), else all that drop it
+		if step.dropFrom then
+			local id = step.point and step.point.npc
+			local here = id and step.mobs and step.mobs[id] and ns.QuestSource.Npc(id, "name")
+			detail = "from " .. (here or step.dropFrom) .. (detail ~= "" and ("  |cff777777·|r " .. detail) or "")
+		end
 		if step.mobXp > 0 then xp = "+" .. ns.short(step.mobXp) end
 	elseif k == "travel" then
 		icon = ICON[step.mode] or ICON.pass

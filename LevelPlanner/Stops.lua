@@ -434,6 +434,16 @@ local function objectiveStop(quest, od, remaining)
 			points = npcPoints(hostile, false)
 			stop.mobs = {}
 			for _, id in ipairs(hostile) do stop.mobs[id] = true end
+			-- what drops it, for the step list ("from Bloodscalp Mystic"): the names, two at most
+			local names, seen = {}, {}
+			for _, id in ipairs(hostile) do
+				local n = QS.Npc(id, "name")
+				if n and not seen[n] then seen[n] = true names[#names + 1] = n end
+			end
+			if #names > 0 then
+				stop.dropFrom = #names <= 2 and table.concat(names, " or ")
+					or string.format("%s, %s and %d more", names[1], names[2], #names - 2)
+			end
 			-- default: kills needed x kill time; learned: your real seconds per item
 			local killSecs = E.KillSeconds(lvl, rank, QS.Npc(hostile[1], "name"))
 			local perItem = kills * killSecs / need
