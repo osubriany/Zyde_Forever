@@ -1227,7 +1227,10 @@ local function finalize(state, ctx)
 		-- Vile Fin murlocs of A New Plague right where you are)
 		local hereYards = cfg.onWayHereYards or 100
 		for idx, e in ipairs(route) do
-			if e.stop.kind == "objective" and e.stop.roam and not hearthLegs[idx] and P.WayShare(e.stop, wayIn) > 0 then
+			-- (only quests in your log: one still to pick up stays in the numbered list until you have it)
+			local first = e.stop.quest.stops and e.stop.quest.stops[1]
+			local inLog = not (first and first.kind == "pickup")
+			if inLog and e.stop.kind == "objective" and e.stop.roam and not hearthLegs[idx] and P.WayShare(e.stop, wayIn) > 0 then
 				local d = start and ns.Geo.Distance(start, e.point)
 				if not (d and d <= hereYards) then wayIdx[idx] = true end
 			end
