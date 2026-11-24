@@ -459,14 +459,23 @@ local function macroFor(mobs, namesOnly)
 		return true
 	end
 	if not namesOnly then
-		-- Rares on nameplates first, then quest mobs.
+		-- Each of these lines replaces the last one's target, so the one that should
+		-- win goes last: quest mobs farthest to nearest, then rares on nameplates.
+		local lines = {}
 		for _, u in ipairs(ns.Rares and ns.Rares.units() or {}) do
-			add(("/target [@%s,exists,nodead,harm] %s"):format(u, u))
+			lines[#lines + 1] = ("/target [@%s,exists,nodead,harm] %s"):format(u, u)
 		end
 		for i = 1, math.min(MAX_UNITS, #mobs) do
 			local u = mobs[i].unit
-			add(("/target [@%s,exists,nodead,harm] %s"):format(u, u))
+			lines[#lines + 1] = ("/target [@%s,exists,nodead,harm] %s"):format(u, u)
 		end
+		-- (built best first so the length limit keeps the best ones; added in reverse)
+		local keep = {}
+		for _, l in ipairs(lines) do
+			if #text + 1 + #l + #table.concat(keep, "\n") > MACRO_LIMIT then break end
+			keep[#keep + 1] = l
+		end
+		for i = #keep, 1, -1 do add(keep[i]) end
 	end
 	for _ = 1, 2 do
 		for _, name in ipairs(names) do
