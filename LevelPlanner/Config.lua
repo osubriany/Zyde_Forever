@@ -47,10 +47,10 @@ LevelPlannerConfig = {
 	fillMinShare = 0.2,         -- filling the hour stops at a quest earning less than this share of the route's XP/min
 	-- "/lp pickup loose" (or the step list's ... menu): also quick quests on the way that earn at least
 	-- this share of the route's XP per minute and add at most this many seconds. "tight" (default): no.
-	looseMinShare = 0.4,
-	looseMaxSeconds = 180,
-	looseDetourSeconds = 60,    -- ...with at most this much walking beyond the quest's own work
-	looseMaxTotalSeconds = 600, -- ...and at most this much added in all
+	looseMinShare = 0.35,
+	looseMaxSeconds = 480,
+	looseDetourSeconds = 120,   -- ...with at most this much walking beyond the quest's own work
+	looseMaxTotalSeconds = 1500, -- ...and at most this much added in all
 	giverDetourSeconds = 120,   -- a quest whose giver you stand at gets the loose rule in tight mode too, with this much walking
 	giverMinShare = 0.3,        -- ...and this share of the route's XP per minute
 	regretStart = true,         -- also try a route built quests-that-fit-in-one-place-first (regret insertion)

@@ -118,6 +118,7 @@ function ns.SetPickupMode(mode)
 		and "pick-ups: loose - quick quests on the way are taken too, even when a bit slower than the route."
 		or "pick-ups: tight - only quests that make the route faster.")
 	ns.forceFresh = true
+	ns.pickupReport = mode -- (the next plan says what loose pick-ups added)
 	if ns.RequestReplan then ns.RequestReplan(true) end
 end
 
@@ -291,6 +292,17 @@ local function startWork()
 				math.floor(ns.JobCpu() - (scanMs or 0))))
 		end
 		ns.plan = plan
+		-- just switched pick-ups: what the loose rule added (or that tight takes only faster quests)
+		if ns.pickupReport and plan then
+			local taken = plan.looseTaken or {}
+			if ns.pickupReport == "loose" then
+				ns.print(#taken > 0
+					and string.format("loose pick-ups added %d quest%s on the way: %s.", #taken, #taken == 1 and "" or "s",
+						table.concat(taken, ", "))
+					or "loose pick-ups: no extra quests on the way right now (none quick and close enough - /lp why <quest> shows the loose rule).")
+			end
+			ns.pickupReport = nil
+		end
 		ns.OnPlanReady(plan)
 		ns.AnnounceChanges(before, plan)
 	end)

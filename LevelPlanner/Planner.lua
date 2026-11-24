@@ -501,7 +501,7 @@ local function topUp(state, pool, ctx)
 		changed = false
 		routeSet = {}
 		for _, e in ipairs(state.route) do routeSet[e.stop.quest] = true end
-		local best, bestR, bestT, bestRate, bestLoose
+		local best, bestR, bestT, bestRate, bestLoose, bestByMode
 		local rate = worth(state, ctx) / math.max(60, state.total)
 		for _, q in ipairs(pool) do
 			ns.Check()
@@ -522,7 +522,8 @@ local function topUp(state, pool, ctx)
 				if not atGiver and r and gatherHere(q) then atGiver = true end
 				local looseHere = ctx.loose or atGiver
 				-- (at the giver: up to Config.overHorizonSeconds, like a quest that speeds the route up)
-				local looseCap = atGiver and math.max(looseMax, maxExtra) or looseMax
+				-- (in tight mode the giver rule keeps its own 5 minutes; loose mode's own limit is longer)
+				local looseCap = atGiver and (ctx.loose and math.max(looseMax, maxExtra) or maxExtra) or looseMax
 				if r and added <= math.max(maxExtra, looseHere and looseCap or 0) then
 					local qWork = 0
 					for _, s in ipairs(q.stops) do qWork = qWork + (s.work or 0) end
@@ -541,13 +542,18 @@ local function topUp(state, pool, ctx)
 						loose = ok
 					end
 					if ok and (not bestRate or newRate > bestRate) then
-						best, bestR, bestT, bestRate, bestLoose = q, r, t, newRate, loose
+						-- (bestByMode: taken only because pick-ups are loose - reported to you, Core)
+						best, bestR, bestT, bestRate, bestLoose, bestByMode = q, r, t, newRate, loose, loose and not atGiver
 					end
 				end
 			end
 		end
 		if best then
 			if bestLoose then looseLeft = looseLeft - (bestT - state.total) end
+			if bestByMode then
+				state.looseTaken = state.looseTaken or {}
+				state.looseTaken[#state.looseTaken + 1] = best.name or tostring(best.id)
+			end
 			state.used[best] = true
 			state.route, state.total, state.xp = bestR, bestT, state.xp + best.xp
 			state.value = (state.value or 0) + value(best)
@@ -1395,6 +1401,7 @@ function P.Plan(candidates, previous, opts)
 	end
 
 	plan.candidateCount = #pool
+	plan.looseTaken = chosen and chosen.looseTaken -- (quests in it only because pick-ups are loose)
 	plan.dungeonInfo = dungeonInfo
 	plan.cleanup = ns.Extras.CleanupAdvice(plan, candidates, ctx, true)
 	plan.cleanupDue = ctx.logCount >= ns.Extras.CleanupAt(ctx.logCap)
@@ -1505,10 +1512,21 @@ function P.Diagnose(questId)
 		local cfg = ns.cfg
 		out[#out + 1] = string.format("  At-the-giver rule: giver %s from you (needs %d); adds %ds (max %d), %ds beyond its own work (max %d); %d%% of the route's rate (needs %d%%).",
 			gd and (math.floor(gd) .. " yd") or "not on your map", cfg.hereTurninAtYards or 40,
-			math.floor(added), math.max(cfg.looseMaxSeconds or 180, cfg.overHorizonSeconds or 300),
+			math.floor(added), ctx.loose and math.max(cfg.looseMaxSeconds or 480, cfg.overHorizonSeconds or 300) or (cfg.overHorizonSeconds or 300),
 			math.floor(added - qWork), math.max(cfg.looseDetourSeconds or 60, cfg.giverDetourSeconds or 120),
 			math.floor(qRate / math.max(1, planRate) * 100), math.floor((cfg.giverMinShare or 0.3) * 100))
-	elseif first then
+	end
+	-- the loose pick-up rule (/lp pickup loose): what it sees
+	do
+		local cfg = ns.cfg
+		local qWork = 0
+		for _, s in ipairs(q.stops) do qWork = qWork + (s.work or 0) end
+		out[#out + 1] = string.format("  Loose rule%s: adds %ds (max %d), %ds beyond its own work (max %d); %d%% of the route's rate (needs %d%%).",
+			ctx.loose and "" or " (only when pick-ups are loose)", math.floor(added), cfg.looseMaxSeconds or 480,
+			math.floor(added - qWork), cfg.looseDetourSeconds or 120,
+			math.floor(qRate / math.max(1, planRate) * 100), math.floor((cfg.looseMinShare or 0.35) * 100))
+	end
+	if first and first.kind ~= "pickup" then
 		-- a quest in your log with ground pick-ups: are they among the route's kills where you are?
 		local camp, gd = ns.cfg.sameCampYards or 200, nil
 		for _, e in ipairs(state.route) do
