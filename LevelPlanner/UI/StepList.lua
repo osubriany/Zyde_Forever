@@ -683,7 +683,7 @@ function L.Update(plan)
 		nWay = nWay + 1
 		local w = wayLine(nWay)
 		w.icon:SetTexture(ICON[objectiveType(s) or ""] or ICON.monster)
-		local what = (s.label or ""):gsub("%s*%(~%d+ kills%)", "")
+		local what = (s.label or ""):gsub("%s*%(~%d+ kills%??%)", "")
 		w.text:SetText(what .. (s.questName and ("  |cff999999· " .. s.questName .. "|r") or ""))
 		local done, needed = progressOf(s)
 		w.count:SetText(done and string.format("%d/%d", done, needed) or "")

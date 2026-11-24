@@ -454,7 +454,9 @@ local function objectiveStop(quest, od, remaining)
 			kills = math.max(need, math.min(kills, math.ceil(stop.work / math.max(1, killSecs))))
 			stop.mobXp = kills * E.MobXP(lvl, rank)
 			stop.mobLevel, stop.mobRank = lvl, rank -- (the planner re-prices the kills after a level-up)
-			stop.label = string.format("Collect %d %s (~%d kills)", need, itemName, kills)
+			-- ("?": no drop rate known for it - the kill count is Config.defaultDropRate's guess)
+			stop.label = string.format("Collect %d %s (~%d kills%s)", need, itemName, kills, rateN > 0 and "" or "?")
+			stop.rateGuessed = rateN == 0 or nil
 			-- sold or listed for less than the farm costs you? buy it
 			local bought = buyInstead(quest, od.Id, itemName, need,
 				stop.work + (cfg.objectiveOverheadSeconds or 45), stop.mobXp)

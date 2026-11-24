@@ -886,6 +886,7 @@ ns.LiveQuests = {
 ns.QuestDropRates = {
 	[5481] = 19.3, -- Satyr Horns (Xavian satyrs, Ashenvale): Wowhead Forever 581/3013. Questie: 50%
 	[7128] = 0.6,  -- Uncloven Satyr Hoof (Xavian satyrs): Wowhead Forever 17/3013, not quest-only. Questie: 80%
+	[277957] = 3,  -- Primitive Key (Where's the Key?, Zul'kunda trolls, STV): ~3% per player report. Questie: none (50% guess)
 }
 
 ----------------------------------------------------------------------------------------
