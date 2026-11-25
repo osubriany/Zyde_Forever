@@ -1341,6 +1341,8 @@ local function dressRow(b, listed, text)
 		if b.level then b.level:Hide() end
 	else
 		b:SetSize(CELL - 4, CELL - 4)
+		-- The list clips; the dial's skill level sits below the button.
+		if b.SetClipsChildren then b:SetClipsChildren(false) end
 		b.icon:ClearAllPoints()
 		b.icon:SetPoint("TOPLEFT", 4, -4)
 		b.icon:SetPoint("BOTTOMRIGHT", -4, 4)
@@ -1372,6 +1374,8 @@ local function layoutDial(menu, list, profs)
 	local profR = #profs > 0 and (math.max(innerR, outerR, 70) + 58) or 0
 	local reach = math.max(innerR, outerR, profR, 36) + 40
 	popup:SetSize(reach * 2, reach * 2)
+	-- The list paints this nearly opaque; the circle dial must not keep it.
+	popup.bg:Hide()
 	if popup.circle then
 		popup.rim:Hide()
 		popup.disc:SetColorTexture(0, 0, 0, 0.35)
