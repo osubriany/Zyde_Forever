@@ -11,6 +11,8 @@ local ADDON, ns = ...
 local function on() return ns.F and ns.F("recipes") end
 local function db() ZydeForeverDB = ZydeForeverDB or {} return ZydeForeverDB end
 local function safe(f, ...) if not f then return nil end local ok, a, b = pcall(f, ...) if ok then return a, b end end
+local getItemInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+local getItemIcon = (C_Item and C_Item.GetItemIconByID) or GetItemIcon
 
 -- Recipe item subclass (item class 9) per profession, by the window's English name.
 local SUBCLASS = {
@@ -243,7 +245,7 @@ local function row(i)
 	r:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	r:SetScript("OnClick", function(self)
 		if IsShiftKeyDown() then
-			local link = select(2, GetItemInfo(self.id))
+			local link = select(2, safe(getItemInfo, self.id))
 			if link and ChatEdit_InsertLink then ChatEdit_InsertLink(link) end
 			return
 		end
@@ -306,8 +308,8 @@ local function refresh()
 			n = n + 1
 			local r = row(n)
 			r.id, r.source = rec.id, sourceOf(rec.id)
-			r.icon:SetTexture((C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(rec.id)) or GetItemIcon(rec.id) or 134939)
-			local _, _, quality = GetItemInfo(rec.id)
+			r.icon:SetTexture((C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(rec.id)) or safe(getItemIcon, rec.id) or 134939)
+			local quality = getItemInfo and select(3, getItemInfo(rec.id))
 			local c = quality and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
 			r.name:SetText((c and c.hex or "|cffffffff") .. rec.name .. "|r")
 			r.src:SetText(r.source.text)

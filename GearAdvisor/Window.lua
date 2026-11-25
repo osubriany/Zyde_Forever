@@ -128,7 +128,7 @@ end
 local function rowClick(row)
 	if row.link then
 		if IsModifiedClick and IsModifiedClick("CHATLINK") and ChatEdit_InsertLink then
-			local _, full = GetItemInfo(row.link)
+			local _, full = ns.safe((C_Item and C_Item.GetItemInfo) or GetItemInfo, row.link)
 			ChatEdit_InsertLink(full or row.link)
 			return
 		elseif IsModifiedClick and IsModifiedClick("DRESSUP") and DressUpItemLink then
