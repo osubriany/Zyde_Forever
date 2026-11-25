@@ -112,6 +112,9 @@ local used, labelUsed = 0, 0
 local dirty = true
 
 local function collapsed() db().bagCollapsed = db().bagCollapsed or {} return db().bagCollapsed end
+local function bagsShown() return db().bagSlotsShown and true or false end
+-- Where the sections start: under the title, and under the bag row when it's out.
+local function contentTop() return 34 + (bagsShown() and (S + 8) or 0) end
 
 local function holder(bag)
 	if holders[bag] then return holders[bag] end
@@ -149,11 +152,10 @@ local function paint(b)
 		if CooldownFrame_Set then pcall(CooldownFrame_Set, b.cd, start, dur, enable) end
 	end
 	local text = win.search and win.search:GetText() or ""
-	if text ~= "" then
-		b:SetAlpha(nameOf(info):lower():find(text:lower(), 1, true) and 1 or 0.25)
-	else
-		b:SetAlpha(1)
-	end
+	local lit = text == "" or nameOf(info):lower():find(text:lower(), 1, true) ~= nil
+	-- Hovering a bag in the bag row lights up only what's in that bag.
+	if win.hoverBag and win.hoverBag ~= b:GetParent():GetID() then lit = false end
+	b:SetAlpha(lit and 1 or 0.25)
 end
 
 local function itemButton(i)
@@ -366,11 +368,81 @@ local function layout()
 	for i = labelUsed + 1, #labels do labels[i]:Hide() end
 	for i = headUsed + 1, #heads do heads[i]:Hide() end
 	win.content:SetHeight(math.max(10, y))
-	win:SetHeight(y + 36 + 34 + PAD)
+	win:SetHeight(y + contentTop() + 2 + 34 + PAD)
 end
 
 local function repaint()
 	for i = 1, used do paint(pool[i]) end
+end
+
+---------------------------------------------------------------------------
+-- The bag row: your four bags, to swap one for a bigger one. Click or drag
+-- a bag to pick it up (it has to be empty), drop a bag on a slot to put it on.
+---------------------------------------------------------------------------
+local toInv = (C_Container and C_Container.ContainerIDToInventoryID) or ContainerIDToInventoryID
+local EMPTY_BAG_TEX = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Bag"
+
+local function paintBagSlots()
+	if not (win and win.bagSlots) then return end
+	for _, b in ipairs(win.bagSlots) do
+		local inv = toInv and toInv(b.bag)
+		local tex = inv and GetInventoryItemTexture("player", inv)
+		b.icon:SetTexture(tex or EMPTY_BAG_TEX)
+		local n = C_Container.GetContainerNumSlots(b.bag) or 0
+		b.count:SetText(n > 0 and n or "")
+	end
+end
+
+local function placeContent()
+	win.content:ClearAllPoints()
+	win.content:SetPoint("TOPLEFT", PAD, -contentTop())
+	win.bagRow:SetShown(bagsShown())
+end
+
+local function bagSlot(bag)
+	local b = CreateFrame("Button", nil, win.bagRow)
+	b:SetSize(S, S)
+	b:SetPoint("LEFT", (bag - 1) * (S + GAP), 0)
+	b:RegisterForClicks("LeftButtonUp")
+	b:RegisterForDrag("LeftButton")
+	b.bag = bag
+	b.bg = b:CreateTexture(nil, "BACKGROUND")
+	b.bg:SetPoint("TOPLEFT", -1, 1)
+	b.bg:SetPoint("BOTTOMRIGHT", 1, -1)
+	b.bg:SetColorTexture(0, 0, 0, 1)
+	b.icon = b:CreateTexture(nil, "ARTWORK")
+	b.icon:SetAllPoints()
+	b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+	b.count:SetPoint("BOTTOMRIGHT", -2, 2)
+	local hl = b:CreateTexture(nil, "HIGHLIGHT")
+	hl:SetAllPoints()
+	hl:SetColorTexture(1, 1, 1, 0.15)
+	local function inv() return toInv and toInv(bag) end
+	local function put()
+		if InCombatLockdown() or not inv() then return end
+		if CursorHasItem() then PutItemInBag(inv()) else PickupBagFromSlot(inv()) end
+	end
+	b:SetScript("OnClick", put)
+	b:SetScript("OnReceiveDrag", put)
+	b:SetScript("OnDragStart", function()
+		if not InCombatLockdown() and inv() then PickupBagFromSlot(inv()) end
+	end)
+	b:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+		if not (inv() and GameTooltip:SetInventoryItem("player", inv())) then
+			GameTooltip:AddLine("Empty bag slot")
+		end
+		GameTooltip:AddLine("Drop a bag here to put it on. Click or drag to take it off (it must be empty).", 0.6, 0.8, 1, true)
+		GameTooltip:Show()
+		win.hoverBag = bag
+		repaint()
+	end)
+	b:SetScript("OnLeave", function()
+		GameTooltip:Hide()
+		win.hoverBag = nil
+		repaint()
+	end)
+	return b
 end
 
 local function savePos()
@@ -428,9 +500,34 @@ local function build()
 	win.search = search
 
 	win.content = CreateFrame("Frame", nil, win)
-	win.content:SetPoint("TOPLEFT", PAD, -34)
 	win.content:SetWidth(INNER_W)
 	win.content:SetHeight(10)
+
+	win.bagRow = CreateFrame("Frame", nil, win)
+	win.bagRow:SetPoint("TOPLEFT", PAD, -32)
+	win.bagRow:SetSize(INNER_W, S)
+	win.bagSlots = {}
+	for bag = 1, (NUM_BAG_SLOTS or 4) do win.bagSlots[bag] = bagSlot(bag) end
+	local toggle = CreateFrame("Button", nil, win)
+	toggle:SetSize(22, 22)
+	toggle:SetPoint("RIGHT", search, "LEFT", -10, 0)
+	toggle:SetNormalTexture("Interface\\Buttons\\Button-Backpack-Up")
+	toggle:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+	toggle:SetScript("OnClick", function()
+		if InCombatLockdown() then return end
+		db().bagSlotsShown = not bagsShown()
+		placeContent()
+		layout()
+	end)
+	toggle:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:AddLine(bagsShown() and "Hide your bags" or "Show your bags")
+		GameTooltip:AddLine("A row of your four bags, to swap one for a bigger one.", 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	toggle:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	placeContent()
+	paintBagSlots()
 
 	win.money = win:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	win.money:SetPoint("BOTTOMRIGHT", -PAD, 12)
@@ -455,6 +552,7 @@ local function build()
 	win.Layout = layout
 	win:SetScript("OnShow", function()
 		placeWin()
+		paintBagSlots()
 		win.money:SetText(GetCoinTextureString and GetCoinTextureString(GetMoney()) or "")
 		if dirty and not InCombatLockdown() then layout() else repaint() end
 	end)
@@ -540,7 +638,7 @@ end
 
 local ev = CreateFrame("Frame")
 for _, e in ipairs({ "PLAYER_LOGIN", "BAG_UPDATE_DELAYED", "ITEM_LOCK_CHANGED", "BAG_UPDATE_COOLDOWN",
-	"PLAYER_REGEN_ENABLED", "PLAYER_MONEY", "GET_ITEM_INFO_RECEIVED", "QUEST_LOG_UPDATE" }) do
+	"PLAYER_REGEN_ENABLED", "PLAYER_MONEY", "GET_ITEM_INFO_RECEIVED", "QUEST_LOG_UPDATE", "BAG_CONTAINER_UPDATE" }) do
 	pcall(ev.RegisterEvent, ev, e)
 end
 local pendingLayout = false
@@ -554,6 +652,7 @@ ev:SetScript("OnEvent", function(_, event)
 		win.money:SetText(GetCoinTextureString and GetCoinTextureString(GetMoney()) or "")
 		return
 	end
+	if event == "BAG_CONTAINER_UPDATE" or event == "BAG_UPDATE_DELAYED" then paintBagSlots() end
 	if event == "ITEM_LOCK_CHANGED" or event == "BAG_UPDATE_COOLDOWN" then
 		if win:IsShown() then repaint() end
 		return
