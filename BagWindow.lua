@@ -146,8 +146,41 @@ local function holder(bag)
 	return h
 end
 
+-- The blue "new item" glow. The slot buttons never got told, so they showed
+-- it after every reload. Here: nothing is new right after login or a reload
+-- (see the login clear below); something you pick up later glows until you
+-- hover it or close the bags, like the game's own bags.
+local NEW_ATLAS = { [2] = "bags-glow-green", [3] = "bags-glow-blue", [4] = "bags-glow-purple", [5] = "bags-glow-orange" }
+local function setNew(b, isNew, quality)
+	if b.BattlepayItemTexture then b.BattlepayItemTexture:Hide() end
+	local tex = b.NewItemTexture
+	if tex then
+		if isNew then
+			pcall(tex.SetAtlas, tex, NEW_ATLAS[quality] or "bags-glow-white")
+			tex:Show()
+		else
+			tex:Hide()
+		end
+	end
+	for _, anim in ipairs({ b.flashAnim, b.newitemglowAnim }) do
+		if anim then
+			if isNew then
+				if not anim:IsPlaying() then anim:Play() end
+			elseif anim:IsPlaying() then
+				anim:Stop()
+			end
+		end
+	end
+end
+
+local function isNewItem(bag, slot)
+	if not (C_NewItems and C_NewItems.IsNewItem) then return false end
+	return ns.safe(C_NewItems.IsNewItem, bag, slot) == true
+end
+
 local function paint(b)
 	if b.empty then
+		setNew(b, false)
 		SetItemButtonTexture(b, b.emptyTex)
 		SetItemButtonCount(b, b.emptyCount)
 		SetItemButtonDesaturated(b, false)
@@ -158,6 +191,7 @@ local function paint(b)
 	end
 	local info = C_Container.GetContainerItemInfo(b:GetParent():GetID(), b:GetID())
 	if not info then
+		setNew(b, false)
 		SetItemButtonTexture(b, nil)
 		SetItemButtonCount(b, 0)
 		if SetItemButtonQuality then pcall(SetItemButtonQuality, b, nil) end
@@ -168,6 +202,7 @@ local function paint(b)
 	SetItemButtonCount(b, info.stackCount or 1)
 	SetItemButtonDesaturated(b, info.isLocked)
 	if SetItemButtonQuality then pcall(SetItemButtonQuality, b, info.quality, info.hyperlink) end
+	setNew(b, isNewItem(b:GetParent():GetID(), b:GetID()), info.quality)
 	if b.cd and C_Container.GetContainerItemCooldown then
 		local start, dur, enable = C_Container.GetContainerItemCooldown(b:GetParent():GetID(), b:GetID())
 		if CooldownFrame_Set then pcall(CooldownFrame_Set, b.cd, start, dur, enable) end
@@ -590,7 +625,11 @@ local function build()
 		win.money:SetText(GetCoinTextureString and GetCoinTextureString(GetMoney()) or "")
 		if dirty and not InCombatLockdown() then layout() else repaint() end
 	end)
-	win:SetScript("OnHide", function() closeBlizzard() end)
+	win:SetScript("OnHide", function()
+		-- Closing the bags means you've seen what's new, as in the game's own bags.
+		if C_NewItems and C_NewItems.ClearAll then pcall(C_NewItems.ClearAll) end
+		closeBlizzard()
+	end)
 end
 
 ---------------------------------------------------------------------------
@@ -674,8 +713,21 @@ for _, e in ipairs({ "PLAYER_LOGIN", "BAG_UPDATE_DELAYED", "ITEM_LOCK_CHANGED", 
 	"PLAYER_REGEN_ENABLED", "PLAYER_MONEY", "GET_ITEM_INFO_RECEIVED", "QUEST_LOG_UPDATE", "BAG_CONTAINER_UPDATE" }) do
 	pcall(ev.RegisterEvent, ev, e)
 end
+pcall(ev.RegisterEvent, ev, "PLAYER_ENTERING_WORLD")
 local pendingLayout = false
-ev:SetScript("OnEvent", function(_, event)
+-- For a few seconds after login or a reload the game can flag everything you
+-- carry as new. Nothing is new then: clear it while the bags fill in.
+local loginQuietUntil = 0
+local function clearNew() if C_NewItems and C_NewItems.ClearAll then pcall(C_NewItems.ClearAll) end end
+ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
+	if event == "PLAYER_ENTERING_WORLD" then
+		if isLogin or isReload then
+			loginQuietUntil = GetTime() + 5
+			clearNew()
+		end
+		return
+	end
+	if event == "BAG_UPDATE_DELAYED" and GetTime() < loginQuietUntil then clearNew() end
 	if event == "PLAYER_LOGIN" then install() return end
 	if not win then
 		if event == "PLAYER_REGEN_ENABLED" then install() end
