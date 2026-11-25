@@ -138,8 +138,6 @@ local BATTLE_STANCE, DEFENSIVE_STANCE = 2457, 71
 local BATTLE_STANCE_IDS, DEFENSIVE_STANCE_IDS = { BATTLE_STANCE }, { DEFENSIVE_STANCE } -- (knownRank caches by table)
 local VICTORY_RUSH = { 34428, 402927 } -- 34428 classic, 402927 Forever's first rank
 local SHIELD_BLOCK = { 2565, 12169 }
-local VICTORIOUS = { 32216, 402975 } -- the 20s buff that makes Victory Rush usable
-local VICTORIOUS_SET = set(VICTORIOUS)
 
 -- Forever adds ranks under new spell ids. The spellbook is the list of ranks
 -- you actually have; the arrays above are only the ones already known.
@@ -650,81 +648,27 @@ if WARRIOR then
 	end)
 	meleeTile.prominent = true
 
-	-- Victory Rush: only while the Victorious buff is on you, the 20 seconds
-	-- after a kill that awards it. A hidden buff list must not start the
-	-- countdown; that was restarting it forever.
-	local victoryExpires = 0
-	local victorySeen = false
-	local function victoryCooling()
-		local id = bestKnown(VICTORY_RUSH)
-		if not id then return false end
-		local start, duration
-		if C_Spell and C_Spell.GetSpellCooldown then
-			local cd = safe(C_Spell.GetSpellCooldown, id)
-			if type(cd) == "table" then start, duration = cd.startTime, cd.duration end
-		elseif GetSpellCooldown then
-			start, duration = safe(GetSpellCooldown, id)
-		end
-		start, duration = plain(start), plain(duration)
-		return start and duration and duration > GCD and start + duration - GetTime() > 0
-	end
-	local function victoriousNow()
-		-- The player's own aura by spell id still answers when the full buff
-		-- list is hidden. A table means Victorious is on you.
-		if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
-			for i = 1, #VICTORIOUS do
-				local a = safe(C_UnitAuras.GetPlayerAuraBySpellID, VICTORIOUS[i])
-				if type(a) == "table" then return true, a end
-			end
-		end
-		local found, hidden, a = hasAura("player", "HELPFUL", VICTORIOUS_SET)
-		if found then return true, a end
-		return false, nil, hidden
-	end
-	local function victoryWindow()
-		local found, a, hidden = victoriousNow()
-		if found then
-			local exp = type(a) == "table" and plain(a.expirationTime)
-			if exp and exp > 0 then victoryExpires = exp
-			elseif not victorySeen or victoryExpires <= GetTime() then victoryExpires = GetTime() + 20 end
-			victorySeen = true
-			return GetTime() < victoryExpires
-		end
-		-- Couldn't see buffs. Finish a countdown that already started from the
-		-- real buff. Never start one just because the list is hidden.
-		if hidden and victorySeen and GetTime() < victoryExpires then return true end
-		victorySeen = false
-		return false
-	end
+	-- Victory Rush: the icon is up only while the button is enabled and the
+	-- spell's own cooldown is clear. The game enables it for Victorious and
+	-- turns it off when you cast it. A hidden answer counts as not ready.
 	local victoryTile
 	victoryTile = ns.AddReminder("victoryRush", "ZydeForeverVictoryRush", ns.spellTexture(402927, "Interface\\Icons\\Ability_Warrior_Devastate"), function(preview)
-		local function show(left)
-			local w = victoryTile:GetWidth()
-			if victoryTile.timerSize ~= w then
-				victoryTile.timerSize = w
-				if not victoryTile.timer:SetFont("Fonts\\FRIZQT__.TTF", math.max(10, math.floor(w * 0.5)), "OUTLINE") then
-					victoryTile.timer:SetFontObject("GameFontNormalLarge")
-				end
-			end
-			victoryTile.timer:SetText(left or "")
-			return true, left and ("Victory %ds"):format(left) or "Victory"
-		end
-		if preview then return show(12) end
+		if preview then return true, "Victory" end
 		local id = bestKnown(VICTORY_RUSH)
 		if not on() or UnitIsDeadOrGhost("player") or not id then return false end
 		if not victoryTile.iconSet or victoryTile.iconId ~= id then
 			victoryTile.tex:SetTexture(ns.spellTexture(id, victoryTile.fallback))
 			victoryTile.iconSet, victoryTile.iconId = true, id
 		end
-		if victoryCooling() then return false end
-		if not victoryWindow() then return false end
-		local left = victoryExpires - GetTime()
-		if left <= 0 then return show(nil) end
-		return show(math.max(1, math.ceil(left)))
+		local usable
+		if C_Spell and C_Spell.IsSpellUsable then usable = C_Spell.IsSpellUsable(id)
+		elseif IsUsableSpell then usable = IsUsableSpell(id) end
+		if isSecret(usable) or not plain(usable) then return false end
+		local left, hidden = cooldownLeft(id)
+		if hidden or isSecret(left) then return false end
+		if type(left) == "number" and left > 0 then return false end
+		return true, "Victory"
 	end)
-	victoryTile.timer = victoryTile:CreateFontString(nil, "OVERLAY")
-	victoryTile.timer:SetPoint("CENTER", victoryTile, "CENTER", 1, 0)
-	victoryTile.timer:SetTextColor(1, 0.95, 0.6)
 
 	-- Thunder Clap's slow lasts 30 seconds. In a fight the game often hides the
 	-- debuff, so a cast you just made keeps the icon down until that time is up.
