@@ -351,6 +351,29 @@ local function stacks(info)
 	return (info.stackCount or 1) > 1
 end
 
+-- How many slots Restack would free: for each item, the stacks it has now
+-- minus the fewest it could fit in (two stacks of 12 linen: 1 slot).
+local function restackSavings(bags)
+	local byID = {}
+	for _, bag in ipairs(bags) do
+		for slot = 1, numSlots(bag) do
+			local info = C_Container.GetContainerItemInfo(bag, slot)
+			local max = info and info.itemID and stackSize(info.itemID)
+			if max and max > 1 then
+				local e = byID[info.itemID]
+				if not e then e = { stacks = 0, total = 0, max = max } byID[info.itemID] = e end
+				e.stacks = e.stacks + 1
+				e.total = e.total + (info.stackCount or 1)
+			end
+		end
+	end
+	local saved = 0
+	for _, e in pairs(byID) do
+		saved = saved + math.max(0, e.stacks - math.ceil(e.total / e.max))
+	end
+	return saved
+end
+
 local function merge(list)
 	local out, byID = {}, {}
 	for _, e in ipairs(list) do
@@ -638,6 +661,14 @@ function View:Layout()
 	local data, free = gather(self.bags())
 	self.free = free
 	self:SetTitle()
+	-- Restack only shows when it would free something: "Restack +3".
+	local rb = self.win.restackBtn
+	if rb then
+		local saved = restackSavings(self.bags())
+		rb:SetText("Restack +" .. saved)
+		rb:SetShown(saved > 0)
+		self.win.Flow()
+	end
 	local used, labelUsed, headUsed = 0, 0, 0
 	local y = 0
 	local content = self.win.content
@@ -814,12 +845,23 @@ local function newView(o)
 
 	win.money = win:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	win.money:SetPoint("BOTTOMRIGHT", -PAD, 12)
-	win.buttonX = PAD
+	-- Bottom-left buttons, left to right; a hidden one leaves no gap.
+	win.buttons = {}
+	function win.Flow()
+		local x = PAD
+		for _, b in ipairs(win.buttons) do
+			if b:IsShown() then
+				b:ClearAllPoints()
+				b:SetPoint("BOTTOMLEFT", x, 8)
+				x = x + b:GetWidth() + 4
+			end
+		end
+	end
 	function win.AddButton(text, w, tipTitle, tipText, onClick)
 		local b = smallButton(win, text, w, tipTitle, tipText)
-		b:SetPoint("BOTTOMLEFT", win.buttonX, 8)
 		b:SetScript("OnClick", onClick)
-		win.buttonX = win.buttonX + w + 4
+		win.buttons[#win.buttons + 1] = b
+		win.Flow()
 		return b
 	end
 	views[#views + 1] = v
@@ -1030,8 +1072,8 @@ local function buildBags()
 	v:PlaceContent()
 	paintBagSlots()
 
-	win.AddButton("Restack", 64, "Join part stacks",
-		"Puts part stacks of the same item together in your real bags, which frees up slots.",
+	win.restackBtn = win.AddButton("Restack", 80, "Join part stacks",
+		"Puts part stacks of the same item together in your real bags. The number is how many slots that frees.",
 		function() restack(myBags()) end)
 	win.sellJunk = win.AddButton("Sell junk", 70, "Sell your junk",
 		"Sells every gray item that's worth something (never Perma). Only at a vendor.",
@@ -1043,6 +1085,7 @@ local function buildBags()
 		paintBagSlots()
 		win.money:SetText(moneyText())
 		win.sellJunk:SetShown(MerchantFrame and MerchantFrame:IsShown() or false)
+		win.Flow()
 		if v.dirty and not InCombatLockdown() then v:Layout() else v:Repaint() end
 	end)
 	win:SetScript("OnHide", function()
@@ -1086,8 +1129,8 @@ local function buildBank()
 	})
 	local win = v.win
 	v:PlaceContent()
-	win.AddButton("Restack", 64, "Join part stacks",
-		"Puts part stacks of the same item together in the bank, which frees up slots.",
+	win.restackBtn = win.AddButton("Restack", 80, "Join part stacks",
+		"Puts part stacks of the same item together in the bank. The number is how many slots that frees.",
 		function() restack(bankBags()) end)
 	win.AddButton("Game bank", 80, "The game's bank window",
 		"Brings back the game's own bank window, to buy bank slots or bags. Close and reopen the bank to come back here.",
@@ -1216,11 +1259,11 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 	-- Junk sells by itself at a vendor, bag window or not.
 	if event == "MERCHANT_SHOW" then
 		if ns.F("sellJunk") then C_Timer.After(0.3, function() sellJunk(true) end) end
-		if bagsView then bagsView.win.sellJunk:Show() end
+		if bagsView then bagsView.win.sellJunk:Show() bagsView.win.Flow() end
 		return
 	end
 	if event == "MERCHANT_CLOSED" then
-		if bagsView then bagsView.win.sellJunk:Hide() end
+		if bagsView then bagsView.win.sellJunk:Hide() bagsView.win.Flow() end
 		return
 	end
 	if event == "PLAYER_LOGIN" then install() return end
