@@ -401,6 +401,7 @@ refresh = function()
 	if showing then rank() end
 	drawWin(showing)
 	markBlizzardBags(showing)
+	if ns.BagWindowRepaint then ns.BagWindowRepaint() end
 end
 
 local pending = false
@@ -451,6 +452,9 @@ ns.ItemRules = {
 }
 
 ns.Scrap = {
+	-- For the bag window: this slot's place on the scrap list (1-3) while it shows, and its color.
+	Rank = function(bag, slot) if showing then return rankBySlot[bag .. ":" .. slot] end end,
+	COLORS = BADGE_COLORS,
 	Toggle = function()
 		ns.setFeature("scrap", not ns.featureWanted("scrap"))
 		print("|cff66ccffZyde_Forever|r: scrap list " .. (ns.F("scrap") and "on" or "off"))

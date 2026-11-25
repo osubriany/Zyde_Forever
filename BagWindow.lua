@@ -202,10 +202,137 @@ local function startsQuest(bag, slot)
 	return done ~= true
 end
 
+---------------------------------------------------------------------------
+-- Small marks on an item: red tint (can't use it), green arrow (upgrade),
+-- gold coin (junk that sells), BoE (could go on the auction house), a
+-- red-orange-yellow outline and number (the scrap list's picks, bags full),
+-- and Open / Lock (a clam or a lockbox). What the tooltip says is read once
+-- per item in a slot and kept until the bags, your level, skills or gear change.
+---------------------------------------------------------------------------
+local scanCache = {}
+local getInfoAny = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+local LOCKED_TEXT = LOCKED or "Locked"
+
+local function scan(bag, slot, info)
+	local key = bag .. ":" .. slot
+	local c = scanCache[key]
+	if c and c.link == info.hyperlink then return c end
+	c = { link = info.hyperlink }
+	local data = C_TooltipInfo and C_TooltipInfo.GetBagItem and ns.safe(C_TooltipInfo.GetBagItem, bag, slot)
+	for _, line in ipairs(type(data) == "table" and data.lines or {}) do
+		for _, side in ipairs({ { line.leftText, line.leftColor }, { line.rightText, line.rightColor } }) do
+			local text, col = side[1], side[2]
+			if type(text) == "string" and not ns.isSecret(text) then
+				if text == LOCKED_TEXT then c.locked = true end
+				if col and type(col.r) == "number" and not ns.isSecret(col.r)
+					and col.r > 0.95 and col.g < 0.2 and col.b < 0.2 then
+					c.red = true
+				end
+			end
+		end
+	end
+	local name, _, _, _, _, _, _, _, equipLoc, _, sellPrice, _, _, bindType = ns.safe(getInfoAny, info.hyperlink or info.itemID)
+	if type(name) ~= "string" then return c end -- not loaded yet: ask again next paint
+	c.sells = type(sellPrice) == "number" and sellPrice > 0 and not info.hasNoValue
+	c.boe = bindType == 2 and type(equipLoc) == "string" and equipLoc ~= "" -- still unbound: checked at paint
+	c.upgrade = ns.BagItemUpgrade and ns.BagItemUpgrade(bag, slot, info.hyperlink) or nil
+	scanCache[key] = c
+	return c
+end
+
+local function markFont(fs, size)
+	if not fs:SetFont("Fonts\\ARIALN.TTF", size, "OUTLINE") then fs:SetFontObject("GameFontNormalSmall") end
+end
+
+local function marks(b)
+	if b.zMarks then return b.zMarks end
+	local m = {}
+	m.arrow = b:CreateTexture(nil, "OVERLAY", nil, 5)
+	m.arrow:SetSize(14, 14)
+	m.arrow:SetPoint("TOPLEFT", 1, -1)
+	m.arrow:SetTexture("Interface\\Buttons\\UI-MicroStream-Green")
+	m.coin = b:CreateTexture(nil, "OVERLAY", nil, 5)
+	m.coin:SetSize(12, 12)
+	m.coin:SetPoint("TOPLEFT", 2, -2)
+	m.coin:SetTexture("Interface\\MoneyFrame\\UI-GoldIcon")
+	m.boe = b:CreateFontString(nil, "OVERLAY")
+	markFont(m.boe, 10)
+	m.boe:SetPoint("BOTTOMLEFT", 2, 2)
+	m.boe:SetText("BoE")
+	m.boe:SetTextColor(0.4, 1, 0.5)
+	m.tag = b:CreateFontString(nil, "OVERLAY")
+	markFont(m.tag, 10)
+	m.tag:SetPoint("TOPRIGHT", -1, -2)
+	m.scrapNum = b:CreateFontString(nil, "OVERLAY")
+	markFont(m.scrapNum, 14)
+	m.scrapNum:SetPoint("TOPRIGHT", -2, -1)
+	m.scrapEdges = ns.newEdges(b, "OVERLAY", 7)
+	ns.placeEdges(m.scrapEdges, b, 0, 2)
+	b.zMarks = m
+	return m
+end
+
+local function iconOf(b)
+	return b.icon or b.Icon or _G[(b:GetName() or "") .. "IconTexture"]
+end
+
+local function setMarks(b, info)
+	local m = marks(b)
+	local icon = iconOf(b)
+	if not info then
+		for _, k in ipairs({ "arrow", "coin", "boe", "tag", "scrapNum" }) do m[k]:Hide() end
+		for _, t in ipairs(m.scrapEdges) do t:Hide() end
+		if icon then icon:SetVertexColor(1, 1, 1) end
+		return
+	end
+	local bag, slot = b:GetParent():GetID(), b:GetID()
+	local c = scan(bag, slot, info)
+	-- Red: something in the tooltip says you can't use it (level, class, skill, already known).
+	if icon then
+		if c.red and not c.locked then icon:SetVertexColor(1, 0.3, 0.3) else icon:SetVertexColor(1, 1, 1) end
+	end
+	m.arrow:SetShown(c.upgrade ~= nil and not c.red)
+	m.coin:SetShown(info.quality == 0 and c.sells and not m.arrow:IsShown())
+	m.boe:SetShown(c.boe and not info.isBound and true or false)
+	-- The scrap list's 1-3 (any stack of a merged tile counts).
+	local rank
+	if ns.Scrap and ns.Scrap.Rank then
+		for _, s in ipairs(b.slots or { { bag = bag, slot = slot } }) do
+			local r = ns.Scrap.Rank(s.bag, s.slot)
+			if r and (not rank or r < rank) then rank = r end
+		end
+	end
+	local col = rank and ns.Scrap.COLORS and ns.Scrap.COLORS[rank]
+	for _, t in ipairs(m.scrapEdges) do
+		if col then t:SetColorTexture(col[1], col[2], col[3], 1) t:Show() else t:Hide() end
+	end
+	if col then
+		m.scrapNum:SetText(rank)
+		m.scrapNum:SetTextColor(col[1], col[2], col[3])
+		m.scrapNum:Show()
+		m.tag:Hide()
+		return
+	end
+	m.scrapNum:Hide()
+	-- A clam or bag of loot (right-click to open), or a lockbox still locked.
+	if c.locked then
+		m.tag:SetText("Lock")
+		m.tag:SetTextColor(1, 0.6, 0.2)
+		m.tag:Show()
+	elseif info.hasLoot then
+		m.tag:SetText("Open")
+		m.tag:SetTextColor(0.4, 1, 0.4)
+		m.tag:Show()
+	else
+		m.tag:Hide()
+	end
+end
+
 local function paint(b)
 	if b.empty then
 		setNew(b, false)
 		setBang(b, false)
+		setMarks(b, nil)
 		SetItemButtonTexture(b, b.emptyTex)
 		SetItemButtonCount(b, b.emptyCount)
 		SetItemButtonDesaturated(b, false)
@@ -218,6 +345,7 @@ local function paint(b)
 	if not info then
 		setNew(b, false)
 		setBang(b, false)
+		setMarks(b, nil)
 		SetItemButtonTexture(b, nil)
 		SetItemButtonCount(b, 0)
 		if SetItemButtonQuality then pcall(SetItemButtonQuality, b, nil) end
@@ -239,6 +367,7 @@ local function paint(b)
 	if SetItemButtonQuality then pcall(SetItemButtonQuality, b, info.quality, info.hyperlink) end
 	setNew(b, isNewItem(b:GetParent():GetID(), b:GetID()), info.quality)
 	setBang(b, startsQuest(b:GetParent():GetID(), b:GetID()))
+	setMarks(b, info)
 	if b.cd and C_Container.GetContainerItemCooldown then
 		local start, dur, enable = C_Container.GetContainerItemCooldown(b:GetParent():GetID(), b:GetID())
 		if CooldownFrame_Set then pcall(CooldownFrame_Set, b.cd, start, dur, enable) end
@@ -518,6 +647,8 @@ end
 local function repaint()
 	for i = 1, used do paint(pool[i]) end
 end
+-- The scrap list calls this when its picks change.
+function ns.BagWindowRepaint() if win and win:IsShown() then repaint() end end
 
 ---------------------------------------------------------------------------
 -- The bag row: your four bags, to swap one for a bigger one. Click or drag
@@ -799,7 +930,8 @@ end
 
 local ev = CreateFrame("Frame")
 for _, e in ipairs({ "PLAYER_LOGIN", "BAG_UPDATE_DELAYED", "ITEM_LOCK_CHANGED", "BAG_UPDATE_COOLDOWN",
-	"PLAYER_REGEN_ENABLED", "PLAYER_MONEY", "GET_ITEM_INFO_RECEIVED", "QUEST_LOG_UPDATE", "BAG_CONTAINER_UPDATE" }) do
+	"PLAYER_REGEN_ENABLED", "PLAYER_MONEY", "GET_ITEM_INFO_RECEIVED", "QUEST_LOG_UPDATE", "BAG_CONTAINER_UPDATE",
+	"PLAYER_LEVEL_UP", "SKILL_LINES_CHANGED", "PLAYER_EQUIPMENT_CHANGED", "LEARNED_SPELL_IN_TAB", "NEW_RECIPE_LEARNED" }) do
 	pcall(ev.RegisterEvent, ev, e)
 end
 pcall(ev.RegisterEvent, ev, "PLAYER_ENTERING_WORLD")
@@ -820,6 +952,13 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 	if event == "PLAYER_LOGIN" then install() return end
 	if not win then
 		if event == "PLAYER_REGEN_ENABLED" then install() end
+		return
+	end
+	if event == "PLAYER_LEVEL_UP" or event == "SKILL_LINES_CHANGED" or event == "PLAYER_EQUIPMENT_CHANGED"
+		or event == "LEARNED_SPELL_IN_TAB" or event == "NEW_RECIPE_LEARNED" then
+		-- What you can use, and what's an upgrade, may have changed: read the tooltips again.
+		wipe(scanCache)
+		if win:IsShown() then repaint() end
 		return
 	end
 	if event == "PLAYER_MONEY" then

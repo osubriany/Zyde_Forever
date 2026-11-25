@@ -274,6 +274,33 @@ local function scanBagUpgrades()
 	end
 end
 
+-- One item in your bags: is it an upgrade over what you wear? For the bag
+-- window's green arrow. GearAdvisor's percent when it's loaded, else the
+-- item level gain over the slot (only for gear you can wear now); nil if not.
+function ns.BagItemUpgrade(bag, slot, link)
+	if not link then return nil end
+	local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+	local equipLoc = select(9, safe(getInfo, link))
+	local slots = equipLoc and not isSecret(equipLoc) and EQUIP_SLOTS[equipLoc]
+	if not slots then return nil end
+	local GA = GearAdvisorAPI
+	if GA and GA.Compare then
+		local r = safe(GA.Compare, link)
+		if type(r) == "table" and r.kind == "upgrade" then return r.pct or 1 end
+		return nil
+	end
+	if not wearableNow(bag, slot) then return nil end
+	local getLevel = (C_Item and C_Item.GetDetailedItemLevelInfo) or GetDetailedItemLevelInfo
+	local lvl = safe(getLevel, link)
+	if type(lvl) ~= "number" or isSecret(lvl) then return nil end
+	local best
+	for _, s in ipairs(slots) do
+		local cur = slotItemLevel(s) or 0
+		if lvl > cur then best = math.max(best or 0, lvl - cur) end
+	end
+	return best
+end
+
 local function upgradeLine(u)
 	if u.pct then return ("Upgrade in your bags: %s (%+.0f%%)"):format(u.link, u.pct) end
 	if u.gain then return ("Upgrade in your bags: %s (+%d item levels)"):format(u.link, u.gain) end
