@@ -10,6 +10,9 @@ ns.Shopping = Shop
 
 local ROW_H, W = 22, 250
 local panel, rows = nil, {}
+local getItemInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+local getItemIcon = (C_Item and C_Item.GetItemIconByID) or GetItemIcon
+local getItemCount = (C_Item and C_Item.GetItemCount) or GetItemCount
 
 local function ahFrame()
 	if AuctionHouseFrame and AuctionHouseFrame:IsShown() then return AuctionHouseFrame end
@@ -104,10 +107,11 @@ function Shop.Refresh()
 	panel:SetPoint("TOPLEFT", ah, "TOPRIGHT", 4, 0)
 	for i, w in ipairs(list) do
 		local r = row(i)
-		local have = GetItemCount and GetItemCount(w.id) or 0
-		local _, link, quality = GetItemInfo(w.id)
+		local have = getItemCount and getItemCount(w.id) or 0
+		local _, link, quality
+		if getItemInfo then _, link, quality = getItemInfo(w.id) end
 		r.id, r.link, r.quest = w.id, link, w.quest
-		r.icon:SetTexture((C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(w.id)) or GetItemIcon(w.id) or 134400)
+		r.icon:SetTexture((C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(w.id)) or (getItemIcon and getItemIcon(w.id)) or 134400)
 		local done = have >= w.need
 		local c = done and "|cff59ff8c" or ((quality and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality] and ITEM_QUALITY_COLORS[quality].hex) or "|cffffffff")
 		r.name:SetText(string.format("%s%s|r  |cff999999%d/%d|r", c, w.name, math.min(have, w.need), w.need))
@@ -152,7 +156,7 @@ function Shop.AutoBuy()
 		if w then
 			local _, _, price, perBuy, available = GetMerchantItemInfo(i)
 			perBuy = (perBuy and perBuy > 0) and perBuy or 1
-			local missing = w.need - (GetItemCount(id) or 0)
+			local missing = w.need - ((getItemCount and getItemCount(id)) or 0)
 			if missing > 0 and price and price > 0 then
 				local buys = math.ceil(missing / perBuy)
 				if available and available >= 0 then buys = math.min(buys, available) end
