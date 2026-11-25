@@ -195,6 +195,7 @@ local FEATURES = {
 	{ key = "ammo", class = "HUNTER", short = "count, refill, warning", label = "Hunter ammo", desc = "Arrows or bullets left and how long they last (in the XP readout), a warning when you leave town low, and a Fill quiver button at ammo vendors (hunters)" },
 	{ key = "petCare", class = "HUNTER", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast reminder: off in a group, on when solo (hunters)" },
 	{ key = "markerWheel", short = "marks on the target", label = "Target markers", desc = "Hold the marker key and two rows of four icons show just under your cursor. Top: skull, X, square, moon. Bottom: triangle, diamond, circle, star. The red button removes the mark on your target. The gold ALL button removes every mark. Clicking the icon already on your target removes that mark too. Click a different icon to change it. Letting go hides the icons. World markers stay a separate key: press it to show or hide the squares, drag the title to move them, click a square, then the ground. The last square clears those." },
+	{ key = "radial", short = "your spells in a ring", label = "Radial ring", desc = "Hold the Radial ring key (Keybindings > Zyde Forever) and a ring of your own spells, macros and items opens around the cursor. Move toward one and let go of the key to use it; let go in the middle to cancel. Works in combat. Set up puts things on it (or /zyde ring)" },
 	{ key = "hideBars", short = "cleaner action bars", label = "Hide Blizzard bar art", desc = "Hides the action bar art and the bag bar", reload = true },
 	{ key = "hideMicroMenu", short = "game menu buttons", label = "Hide micro menu", desc = "Hides the row of small game menu buttons (character, spellbook, talents, quest log, social, game menu...). Their keybinds still work", reload = true },
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
@@ -1894,6 +1895,7 @@ local CATEGORIES = {
 			{ "reminders", children = {}, choosers = { "reminderSize" } },
 			{ group = "Action bars", children = { "hideBars", "hideMicroMenu", "barTidy" } },
 			"buttonBag", "gear",
+			{ "radial", children = {}, button = { label = "Set up", click = function() if ns.Radial then ns.Radial.ToggleEditor() end end } },
 		} },
 		{ "Hunter", { "ammo", "petCare" } },
 		{ "Groups", { "lfg", "guildRoster", "markerWheel", "pullLight" } },
@@ -2269,6 +2271,13 @@ local function buildOptions()
 						y = y - ROW * math.max(1, lines)
 					else
 						checkbox(FEATURE_BY_KEY[e[1]], x, y)
+						if e.button then
+							local b = CreateFrame("Button", nil, o, "UIPanelButtonTemplate")
+							b:SetSize(72, 20)
+							b:SetPoint("TOPRIGHT", o, "TOPLEFT", x + COL_W - 24, y - 2)
+							b:SetText(e.button.label)
+							b:SetScript("OnClick", e.button.click)
+						end
 						y = y - ROW
 						y = y - ROW * childLine(e.children, x, y, e[1], x + COL_W - 16)
 						local chooserKeys = e.choosers or (e.chooser and { e.chooser })
@@ -2509,6 +2518,7 @@ ns.ZydeCommands = {
 	{ cmd = "/zyde bossdebug", about = "Target a mob: what the game tells addons about it." },
 	{ cmd = "/zyde mobsdebug", about = "List nearby nameplates and why each is or isn't counted as a quest mob." },
 	{ cmd = "/zyde markdebug", about = "What the game says about your target's raid marker." },
+	{ cmd = "/zyde ring", about = "Set up the radial ring: drag spells, macros and items onto it." },
 	{ cmd = "/zyde wheeldebug", about = "Whether the marker wheel's macro lines ran." },
 	{ cmd = "/zyde microdebug", about = "Where the micro menu buttons are, and what moved them." },
 	{ cmd = "/zyde test", about = "Preview the Battle Shout, Overpower and quest item icons." },
@@ -2681,6 +2691,8 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 				print(("  |cffff6650%s%s|r %s"):format(e.at, e.count > 1 and (" x" .. e.count) or "", e.text))
 			end
 		end
+	elseif msg == "ring" then
+		if ns.Radial then ns.Radial.ToggleEditor() end
 	elseif msg == "wheeldebug" and ns.MarkerWheel then
 		ns.MarkerWheel.ToggleDebug()
 	elseif msg == "rangedebug" then

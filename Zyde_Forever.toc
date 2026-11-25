@@ -29,6 +29,7 @@ PullLight.lua
 PetCare.lua
 Reminders.lua
 MarkerWheel.lua
+Radial.lua
 MapNotes.lua
 MinimapButtons.lua
 Tidy.lua

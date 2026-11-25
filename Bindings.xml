@@ -12,6 +12,9 @@
 	</Binding>
 	<Binding name="CLICK ZydeForeverWorldMarkerKey:LeftButton" category="Zyde Forever">
 	</Binding>
+	<Binding name="CLICK ZydeForeverRadialKey:LeftButton" category="Zyde Forever">
+		-- Hold: the radial ring (Radial.lua). Let go over a slot to use it.
+	</Binding>
 	<Binding name="CLICK ZydeForeverButtonBagKey:LeftButton" category="Zyde Forever">
 	</Binding>
 	<Binding name="CLICK LevelPlannerItemButton:LeftButton" category="Zyde Forever">
