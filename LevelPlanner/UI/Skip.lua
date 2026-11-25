@@ -121,7 +121,26 @@ function S.ShowRowMenu(anchor, targets)
 		rowMenu.head:SetText("Leave out of the plan")
 		rowMenu.rows = {}
 		tinsert(UISpecialFrames, "LevelPlannerSkipMenu") -- Escape closes it
+		-- closes on a click anywhere else, or 3 s after the mouse leaves it
+		rowMenu:SetScript("OnUpdate", function(self, elapsed)
+			if self:IsMouseOver() then self.away = 0 return end
+			if IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton") then
+				self.closedAt = GetTime() -- (that click's release may be on the same step: see below)
+				self:Hide()
+				return
+			end
+			self.away = (self.away or 0) + elapsed
+			if self.away > 3 then self:Hide() end
+		end)
 	end
+	-- right-clicking the same step again closes it (the press already did; the release mustn't reopen it)
+	if rowMenu.anchor == anchor and (rowMenu:IsShown() or GetTime() - (rowMenu.closedAt or -10) < 1) then
+		rowMenu:Hide()
+		rowMenu.closedAt = nil
+		return
+	end
+	rowMenu.anchor = anchor
+	rowMenu.away = 0
 	local W = 260
 	for i, t in ipairs(targets) do
 		local b = rowMenu.rows[i]
@@ -139,7 +158,14 @@ function S.ShowRowMenu(anchor, targets)
 		b:Show()
 	end
 	for i = #targets + 1, #rowMenu.rows do rowMenu.rows[i]:Hide() rowMenu.rows[i].target = nil end
-	rowMenu:SetSize(W, 22 + #targets * ROW_H + 6)
+	if not rowMenu.cancel then
+		rowMenu.cancel = rowButton(rowMenu, W - 8)
+		rowMenu.cancel.text:SetText("|cff999999Cancel|r")
+		rowMenu.cancel:SetScript("OnClick", function() rowMenu:Hide() end)
+	end
+	rowMenu.cancel:ClearAllPoints()
+	rowMenu.cancel:SetPoint("TOPLEFT", 4, -22 - #targets * ROW_H - 2)
+	rowMenu:SetSize(W, 22 + (#targets + 1) * ROW_H + 8)
 	rowMenu:ClearAllPoints()
 	rowMenu:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 20, 2)
 	rowMenu:Show()
