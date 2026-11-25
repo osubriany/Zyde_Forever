@@ -44,7 +44,8 @@ end
 -- The pinned step, added at the top of the plan's steps (call before the plan is shown).
 function Pin.Apply(plan)
 	if not plan or not plan.stops then return end
-	for i = math.min(2, #plan.stops), 1, -1 do
+	-- (anywhere: travel steps from "..." > Travel may sit above it)
+	for i = #plan.stops, 1, -1 do
 		if plan.stops[i].kind == "pin" then table.remove(plan.stops, i) end
 	end
 	local p = current()
@@ -119,6 +120,38 @@ function Pin.ToggleMenu(anchor)
 			b:SetScript("OnClick", function() menu:Hide() Pin.Set(kind) end)
 			y = y - 20
 		end
+		-- Travel > Dungeons / Zones (UI/TravelTo.lua): route to a dungeon entrance or a zone, first
+		local tsep = menu:CreateTexture(nil, "ARTWORK")
+		tsep:SetColorTexture(1, 1, 1, 0.12)
+		tsep:SetHeight(1)
+		tsep:SetPoint("TOPLEFT", 8, y - 3)
+		tsep:SetPoint("TOPRIGHT", -8, y - 3)
+		y = y - 7
+		local tr = CreateFrame("Button", nil, menu)
+		tr:SetSize(150, 20)
+		tr:SetPoint("TOPLEFT", 4, y)
+		tr.hl = tr:CreateTexture(nil, "HIGHLIGHT")
+		tr.hl:SetAllPoints()
+		tr.hl:SetColorTexture(1, 1, 1, 0.1)
+		tr.icon = tr:CreateTexture(nil, "ARTWORK")
+		tr.icon:SetSize(16, 16)
+		tr.icon:SetPoint("LEFT", 4, 0)
+		tr.icon:SetTexture("Interface\\Icons\\INV_Misc_Map02")
+		tr.text = tr:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		tr.text:SetPoint("LEFT", tr.icon, "RIGHT", 6, 0)
+		tr.text:SetText("Travel")
+		tr.arrow = tr:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		tr.arrow:SetPoint("RIGHT", -6, 0)
+		tr.arrow:SetText("<")
+		tr:SetScript("OnClick", function(self) if ns.TravelTo then ns.TravelTo.ToggleSide(self) end end)
+		tr:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+			GameTooltip:AddLine("Travel")
+			GameTooltip:AddLine("Pick a dungeon or a zone: the steps route you there first (hearthstone, flights, boats, passes) until you arrive. Right-click a travel step to stop.", 1, 1, 1, true)
+			GameTooltip:Show()
+		end)
+		tr:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		y = y - 20
 		-- planner setting: elite quests (auto -> on -> off; same as /lp elites)
 		local sep = menu:CreateTexture(nil, "ARTWORK")
 		sep:SetColorTexture(1, 1, 1, 0.12)

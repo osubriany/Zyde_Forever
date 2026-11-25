@@ -379,6 +379,17 @@ function T.Legs(a, b)
 	return legs
 end
 
+-- The graph's nodes in a zone (crossings into it, its flight paths and docks): ways into it for
+-- UI/TravelTo.lua.
+function T.NodesOn(map)
+	local out = {}
+	if not (graph and map) then return out end
+	for _, n in ipairs(graph.nodes) do
+		if n.map == map or (n.maps and n.maps[map]) then out[#out + 1] = n end
+	end
+	return out
+end
+
 -- Is there a flight path you already know within `yards` of this point?
 function T.KnownTaxiNear(p, yards)
 	if not graph or not p then return false end

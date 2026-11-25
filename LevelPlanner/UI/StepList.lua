@@ -153,6 +153,7 @@ local function makeRow(i)
 	r:SetScript("OnDragStop", function() frame:StopMovingOrSizing() savePos() end)
 	r:SetScript("OnMouseUp", function(self, button)
 		if button == "RightButton" and self.kind == "pin" and ns.Pin then ns.Pin.Clear() end
+		if button == "RightButton" and self.travelTo and ns.TravelTo then ns.TravelTo.Clear() end
 	end)
 	rows[i] = r
 	return r
@@ -194,8 +195,8 @@ function L.Init()
 	more:SetScript("OnClick", function(self) if ns.Pin then ns.Pin.ToggleMenu(self) end end)
 	more:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-		GameTooltip:AddLine("Find an NPC")
-		GameTooltip:AddLine("Innkeeper, ammo vendor, class trainer, repair or auctioneer: the nearest goes at the top of the steps. Right-click that step to remove it.", 1, 1, 1, true)
+		GameTooltip:AddLine("Find an NPC, travel, settings")
+		GameTooltip:AddLine("Innkeeper, ammo vendor, class trainer, repair or auctioneer: the nearest goes at the top of the steps. Right-click that step to remove it. Travel: route to any dungeon or zone first.", 1, 1, 1, true)
 		GameTooltip:Show()
 	end)
 	more:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -479,6 +480,11 @@ local function describe(step, plan)
 		detail = "Bag space and repairs"
 	elseif k == "bind" then
 		detail = "Your next hub"
+	elseif k == "goto" then
+		icon = step.destKind == "dungeon" and ICON.dungeon or ICON.border
+		detail = "Travel" .. (step.travelSecs and step.travelSecs > 0
+			and string.format(" · ~%d min", math.max(1, math.floor(step.travelSecs / 60 + 0.5))) or "")
+			.. (step.guessed and " · entrance approximate" or "") .. "  |cff999999· right-click to stop|r"
 	elseif k == "pin" then
 		icon = step.icon or ICON.default
 		detail = (step.pinLabel or "NPC") .. "  |cff999999· right-click to remove|r"
@@ -496,7 +502,7 @@ local function stripeOf(step)
 	local k = step.kind
 	if k == "turnin" then return STRIPE.turnin end
 	if k == "pickup" then return STRIPE.pickup end
-	if k == "travel" or k == "flightpath" then return STRIPE.travel end
+	if k == "travel" or k == "flightpath" or k == "goto" then return STRIPE.travel end
 	if k == "dungeon" or k == "grind" then return STRIPE.kill end
 	if k == "objective" then
 		if step.buy then return STRIPE.collect end
@@ -740,6 +746,7 @@ function L.Update(plan)
 		local dingHere = false
 		if need and not dinged and gained >= need then dinged, dingHere = true, true end
 		r.kind = s.kind
+		r.travelTo = s.travelTo
 		if s.kind == "travel" and s.mode == "hearth" and not hearthFound then hearthFound = r end
 		r.icon:SetTexture(icon)
 		r.title:SetText(titleText)

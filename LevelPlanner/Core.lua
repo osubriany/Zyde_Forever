@@ -538,6 +538,7 @@ end
 
 function ns.OnPlanReady(plan)
 	if ns.Pin then ns.safe(ns.Pin.Apply, plan) end -- (an NPC you asked for with "..." goes first)
+	if ns.TravelTo then ns.safe(ns.TravelTo.Apply, plan) end -- ("..." > Travel: the trip goes before everything)
 	if ns.Shopping then ns.safe(ns.Shopping.Refresh) end -- (the auction house list, if it's open)
 	if zyde.QuestMobsRefresh then ns.safe(zyde.QuestMobsRefresh) end -- (green edge on this step's mobs)
 	rememberOrigin(plan)
@@ -800,6 +801,18 @@ SlashCmdList.LEVELPLANNER = function(msg)
 			ns.print("quests in your log the plan doesn't use (worst first):")
 			for _, c in ipairs(list) do ns.print("  " .. c.name .. " - " .. c.reason) end
 		end
+	elseif msg == "travel" or msg == "travel stop" then
+		if ns.TravelTo.Current() then
+			ns.TravelTo.Clear()
+			ns.print("Travel: stopped.")
+		elseif msg == "travel" then
+			ns.print("/lp travel <dungeon or zone> - route there first; /lp travel stop - stop")
+		end
+	elseif msg:match("^travel ") then
+		local name = raw:gsub("^%S+%s+", "")
+		if not ns.TravelTo.SetByName(name) then
+			ns.print('Travel: no dungeon or zone called "' .. name .. '".')
+		end
 	elseif msg == "learned" then
 		ns.Learn.Print()
 	elseif msg == "forget" then
@@ -817,6 +830,7 @@ SlashCmdList.LEVELPLANNER = function(msg)
 		ns.print("/lp elites on|off|auto - elite quests solo: always, never, or by the usual rule")
 		ns.print("/lp pickup tight|loose - only quests that speed the route up, or quick ones on the way too")
 		ns.print("/lp arrow - show or hide the built-in arrow")
+		ns.print("/lp travel <dungeon or zone> - route there ahead of everything (/lp travel stop to stop)")
 		ns.print("/lp cleanup - quests in your log the plan doesn't use")
 		ns.print("/lp cleanup grey - abandon the grey ones (asks first)")
 		ns.print("/lp auto on|off - automatic accept / turn-in of planned quests")
