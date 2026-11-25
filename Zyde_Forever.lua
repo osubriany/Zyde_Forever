@@ -199,7 +199,7 @@ local FEATURES = {
 	{ key = "hideBars", short = "cleaner action bars", label = "Hide Blizzard bar art", desc = "Hides the action bar art and the bag bar", reload = true },
 	{ key = "hideMicroMenu", short = "game menu buttons", label = "Hide micro menu", desc = "Hides the row of small game menu buttons (character, spellbook, talents, quest log, social, game menu...). Their keybinds still work", reload = true },
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
-	{ key = "infoBar", short = "location, gold, bags", label = "Info bar", desc = "One line you can drag: where you are, gold, bag space, and ammo for a bow, gun, or throwing weapon. Travel opens a second line with steps, yards swum, yards mounted, and jumps. Mining, once learned, opens a count of each ore in your bags and bank. Herbs does the same for Herbalism. Both lines can be open at once. Those travel counts are kept for this character. Ctrl+click a line to paste it into chat" },
+	{ key = "infoBar", short = "location, gold, bags", label = "Info bar", desc = "One line you can drag: where you are, gold, bag space, and ammo for a bow, gun, or throwing weapon. Travel opens a second line with steps (miles in parentheses), yards swum, yards mounted, and jumps. Mining, once learned, opens a count of each ore in your bags and bank. Herbs does the same for Herbalism. Both lines can be open at once. Those travel counts are kept for this character. Ctrl+click a line to paste it into chat" },
 	{ key = "threatBox", short = "tank threat table", label = "Tank threat list", desc = "While you are set to the tank role in a party or raid: a draggable table of mobs you have threat on. Columns are the mob, your threat percent, then the two people closest behind you and their percent. Only mobs with a nameplate, bosses, and your target can be listed. Drag the title to move it" },
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames with buffs and debuffs, mana / rage / energy on party frames. Shift-drag a frame to move it", reload = true },
 	{ key = "targetTarget", short = "small frame by target", label = "Target of target", desc = "A small frame beside the target frame showing who your target is targeting (with the Zyde unit frames on). Shift-drag it to move it" },
@@ -209,7 +209,7 @@ local FEATURES = {
 	{ key = "barTidy", short = "short keys, no empty slots", label = "Tidy action bars", desc = "Short keybind labels on action buttons (a-1 becomes A1, Mouse Button 4 becomes M4) and empty slots hidden - they show again while you drag a spell or item" },
 	{ key = "gear", short = "borders, item levels", label = "Character screen gear", desc = "Rarity borders and item levels; a green arrow when your bags hold an upgrade for a slot (scored by GearAdvisor if loaded), empty slots quiet gray unless your bags can fill them, and your average item level in the header", reload = true },
 	{ key = "fishing", short = "one-key fishing", label = "One Button Fishing", desc = "Same key casts and reels in (set the key in Keybindings)" },
-	{ key = "buttonBag", short = "one button, a key for the rest", label = "Minimap button bag", desc = "Gathers the other addon buttons on the minimap onto one button. Click that button to spread them out. Drag it around the minimap to move it. Hold Buttons at cursor (Options > Keybindings > Zyde Forever) to show the game menu and those buttons in circles around your mouse" },
+	{ key = "buttonBag", short = "one button, a key for the rest", label = "Minimap button bag", desc = "Gathers the other addon buttons on the minimap onto one button. Click that button to spread them out. Drag it around the minimap to move it. Hold Buttons at cursor (Options > Keybindings > Zyde Forever) to open the game menu and those buttons at the mouse. Hold menu, under this option, chooses the dial or a labeled list" },
 	{ key = "mapNotes", short = "alt-click to mark", label = "Map markers", desc = "Your own named markers on the world map, kept between sessions. Alt-click the map to drop one and name it, alt-click a marker to remove it, right-click to rename it" },
 	{ key = "flight", short = "skip flight chat", label = "Flight master shortcut", desc = "Flight masters open the map directly (hold Shift to talk)" },
 	{ key = "tracking", short = "re-enable after death", label = "Keep tracking after death", desc = "Turns Find Minerals, Find Herbs... back on after you die" },
@@ -1896,7 +1896,7 @@ local CATEGORIES = {
 			{ "plates", children = { "comboPoints" } }, "xp",
 			{ "reminders", children = {}, choosers = { "reminderSize" } },
 			{ group = "Action bars", children = { "hideBars", "hideMicroMenu", "barTidy" } },
-			"buttonBag", "gear",
+			{ "buttonBag", children = {}, choosers = { "buttonBagLayout" } }, "gear",
 			{ "radial", children = {}, button = { label = "Set up", click = function() if ns.Radial then ns.Radial.ToggleEditor() end end } },
 		} },
 		{ "Hunter", { "ammo", "petCare" } },
@@ -1975,6 +1975,19 @@ local function buildOptions()
 				return "0"
 			end,
 			set = function(k) ns.SetReminderSize(k) end,
+			changed = function() return false end,
+		},
+		buttonBagLayout = {
+			label = "Hold menu", parent = "buttonBag", width = 110,
+			desc = "What holding Buttons at cursor opens. The dial is circles around the mouse. The list is three bands: tradeskills, the game menu, then the minimap buttons.",
+			options = function()
+				return {
+					{ key = "dial", label = "Dial", desc = "Circles around the cursor. The game menu is inside, the minimap buttons outside, and professions sit along the top." },
+					{ key = "list", label = "List", desc = "Three bands of the same button. Tradeskills on top, then the game menu at five a row, then the minimap buttons. The icon is centered and the name sits along the bottom." },
+				}
+			end,
+			get = function() return ns.ButtonBagLayout and ns.ButtonBagLayout() or "dial" end,
+			set = function(k) if ns.SetButtonBagLayout then ns.SetButtonBagLayout(k) end end,
 			changed = function() return false end,
 		},
 		playerAuras = {

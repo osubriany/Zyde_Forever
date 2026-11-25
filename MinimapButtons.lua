@@ -3,9 +3,12 @@
 --
 -- Click the button on the minimap to spread the gathered buttons out beside
 -- it. Drag the button around the minimap to move it. Hold "Buttons at
--- cursor" (Options > Keybindings > Zyde Forever) and circles appear at the
--- mouse: the game menu inside, the gathered minimap buttons outside, and
--- your learned professions along the top half. Let go and they close.
+-- cursor" (Options > Keybindings > Zyde Forever) to open them at the mouse.
+-- Hold menu, under Minimap button bag, picks the shape: circles, or a
+-- labeled list. The list is three bands of the same size button: tradeskills,
+-- the game menu at five a row, then the minimap buttons. The icon is centered
+-- and the name sits along the bottom.
+-- Let go and it closes.
 --
 -- Addon buttons are taken off the minimap and kept here. The game menu
 -- buttons stay where they are; the panel clicks them, so this still works
@@ -46,6 +49,17 @@ local MENU_TIP = {
 	GuildMicroButton = "Guild & Communities", LFDMicroButton = "Group Finder",
 	CollectionsMicroButton = "Account Collections", StoreMicroButton = "Shop",
 	MainMenuMicroButton = "Game Menu",
+	ZydeForeverDungeonJournal = "Dungeon Journal",
+}
+-- What is painted on the tile. The tooltip keeps the full name above.
+local MENU_SHORT = {
+	CharacterMicroButton = "Character", ProfessionMicroButton = "Professions",
+	SpellbookMicroButton = "Spellbook", TalentMicroButton = "Talents",
+	LegacyMicroButton = "Legacy", QuestLogMicroButton = "Quests",
+	GuildMicroButton = "Guild", LFDMicroButton = "Finder",
+	CollectionsMicroButton = "Collections", StoreMicroButton = "Shop",
+	MainMenuMicroButton = "Menu",
+	ZydeForeverDungeonJournal = "Journal",
 }
 -- The same commands the game's own menu uses, so the tooltip can show that key.
 local MENU_BIND = {
@@ -173,6 +187,8 @@ popup.edges = ns.newEdges(popup, "OVERLAY", 1)
 for _, t in ipairs(popup.edges) do t:Hide() end
 popup.rule = popup:CreateTexture(nil, "ARTWORK")
 popup.rule:Hide()
+popup.rule2 = popup:CreateTexture(nil, "ARTWORK")
+popup.rule2:Hide()
 -- A disc behind the rings. The mask turns the square texture into a circle.
 popup.rim = popup:CreateTexture(nil, "BACKGROUND", nil, -8)
 popup.rim:Hide()
@@ -714,6 +730,11 @@ local function applyIcon(b, real)
 	icon:SetPoint("BOTTOMRIGHT", -4, 4)
 	b.bg:Show()
 	for _, t in ipairs(b.edges) do t:Show() end
+	if b.zydeTexture then
+		icon:SetTexture(b.zydeTexture)
+		icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		return
+	end
 	-- The character button's own art is an empty frame. The face is the portrait.
 	if b.realName == "CharacterMicroButton" then
 		local painted = icon.SetPortraitTexture and pcall(icon.SetPortraitTexture, icon, "player")
@@ -755,7 +776,7 @@ local function applyIcon(b, real)
 			if region.GetObjectType and region:GetObjectType() == "Texture" then
 				local name = region.GetName and region:GetName()
 				local low = type(name) == "string" and name:lower() or ""
-				if not (low:find("highlight", 1, true) or low:find("flash", 1, true)) then add(region) end
+				if not (low:find("highlight", 1, true) or low:find("flash", 1, true) or low:find("glow", 1, true) or low:find("flare", 1, true)) then add(region) end
 			end
 		end
 	end
@@ -776,7 +797,8 @@ local function applyIcon(b, real)
 	b.bg:Show()
 	for _, t in ipairs(b.edges) do t:Show() end
 	if atlas and icon.SetAtlas then
-		icon:SetAtlas(atlas)
+		-- useAtlasSize would keep a glow atlas at its own huge size.
+		icon:SetAtlas(atlas, false)
 	elseif path then
 		icon:SetTexture(path)
 		icon:SetTexCoord(0, 1, 0, 1)
@@ -813,6 +835,13 @@ local function proxyFor(name)
 	b.icon:SetPoint("TOPLEFT", 4, -4)
 	b.icon:SetPoint("BOTTOMRIGHT", -4, 4)
 	b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	b.label = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	b.label:SetPoint("LEFT", b.icon, "RIGHT", 6, 0)
+	b.label:SetPoint("RIGHT", -4, 0)
+	b.label:SetJustifyH("LEFT")
+	b.label:SetWordWrap(false)
+	b.label:SetTextColor(1, 0.95, 0.86)
+	b.label:Hide()
 	b:SetScript("OnEnter", function(self)
 		edgeColor(self.edges, 1, 0.92, 0.45, 1)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -891,11 +920,78 @@ local function proxyFor(name)
 	return b
 end
 
+-- Forever Dungeon Journal's own launcher icon, when that addon is loaded.
+local function journalIcon()
+	local fdj = _G.ForeverDungeonJournal_NS
+	local fromBroker = fdj and fdj._minimapDataObject and fdj._minimapDataObject.icon
+	if type(fromBroker) == "string" and fromBroker ~= "" then return fromBroker end
+	local btn = _G.LibDBIcon10_ForeverDungeonJournal
+	local tex = btn and btn.icon and btn.icon.GetTexture and btn.icon:GetTexture()
+	if tex and tex ~= 0 and tex ~= "" and not ns.isSecret(tex) then return tex end
+	return "Interface\\Icons\\INV_Misc_Book_09"
+end
+
+local journalBtn
+local function journalButton()
+	if not (ns.addonOn and ns.addonOn("ForeverDungeonJournal")) then
+		if journalBtn then journalBtn:Hide() end
+		return nil
+	end
+	if not journalBtn then
+		local b = CreateFrame("Button", nil, popup)
+		b:SetSize(CELL - 4, CELL - 4)
+		b:RegisterForClicks("AnyUp")
+		b:EnableMouse(true)
+		b.realName = "ZydeForeverDungeonJournal"
+		b.tip = MENU_TIP[b.realName]
+		b.bg = b:CreateTexture(nil, "BACKGROUND")
+		b.bg:SetAllPoints()
+		b.bg:SetColorTexture(0, 0, 0, 0.92)
+		b.edges = ns.newEdges(b, "OVERLAY", 2)
+		edgeColor(b.edges, 0.85, 0.68, 0.22, 1)
+		b.icon = b:CreateTexture(nil, "ARTWORK")
+		b.icon:SetPoint("TOPLEFT", 4, -4)
+		b.icon:SetPoint("BOTTOMRIGHT", -4, 4)
+		b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		b.label = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		b.label:SetPoint("LEFT", b.icon, "RIGHT", 6, 0)
+		b.label:SetPoint("RIGHT", -4, 0)
+		b.label:SetJustifyH("LEFT")
+		b.label:SetWordWrap(false)
+		b.label:SetTextColor(1, 0.95, 0.86)
+		b.label:Hide()
+		b:SetScript("OnEnter", function(self)
+			edgeColor(self.edges, 1, 0.92, 0.45, 1)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:AddLine(self.tip, GOLD[1], GOLD[2], GOLD[3])
+			GameTooltip:Show()
+		end)
+		b:SetScript("OnLeave", function(self)
+			edgeColor(self.edges, 0.85, 0.68, 0.22, 1)
+			GameTooltip:Hide()
+		end)
+		b:SetScript("OnClick", function()
+			local fdj = _G.ForeverDungeonJournal_NS
+			if fdj and fdj.ToggleJournal then pcall(fdj.ToggleJournal) end
+			if popup:IsShown() then popup:Hide() end
+		end)
+		b:Hide()
+		journalBtn = b
+	end
+	journalBtn.zydeTexture = journalIcon()
+	return journalBtn
+end
+
 local function menuButtons()
 	-- Character, Professions, Spellbook, Talents, Legacy, Quest Log, Guild,
-	-- Group Finder, Account Collections, Shop, Game Menu. In that order.
+	-- Group Finder, Account Collections, Shop, Dungeon Journal (when that
+	-- addon is loaded), Game Menu. In that order.
 	local items = {}
 	for _, name in ipairs(MENU_ORDER) do
+		if name == "MainMenuMicroButton" then
+			local journal = journalButton()
+			if journal then items[#items + 1] = journal end
+		end
 		local b = proxyFor(name)
 		if b then items[#items + 1] = b end
 	end
@@ -904,10 +1000,11 @@ end
 
 local function hideProxies()
 	for _, b in pairs(proxies) do b:Hide() end
+	if journalBtn then journalBtn:Hide() end
 end
 
 -- x to the right of the popup's center, y up.
-local function placeCenter(frame, x, y)
+local function placeCenter(frame, x, y, anchor, scale)
 	local saved = frame.zydeSaved
 	lock(frame)
 	laying = true
@@ -915,9 +1012,18 @@ local function placeCenter(frame, x, y)
 	if frame.SetFixedFrameLevel then frame:SetFixedFrameLevel(false) end
 	if frame.SetClampedToScreen then frame:SetClampedToScreen(false) end
 	frame:SetParent(popup)
-	frame:SetScale(saved and saved.scale or 1)
+	frame:SetScale(scale or (saved and saved.scale or 1))
 	frame:ClearAllPoints()
-	frame:SetPoint("CENTER", popup, "CENTER", x, y)
+	-- A scaled button measures its offset in its own pixels, so a 0.7 scale
+	-- would land the row up inside the two columns. Divide to keep x and y
+	-- in the panel's pixels.
+	local s = frame:GetScale()
+	if not s or s == 0 then s = 1 end
+	if anchor == "TOPLEFT" then
+		frame:SetPoint("TOPLEFT", popup, "TOPLEFT", x / s, -y / s)
+	else
+		frame:SetPoint("CENTER", popup, "CENTER", x, y)
+	end
 	frame:SetFrameStrata(popup:GetFrameStrata() or "DIALOG")
 	frame:SetFrameLevel((popup:GetFrameLevel() or 1) + 8)
 	holdOpen(frame)
@@ -1045,6 +1151,13 @@ local function profButton(i)
 	b.level:SetPoint("TOP", b, "BOTTOM", 0, -2)
 	b.level:SetTextColor(1, 0.95, 0.75)
 	b.level:Hide()
+	b.label = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	b.label:SetPoint("LEFT", 28, 0)
+	b.label:SetPoint("RIGHT", -4, 0)
+	b.label:SetJustifyH("LEFT")
+	b.label:SetWordWrap(false)
+	b.label:SetTextColor(1, 0.95, 0.86)
+	b.label:Hide()
 	b:SetScript("OnEnter", function(self)
 		edgeColor(self.edges, 1, 0.92, 0.45, 1)
 		local info = self.info
@@ -1130,14 +1243,129 @@ local function learnedProfessions()
 	return out
 end
 
-layoutPopup = function()
-	local menu = menuButtons()
-	local list = sorted()
-	local profs = learnedProfessions()
-	hideProxies()
-	hideProfButtons()
-	popup.rule:Hide()
+-- First Aid, Cooking, Fishing, then the two primary tradeskills, then anything
+-- else that was learned (archaeology, gathering). The dial keeps the old order.
+local function orderedProfessions()
+	local raw = learnedProfessions()
+	local gathering = { Herbalism = true, Mining = true, Skinning = true, Archaeology = true }
+	local byName = {}
+	for _, info in ipairs(raw) do byName[info.name] = info end
+	local out = {}
+	local function take(name)
+		local info = byName[name]
+		if not info then return end
+		out[#out + 1] = info
+		byName[name] = nil
+	end
+	take("First Aid")
+	take("Cooking")
+	take("Fishing")
+	for _, info in ipairs(raw) do
+		if byName[info.name] and not gathering[info.name] then take(info.name) end
+	end
+	for _, info in ipairs(raw) do
+		if byName[info.name] then take(info.name) end
+	end
+	return out
+end
 
+local function bagLayout()
+	local v = ZydeForeverDB and ZydeForeverDB.buttonBagLayout
+	if v == "list" then return "list" end
+	return "dial"
+end
+
+local listHeaders = {}
+local function hideHeaders()
+	for _, fs in ipairs(listHeaders) do fs:Hide() end
+end
+
+local function listHeader(i, text, x, y)
+	local fs = listHeaders[i]
+	if not fs then
+		fs = popup:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		fs:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+		listHeaders[i] = fs
+	end
+	fs:ClearAllPoints()
+	fs:SetPoint("TOPLEFT", popup, "TOPLEFT", x, -y)
+	fs:SetText(text)
+	fs:Show()
+end
+
+-- The dial keeps these squares. The list uses one smaller size for every
+-- tile: 110% of the old profession icon, centered, with the name along the
+-- bottom.
+local TILE_W, TILE_H, TILE_ICON, TILE_GAP = 116, 82, 40, 8
+local LIST_ICON = math.floor(TILE_ICON * 0.6 * 1.1 + 0.5)
+local LIST_W = math.floor(TILE_W * 0.6 * 1.1 + 0.5)
+local LIST_LABEL = 14
+local LIST_H = LIST_ICON + LIST_LABEL + 14
+
+local function dressRow(b, listed, text)
+	if b.label then
+		b.label:ClearAllPoints()
+		if listed then
+			if b.label.SetMaxLines then b.label:SetMaxLines(1) end
+			b.label:SetFontObject("GameFontHighlightSmall")
+			b.label:SetText(text or "")
+			b.label:SetJustifyH("CENTER")
+			b.label:SetJustifyV("MIDDLE")
+			b.label:SetWordWrap(false)
+			local font, _, flags = b.label:GetFont()
+			if type(font) == "string" then
+				local size = 10
+				b.label:SetFont(font, size, flags)
+				while size > 8 and (b.label:GetStringWidth() or 0) > (LIST_W - 8) do
+					size = size - 1
+					b.label:SetFont(font, size, flags)
+				end
+			end
+			b.label:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 3, 4)
+			b.label:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -3, 4)
+			b.label:Show()
+		else
+			b.label:Hide()
+			b.label:SetWordWrap(false)
+			b.label:SetJustifyH("LEFT")
+		end
+	end
+	if listed then
+		b:SetSize(LIST_W, LIST_H)
+		if b.SetClipsChildren then b:SetClipsChildren(true) end
+		b.icon:ClearAllPoints()
+		b.icon:SetSize(LIST_ICON, LIST_ICON)
+		-- Centered in the space above the name, so a long label cannot sit on the icon.
+		local above = LIST_H - LIST_LABEL
+		b.icon:SetPoint("CENTER", b, "TOP", 0, -(above / 2))
+		if b.level then b.level:Hide() end
+	else
+		b:SetSize(CELL - 4, CELL - 4)
+		b.icon:ClearAllPoints()
+		b.icon:SetPoint("TOPLEFT", 4, -4)
+		b.icon:SetPoint("BOTTOMRIGHT", -4, 4)
+	end
+	ns.placeEdges(b.edges, b, 0, 2)
+end
+
+local function anchorPopup(point)
+	local scale = UIParent:GetEffectiveScale()
+	if not scale or scale == 0 then scale = 1 end
+	local x, py = popup.cx, popup.cy
+	if not x then
+		local cx, cy = GetCursorPosition()
+		x, py = cx / scale, cy / scale
+	end
+	popup:ClearAllPoints()
+	if point == "TOPLEFT" then
+		popup:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x + 14, py - 14)
+	else
+		popup:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, py)
+	end
+end
+
+local function layoutDial(menu, list, profs)
+	for _, t in ipairs(popup.edges) do t:Hide() end
 	local innerR = #menu > 0 and ringRadius(#menu, 36, 8) or 0
 	local outerR = #list > 0 and ringRadius(#list, 36, 6) or 0
 	if #menu > 0 and #list > 0 and outerR < innerR + 52 then outerR = innerR + 52 end
@@ -1158,11 +1386,11 @@ layoutPopup = function()
 
 	for i, b in ipairs(menu) do
 		local x, y = ringSpot(i, #menu, innerR)
+		applyIcon(b, _G[b.realName])
+		dressRow(b, false)
 		b:ClearAllPoints()
 		b:SetPoint("CENTER", popup, "CENTER", x, y)
 		b:SetFrameLevel((popup:GetFrameLevel() or 1) + 12)
-		applyIcon(b, _G[b.realName])
-		ns.placeEdges(b.edges, b, 0, 2)
 		b:Show()
 	end
 	for i, frame in ipairs(list) do
@@ -1174,6 +1402,7 @@ layoutPopup = function()
 		local x, y = topSpot(i, #profs, profR)
 		b.info = info
 		paintProf(b, info)
+		dressRow(b, false)
 		b:ClearAllPoints()
 		b:SetPoint("CENTER", popup, "CENTER", x, y)
 		b:SetFrameLevel((popup:GetFrameLevel() or 1) + 20)
@@ -1182,16 +1411,174 @@ layoutPopup = function()
 		if b.SetMouseClickEnabled then b:SetMouseClickEnabled(true) end
 		b:Show()
 	end
+	anchorPopup("CENTER")
+end
 
-	local scale = UIParent:GetEffectiveScale()
-	if not scale or scale == 0 then scale = 1 end
-	local x, py = popup.cx, popup.cy
-	if not x then
-		local cx, cy = GetCursorPosition()
-		x, py = cx / scale, cy / scale
+-- Three bands of the same button. Tradeskills on the first row, the game
+-- menu at five a row, then the minimap buttons. A line sits between bands.
+local function layoutList(menu, buttons, profs)
+	local PAD, HEAD = 10, 20
+	local COLS = 5
+
+	local function blockH(n)
+		if n <= 0 then return 0 end
+		return HEAD + math.ceil(n / COLS) * (LIST_H + TILE_GAP) - TILE_GAP
 	end
-	popup:ClearAllPoints()
-	popup:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, py)
+	local function rowSpan(n)
+		if n <= 0 then return 0 end
+		local c = math.min(COLS, n)
+		return c * LIST_W + (c - 1) * TILE_GAP
+	end
+
+	local profH = blockH(#profs)
+	local menuH = blockH(#menu)
+	local width = PAD * 2 + math.max(rowSpan(#profs), rowSpan(#menu), 160)
+
+	-- 0.7 was the old condensed size. A quarter more, in the panel's own pixels.
+	local MINI = 0.7 * 1.25
+	local miniSlot = 36
+	for _, frame in ipairs(buttons) do
+		local w = frame.GetWidth and frame:GetWidth()
+		if type(w) ~= "number" or w < 8 or w > 80 then w = 31 end
+		miniSlot = math.max(miniSlot, math.ceil(w * MINI) + 8)
+	end
+	local miniCols, miniRows = #buttons, (#buttons > 0 and 1 or 0)
+	if #buttons > 0 then
+		local fit = math.max(1, math.floor((width - PAD * 2) / miniSlot))
+		if #buttons > fit then
+			miniRows = 2
+			miniCols = math.ceil(#buttons / 2)
+		end
+	end
+	local rowW = miniCols * miniSlot + PAD * 2
+	if rowW > width then width = rowW end
+	local btnBlock = miniRows > 0 and (HEAD + 4 + miniRows * miniSlot) or 0
+
+	local y = PAD
+	local profY, menuY, miniY
+	local rules, seen = {}, false
+	local function split()
+		y = y + 8
+		rules[#rules + 1] = y
+		y = y + 10
+	end
+	if #profs > 0 then
+		profY = y
+		y = y + profH
+		seen = true
+	end
+	if #menu > 0 then
+		if seen then split() end
+		menuY = y
+		y = y + menuH
+		seen = true
+	end
+	if #buttons > 0 then
+		if seen then split() end
+		miniY = y
+		y = y + btnBlock
+	end
+	local height = y + PAD
+	if height < 48 then height = 48 end
+	popup:SetSize(width, height)
+
+	popup.disc:Hide()
+	popup.rim:Hide()
+	popup.bg:SetColorTexture(0.06, 0.05, 0.08, 0.96)
+	popup.bg:Show()
+	for _, t in ipairs(popup.edges) do t:Show() end
+	edgeColor(popup.edges, PURPLE[1], PURPLE[2], PURPLE[3], 0.95)
+	ns.placeEdges(popup.edges, popup, 0, 1)
+
+	local hi = 0
+	local function head(text, x, y)
+		hi = hi + 1
+		listHeader(hi, text, x, y)
+	end
+
+	local function putTile(b, originY, i, total, level)
+		local col = (i - 1) % COLS
+		local row = math.floor((i - 1) / COLS)
+		local inRow = math.min(COLS, total - row * COLS)
+		local rowW = inRow * LIST_W + (inRow - 1) * TILE_GAP
+		local contentW = width - PAD * 2
+		local originX = PAD + math.floor((contentW - rowW) / 2)
+		b:ClearAllPoints()
+		b:SetPoint("TOPLEFT", popup, "TOPLEFT", originX + col * (LIST_W + TILE_GAP), -(originY + HEAD + row * (LIST_H + TILE_GAP)))
+		b:SetFrameLevel((popup:GetFrameLevel() or 1) + level)
+		b:SetAlpha(1)
+		if b.EnableMouse then b:EnableMouse(true) end
+		if b.SetMouseClickEnabled then b:SetMouseClickEnabled(true) end
+		b:Show()
+	end
+	if profY then
+		head("Tradeskills", PAD, profY)
+		for i, info in ipairs(profs) do
+			local b = profButton(i)
+			b.info = info
+			paintProf(b, info)
+			dressRow(b, true, info.name)
+			putTile(b, profY, i, #profs, 20)
+		end
+	end
+	if menuY then
+		head("Menu", PAD, menuY)
+		for i, b in ipairs(menu) do
+			applyIcon(b, _G[b.realName])
+			dressRow(b, true, MENU_SHORT[b.realName] or b.tip)
+			putTile(b, menuY, i, #menu, 12)
+		end
+	end
+	popup.rule:Hide()
+	popup.rule2:Hide()
+	local ruleTex = { popup.rule, popup.rule2 }
+	local span = math.max(8, width - PAD * 2)
+	for i, ry in ipairs(rules) do
+		local tex = ruleTex[i]
+		if tex then
+			tex:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.55)
+			tex:ClearAllPoints()
+			tex:SetPoint("TOPLEFT", popup, "TOPLEFT", PAD, -ry)
+			tex:SetSize(span, 2)
+			tex:Show()
+		end
+	end
+	if miniY then
+		head("Minimap buttons", PAD, miniY)
+		local gridY = miniY + HEAD + 2
+		local contentW = width - PAD * 2
+		for i, frame in ipairs(buttons) do
+			local col = (i - 1) % miniCols
+			local row = math.floor((i - 1) / miniCols)
+			local inRow = math.min(miniCols, #buttons - row * miniCols)
+			local originX = PAD + math.floor((contentW - inRow * miniSlot) / 2)
+			placeCenter(frame, originX + col * miniSlot, gridY + row * miniSlot, "TOPLEFT", MINI)
+		end
+	end
+	anchorPopup("CENTER")
+end
+
+layoutPopup = function()
+	local menu = menuButtons()
+	local list = sorted()
+	local listed = bagLayout() == "list"
+	local profs = listed and orderedProfessions() or learnedProfessions()
+	hideProxies()
+	hideProfButtons()
+	hideHeaders()
+	popup.rule:Hide()
+	popup.rule2:Hide()
+	if listed then layoutList(menu, list, profs) else layoutDial(menu, list, profs) end
+end
+
+function ns.ButtonBagLayout()
+	return bagLayout()
+end
+
+function ns.SetButtonBagLayout(key)
+	ZydeForeverDB = ZydeForeverDB or {}
+	ZydeForeverDB.buttonBagLayout = key == "list" and "list" or "dial"
+	if popup:IsShown() then layoutPopup() end
 end
 
 local function showPopup()
@@ -1211,6 +1598,8 @@ end
 popup:SetScript("OnHide", function()
 	catcher:Hide()
 	popup.rule:Hide()
+	popup.rule2:Hide()
+	hideHeaders()
 	hideProxies()
 	hideProfButtons()
 	if not on() then return end
@@ -1284,7 +1673,7 @@ toggle:SetScript("OnEnter", function(self)
 	else
 		GameTooltip:AddLine(n .. " gathered.", 0.8, 0.8, 0.8, true)
 	end
-	GameTooltip:AddLine("Hold Buttons at cursor, in Keybindings, to show the game menu and these in circles around your mouse.", 0.75, 0.75, 0.75, true)
+	GameTooltip:AddLine("Hold Buttons at cursor, in Keybindings, to open the game menu and these at the mouse. The shape is Hold menu, under Minimap button bag.", 0.75, 0.75, 0.75, true)
 	GameTooltip:Show()
 end)
 toggle:SetScript("OnLeave", function() GameTooltip:Hide() end)

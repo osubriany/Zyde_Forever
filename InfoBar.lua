@@ -524,12 +524,18 @@ end
 -- name is sometimes blank on this client, which used to start a second
 -- counter ("Name-" beside "Name-Realm") and look like a reset. One row per
 -- character name, and any older split rows are added in the first time.
--- A step is about 2 yards walked. Swum yards are horizontal distance while
+-- A step is 2 yards walked. The step count also shows that distance in miles
+-- (1,760 yards). Swum yards are horizontal distance while
 -- swimming. Mounted yards are the distance you ride (ground or flying mount).
 -- Taxi flights are not riding. A jump is leaving the ground. Presses while you
 -- are already in the air do not count.
 ---------------------------------------------------------------------------
 local STEP_YARDS = 2
+local YARDS_PER_MILE = 1760
+
+local function milesText(yards)
+	return string.format("%.1f mi", (tonumber(yards) or 0) / YARDS_PER_MILE)
+end
 
 local function blankTally()
 	return { steps = 0, jumps = 0, partial = 0, mounted = 0, swum = 0 }
@@ -760,7 +766,7 @@ local function update(full)
 	-- the travel counts only while their line is open
 	if expanded() then
 		local t = tally()
-		if show(steps, "Steps: " .. commas(t.steps)) then changed = true end
+		if show(steps, "Steps: " .. commas(t.steps) .. " (" .. milesText(t.steps * STEP_YARDS) .. ")") then changed = true end
 		if show(swum, "Swum: " .. commas(math.floor(t.swum)) .. " yd") then changed = true end
 		if show(ridden, "Mounted: " .. commas(math.floor(t.mounted)) .. " yd") then changed = true end
 		if show(jumps, "Jumps: " .. commas(t.jumps)) then changed = true end
@@ -872,8 +878,9 @@ end
 local function travelReport()
 	local t = tally()
 	if not t then return nil end
-	return ("Steps: %s. Swum: %s yd. Mounted: %s yd. Jumps: %s."):format(
+	return ("Steps: %s (%s). Swum: %s yd. Mounted: %s yd. Jumps: %s."):format(
 		commas(math.floor(t.steps)),
+		milesText(t.steps * STEP_YARDS),
 		commas(math.floor(t.swum)),
 		commas(math.floor(t.mounted)),
 		commas(math.floor(t.jumps))
