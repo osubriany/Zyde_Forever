@@ -199,7 +199,16 @@ local function paint(b)
 		return
 	end
 	SetItemButtonTexture(b, info.iconFileID)
-	SetItemButtonCount(b, info.stackCount or 1)
+	-- A merged tile counts every stack of the item, read fresh (stacks change in a fight too).
+	local total = info.stackCount or 1
+	if b.slots and #b.slots > 1 then
+		total = 0
+		for _, s in ipairs(b.slots) do
+			local other = C_Container.GetContainerItemInfo(s.bag, s.slot)
+			if other and other.itemID == info.itemID then total = total + (other.stackCount or 1) end
+		end
+	end
+	SetItemButtonCount(b, total)
 	SetItemButtonDesaturated(b, info.isLocked)
 	if SetItemButtonQuality then pcall(SetItemButtonQuality, b, info.quality, info.hyperlink) end
 	setNew(b, isNewItem(b:GetParent():GetID(), b:GetID()), info.quality)
@@ -210,7 +219,13 @@ local function paint(b)
 	local text = win.search and win.search:GetText() or ""
 	local lit = text == "" or nameOf(info):lower():find(text:lower(), 1, true) ~= nil
 	-- Hovering a bag in the bag row lights up only what's in that bag.
-	if win.hoverBag and win.hoverBag ~= b:GetParent():GetID() then lit = false end
+	if win.hoverBag then
+		local inBag = false
+		for _, s in ipairs(b.slots or { { bag = b:GetParent():GetID() } }) do
+			if s.bag == win.hoverBag then inBag = true break end
+		end
+		if not inBag then lit = false end
+	end
 	b:SetAlpha(lit and 1 or 0.25)
 end
 
@@ -280,6 +295,38 @@ local function head(i)
 	return h
 end
 
+-- Stacks of the same item become one tile showing the total (14 stacks of
+-- bullets: one tile of 2770). The tile is the smallest stack's slot, so
+-- using or dragging it takes from the stack that's nearly gone first.
+-- Things that don't stack (gear) stay one tile each.
+local maxStack = (C_Item and C_Item.GetItemMaxStackSizeByID) or nil
+local function stacks(info)
+	local n = maxStack and ns.safe(maxStack, info.itemID)
+	if type(n) == "number" and not ns.isSecret(n) then return n > 1 end
+	return (info.stackCount or 1) > 1
+end
+
+local function merge(list)
+	local out, byID = {}, {}
+	for _, e in ipairs(list) do
+		local id = e.info and e.info.itemID
+		local first = id and stacks(e.info) and byID[id]
+		if first then
+			first.slots[#first.slots + 1] = { bag = e.bag, slot = e.slot }
+			local n = e.info.stackCount or 1
+			if n < first.smallest then
+				first.smallest, first.bag, first.slot, first.info = n, e.bag, e.slot, e.info
+			end
+		else
+			e.slots = { { bag = e.bag, slot = e.slot } }
+			e.smallest = e.info and e.info.stackCount or 1
+			if id and stacks(e.info) then byID[id] = e end
+			out[#out + 1] = e
+		end
+	end
+	return out
+end
+
 -- Every filled slot, sorted into section -> group -> list; plus the empty tiles.
 local function gather()
 	local out = {}
@@ -345,6 +392,7 @@ local function gather()
 					if a.bag ~= b.bag then return a.bag < b.bag end
 					return a.slot < b.slot
 				end)
+				groups[g] = merge(list)
 			end
 		end
 	end
@@ -417,6 +465,7 @@ local function layout()
 						b:SetID(e.slot)
 						b.empty = e.empty
 						b.emptyTex, b.emptyCount = e.tex, e.count
+					b.slots = e.slots
 						b.perma = not e.empty and ns.IsPerma(e.info and e.info.itemID)
 						local col, row = (i - 1) % cols, math.floor((i - 1) / cols)
 						b:ClearAllPoints()
