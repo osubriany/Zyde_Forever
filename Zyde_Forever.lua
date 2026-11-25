@@ -221,7 +221,7 @@ local FEATURES = {
 	{ key = "nodeGlow", short = "herbs, ore, chests", label = "Herb, ore and chest glow", desc = "A colored glow and icon on herbs (green) and ore (copper) you can gather with your professions, and on chests (gold), within 30 yards. Brighter on the one you face" },
 	{ key = "guildRoster", short = "class colors, levels, zones", label = "Guild member list", desc = "In the Guild & Communities window: online members' names in class colors, each member's level at the right (colored by how near your level), and their zone when you hover them" },
 	{ key = "lfg", short = "groups that fit you", label = "Group finder helper", desc = "Beside Looking For Group: groups with room for your role first, one-click whisper to the leader" },
-	{ key = "bagWindow", short = "one bag, sorted for you", label = "One bag window", desc = "All your bags in one window, sorted into sections by itself: Perma (never delete: Hearthstone, Philosopher's Stone, profession tools), Quest, Junk, gear, food and potions, profession goods, and your empty slots. Items work as in the normal bags (right-click to use or sell, drag, shift-click to link). Alt-click an item to put it in Perma or take it out. Click a heading to fold it. Off while Baganator is loaded", conflict = "Baganator", reload = true },
+	{ key = "bagWindow", short = "one bag, sorted for you", label = "One bag window", desc = "All your bags in one window, sorted into sections by itself: Perma (never delete: Hearthstone, Philosopher's Stone, profession tools), Quest, Junk, Keys (your keyring), gear, food and potions, profession goods, and your empty slots. Items work as in the normal bags (right-click to use or sell, drag, shift-click to link). Alt-click an item to put it in Perma or take it out. Click a heading to fold it. The Bank button, or /zyde bank, opens your bank from the last visit and leaves your bags open. At a banker that is the real bank. Off while Baganator is loaded", conflict = "Baganator", reload = true },
 	{ key = "sellJunk", short = "grays sold for you", label = "Sell junk at vendors", desc = "When you talk to a vendor, every gray item that's worth something is sold for you (never Perma items), and chat says how much you got. The last 12 can be bought back from the vendor" },
 	{ key = "scrap", short ="what to delete", label = "Scrap list (bags full)", desc = "The 3 cheapest items to throw away when your bags are full" },
 	{ key = "vendor", short = "sell or auction tips", label = "Vendor / auction advice", desc = "Vendor it / Auction it / Keep in tooltips, merchant and AH panels", needs = "AHledger" },
@@ -2614,6 +2614,7 @@ ns.ZydeCommands = {
 	{ cmd = "/zyde test", about = "Preview the Battle Shout, Overpower and quest item icons." },
 	{ cmd = "/zyde questalert", about = "Turn the quest item nearby alert on or off." },
 	{ cmd = "/zyde questicons", about = "Turn the icons over nearby objects on or off." },
+	{ cmd = "/zyde bank", about = "Open the bank from your last visit. At a banker this opens the real bank. Your bags stay open." },
 	{ cmd = "/zyde scrap", about = "Turn the full-bags scrap list on or off." },
 	{ cmd = "/zyde scraptest", about = "Preview the scrap list now, even with bags not full." },
 	{ cmd = "/zyde scrapreset", about = "Let items you chose to keep be suggested again." },
@@ -2756,6 +2757,8 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 			print(p .. "object pickup range set to " .. tostring(now) .. " yards"
 				.. ((now and now < yards) and (" (the game caps it at " .. now .. ")") or ""))
 		end
+	elseif msg == "bank" then
+		if ns.OpenBankWindow then ns.OpenBankWindow() end
 	elseif msg == "scrap" and ns.Scrap then
 		ns.Scrap.Toggle()
 	elseif msg == "scraptest" and ns.Scrap then
