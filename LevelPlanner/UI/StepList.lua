@@ -396,6 +396,8 @@ local function groupSteps(plan)
 				grey = q and q.grey,
 				classQuest = q and q.classQuest,
 				dropFrom = s.dropFrom, mobs = s.mobs,
+				-- "..." > Travel steps (UI/TravelTo.lua): right-click stops the trip
+				travelTo = s.travelTo, destKind = s.destKind, travelSecs = s.travelSecs, guessed = s.guessed,
 			}
 		end
 	end

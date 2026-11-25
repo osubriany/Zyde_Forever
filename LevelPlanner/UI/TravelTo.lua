@@ -1,4 +1,4 @@
--- TravelTo: the step list's "..." > Travel menu. Pick a dungeon or a zone and LevelPlanner routes you
+-- TravelTo: the step list's "..." > Travel menu. Pick a dungeon, a city or a zone and LevelPlanner routes you
 -- there (hearthstone, flights, boats, zeppelins, passes) ahead of every other step, until you arrive
 -- or right-click a travel step. Kept per character, so it survives a /reload.
 --
@@ -100,10 +100,39 @@ function TT.Dungeons()
 	return out
 end
 
--- { name, map, cont } sorted by name: every zone and city on the two continents.
+-- The capital cities (uiMapIDs), listed under Cities rather than Zones.
+local CITIES = {
+	{ map = 1454, cont = "Kalimdor" },    -- Orgrimmar
+	{ map = 1456, cont = "Kalimdor" },    -- Thunder Bluff
+	{ map = 1457, cont = "Kalimdor" },    -- Darnassus
+	{ map = 1453, cont = "E. Kingdoms" }, -- Stormwind City
+	{ map = 1455, cont = "E. Kingdoms" }, -- Ironforge
+	{ map = 1458, cont = "E. Kingdoms" }, -- Undercity
+}
+local isCity = {}
+for _, c in ipairs(CITIES) do isCity[c.map] = true end
+local cityList
+
+-- { name, map, cont, city = true } sorted by name.
+function TT.Cities()
+	if cityList then return cityList end
+	local out = {}
+	for _, c in ipairs(CITIES) do
+		local info = C_Map.GetMapInfo(c.map)
+		if info and info.name and ns.Geo.PointOnMap(c.map, 50, 50) then
+			out[#out + 1] = { name = info.name, map = c.map, cont = c.cont, city = true }
+		end
+	end
+	table.sort(out, function(a, b) return key(a.name) < key(b.name) end)
+	cityList = out
+	return out
+end
+
+-- { name, map, cont } sorted by name: every zone on the two continents (not the cities).
 function TT.Zones()
 	if zoneList then return zoneList end
 	local out, seen = {}, {}
+	for m in pairs(isCity) do seen[m] = true end
 	local zoneType = Enum and Enum.UIMapType and Enum.UIMapType.Zone or 3
 	for _, c in ipairs(CONTINENTS) do
 		local kids = C_Map.GetMapChildrenInfo and ns.safe(C_Map.GetMapChildrenInfo, c.map, zoneType, false) or {}
@@ -145,6 +174,7 @@ end
 local function zoneMiddle(map)
 	local p = ns.Geo.PointOnMap(map, 50, 50)
 	if not p then return nil end
+	if isCity[map] then return p end -- (a city reads as its zone on the continent map)
 	for _, c in ipairs(CONTINENTS) do
 		local x, y = ns.Geo.ZoneCoords(p, c.map)
 		if x then
@@ -241,11 +271,21 @@ function TT.Apply(plan)
 	for i = #plan.stops, 1, -1 do
 		if plan.stops[i].travelTo then table.remove(plan.stops, i) end
 	end
+	local at = (plan.stops[1] and plan.stops[1].mode == "corpse") and 2 or 1
+	-- the plan's own first travel steps that the trip already does (hidden under it, back when it ends)
+	for i, s in ipairs(plan.travelHidden or {}) do table.insert(plan.stops, at + i - 1, s) end
+	plan.travelHidden = nil
 	local dest = current()
 	local steps = dest and buildSteps(dest)
 	shownSig = signature(steps)
 	if not steps then return end
-	local at = (plan.stops[1] and plan.stops[1].mode == "corpse") and 2 or 1
+	local mine = {}
+	for _, s in ipairs(steps) do if s.kind == "travel" then mine[s.label or ""] = true end end
+	local hidden = {}
+	while plan.stops[at] and plan.stops[at].kind == "travel" and mine[plan.stops[at].label or ""] do
+		hidden[#hidden + 1] = table.remove(plan.stops, at)
+	end
+	plan.travelHidden = #hidden > 0 and hidden or nil
 	for i, s in ipairs(steps) do table.insert(plan.stops, at + i - 1, s) end
 end
 
@@ -312,6 +352,8 @@ function TT.SetByName(text)
 	end
 	local d = find(TT.Dungeons())
 	if d then TT.Set("dungeon", d) return true end
+	local c = find(TT.Cities())
+	if c then TT.Set("zone", c) return true end
 	local z = find(TT.Zones())
 	if z then TT.Set("zone", z) return true end
 	return false
@@ -399,6 +441,7 @@ local function rowButton(parent, w)
 end
 
 local side, list
+local TITLE = { dungeon = "Dungeons", city = "Cities", zone = "Zones" }
 
 local function levelColor(lo, hi)
 	local L = ns.playerLevel()
@@ -421,7 +464,7 @@ local function showList(kind, anchor)
 				if not self.item then return end
 				local menu = _G.LevelPlannerPinMenu
 				if menu then menu:Hide() end
-				TT.Set(list.kind, self.item)
+				TT.Set(list.kind == "dungeon" and "dungeon" or "zone", self.item)
 			end)
 			b:SetScript("OnEnter", function(self)
 				local it = self.item
@@ -470,11 +513,11 @@ local function showList(kind, anchor)
 			end
 			local more = #list.items > ROWS and string.format("  |cff999999%d-%d of %d (scroll)|r", list.offset + 1,
 				math.min(#list.items, list.offset + ROWS), #list.items) or ""
-			list.title:SetText((list.kind == "dungeon" and "Dungeons" or "Zones") .. more)
+			list.title:SetText(TITLE[list.kind] .. more)
 		end
 	end
 	list.kind = kind
-	list.items = kind == "dungeon" and TT.Dungeons() or TT.Zones()
+	list.items = kind == "dungeon" and TT.Dungeons() or kind == "city" and TT.Cities() or TT.Zones()
 	list.offset = 0
 	list:ClearAllPoints()
 	list:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -2, 6)
@@ -492,10 +535,10 @@ function TT.ToggleSide(anchor)
 		head:SetText("Travel to")
 		local y = -22
 		side.buttons = {}
-		for _, kind in ipairs({ "dungeon", "zone" }) do
+		for _, kind in ipairs({ "dungeon", "city", "zone" }) do
 			local b = rowButton(side, SIDE_W - 8)
 			b:SetPoint("TOPLEFT", 4, y)
-			b.text:SetText(kind == "dungeon" and "Dungeons" or "Zones")
+			b.text:SetText(TITLE[kind])
 			b.right:SetText(">")
 			b:SetScript("OnClick", function(self)
 				if list and list:IsShown() and list.kind == kind then list:Hide() else showList(kind, self) end
@@ -516,10 +559,10 @@ function TT.ToggleSide(anchor)
 		side.stop.text:SetText("|cffff6666Stop|r: " .. dest.name)
 		side.stop:SetWidth(SIDE_W + 60 - 8)
 		side.stop:Show()
-		side:SetSize(SIDE_W + 60, 22 + 3 * ROW_H + 6)
+		side:SetSize(SIDE_W + 60, 22 + 4 * ROW_H + 6)
 	else
 		side.stop:Hide()
-		side:SetSize(SIDE_W, 22 + 2 * ROW_H + 6)
+		side:SetSize(SIDE_W, 22 + 3 * ROW_H + 6)
 	end
 	if list then list:Hide() end
 	side:ClearAllPoints()
