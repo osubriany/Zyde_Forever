@@ -22,6 +22,27 @@ local S, GAP, COLS, PAD = 37, 4, 10, 10
 local LABEL_H, HEAD_H, GROUP_GAP = 14, 22, 12
 local INNER_W = COLS * (S + GAP) - GAP
 
+-- Your bags: the backpack, the four bags, and Forever's reagent (profession)
+-- bag, which has its own slot and its own bag number past the four.
+local LAST_BAG = NUM_BAG_SLOTS or 4
+local REAGENT_BAG = (Enum and Enum.BagIndex and Enum.BagIndex.ReagentBag) or REAGENTBAG_CONTAINER or 5
+local toInv = (C_Container and C_Container.ContainerIDToInventoryID) or ContainerIDToInventoryID
+local function invSlot(bag)
+	if not toInv then return nil end
+	local ok, slot = pcall(toInv, bag)
+	return ok and type(slot) == "number" and slot or nil
+end
+local HAS_REAGENT = REAGENT_BAG > LAST_BAG and invSlot(REAGENT_BAG) ~= nil
+local function myBags()
+	local list = {}
+	for bag = 0, LAST_BAG do list[#list + 1] = bag end
+	if HAS_REAGENT then list[#list + 1] = REAGENT_BAG end
+	return list
+end
+local function isMine(id)
+	return type(id) == "number" and ((id >= 0 and id <= LAST_BAG) or (HAS_REAGENT and id == REAGENT_BAG))
+end
+
 ---------------------------------------------------------------------------
 -- Perma: things you never want to delete.
 ---------------------------------------------------------------------------
@@ -236,12 +257,24 @@ local function gather()
 		local sec, group = categorize(info)
 		add(sec, group, { bag = info.bag, slot = info.slot, info = info, name = nameOf(info) })
 	end
+	-- The shared bag list stops at the four bags; read the reagent bag here.
+	if HAS_REAGENT then
+		for slot = 1, (C_Container.GetContainerNumSlots(REAGENT_BAG) or 0) do
+			local info = C_Container.GetContainerItemInfo(REAGENT_BAG, slot)
+			if info and info.itemID then
+				info.bag, info.slot = REAGENT_BAG, slot
+				local sec, group = categorize(info)
+				add(sec, group, { bag = REAGENT_BAG, slot = slot, info = info, name = nameOf(info) })
+			end
+		end
+	end
 	-- Empty: one tile per kind of bag (normal, quiver, soul bag...), pointing at its first free slot.
 	local byFamily, famOrder = {}, {}
-	for bag = 0, (NUM_BAG_SLOTS or 4) do
+	for _, bag in ipairs(myBags()) do
 		local n = C_Container.GetContainerNumSlots(bag) or 0
 		local free, fam = C_Container.GetContainerNumFreeSlots(bag)
 		fam = tonumber(fam) or 0
+		if bag == REAGENT_BAG then fam = 100000 end -- reagents only: its own tile, last
 		if n > 0 and (free or 0) > 0 then
 			local e = byFamily[fam]
 			if not e then
@@ -379,13 +412,12 @@ end
 -- The bag row: your four bags, to swap one for a bigger one. Click or drag
 -- a bag to pick it up (it has to be empty), drop a bag on a slot to put it on.
 ---------------------------------------------------------------------------
-local toInv = (C_Container and C_Container.ContainerIDToInventoryID) or ContainerIDToInventoryID
 local EMPTY_BAG_TEX = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Bag"
 
 local function paintBagSlots()
 	if not (win and win.bagSlots) then return end
 	for _, b in ipairs(win.bagSlots) do
-		local inv = toInv and toInv(b.bag)
+		local inv = invSlot(b.bag)
 		local tex = inv and GetInventoryItemTexture("player", inv)
 		b.icon:SetTexture(tex or EMPTY_BAG_TEX)
 		local n = C_Container.GetContainerNumSlots(b.bag) or 0
@@ -399,10 +431,10 @@ local function placeContent()
 	win.bagRow:SetShown(bagsShown())
 end
 
-local function bagSlot(bag)
+local function bagSlot(bag, x)
 	local b = CreateFrame("Button", nil, win.bagRow)
 	b:SetSize(S, S)
-	b:SetPoint("LEFT", (bag - 1) * (S + GAP), 0)
+	b:SetPoint("LEFT", x, 0)
 	b:RegisterForClicks("LeftButtonUp")
 	b:RegisterForDrag("LeftButton")
 	b.bag = bag
@@ -417,7 +449,7 @@ local function bagSlot(bag)
 	local hl = b:CreateTexture(nil, "HIGHLIGHT")
 	hl:SetAllPoints()
 	hl:SetColorTexture(1, 1, 1, 0.15)
-	local function inv() return toInv and toInv(bag) end
+	local function inv() return invSlot(bag) end
 	local function put()
 		if InCombatLockdown() or not inv() then return end
 		if CursorHasItem() then PutItemInBag(inv()) else PickupBagFromSlot(inv()) end
@@ -507,7 +539,9 @@ local function build()
 	win.bagRow:SetPoint("TOPLEFT", PAD, -32)
 	win.bagRow:SetSize(INNER_W, S)
 	win.bagSlots = {}
-	for bag = 1, (NUM_BAG_SLOTS or 4) do win.bagSlots[bag] = bagSlot(bag) end
+	for bag = 1, LAST_BAG do win.bagSlots[#win.bagSlots + 1] = bagSlot(bag, (bag - 1) * (S + GAP)) end
+	-- The reagent bag, a little apart from the others.
+	if HAS_REAGENT then win.bagSlots[#win.bagSlots + 1] = bagSlot(REAGENT_BAG, LAST_BAG * (S + GAP) + 10) end
 	local toggle = CreateFrame("Button", nil, win)
 	toggle:SetSize(22, 22)
 	toggle:SetPoint("RIGHT", search, "LEFT", -10, 0)
@@ -522,7 +556,7 @@ local function build()
 	toggle:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip:AddLine(bagsShown() and "Hide your bags" or "Show your bags")
-		GameTooltip:AddLine("A row of your four bags, to swap one for a bigger one.", 1, 1, 1, true)
+		GameTooltip:AddLine("A row of your bags (and your reagent bag), to swap one for a bigger one.", 1, 1, 1, true)
 		GameTooltip:Show()
 	end)
 	toggle:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -580,7 +614,7 @@ local function blizzOpen()
 	for _, f in ipairs(blizzFrames()) do
 		local id = f.GetID and f:GetID()
 		-- Only the backpack and bags: the bank's own bags keep their windows.
-		if f:IsShown() and (f == ContainerFrameCombinedBags or (id and id >= 0 and id <= (NUM_BAG_SLOTS or 4))) then return true end
+		if f:IsShown() and (f == ContainerFrameCombinedBags or isMine(id)) then return true end
 	end
 	return false
 end
@@ -613,14 +647,13 @@ local function install()
 	build()
 	-- The same frames also show bank bags: each time one opens, it goes in the
 	-- hidden frame for your own bags and back on screen for a bank bag.
-	local maxBag = NUM_BAG_SLOTS or 4
 	for _, f in ipairs(blizzFrames()) do
 		if f == ContainerFrameCombinedBags then
 			f:SetParent(hidden)
 		else
 			local function place(self)
 				local id = self:GetID()
-				local mine = type(id) == "number" and id >= 0 and id <= maxBag
+				local mine = isMine(id)
 				local want = mine and hidden or UIParent
 				if self:GetParent() ~= want then self:SetParent(want) end
 			end
