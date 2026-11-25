@@ -125,11 +125,52 @@ local look = CreateFrame("Frame", nil, ring)
 look:SetPoint("CENTER")
 look:SetSize(2 * (radiusFor(MAX) + ICON), 2 * (radiusFor(MAX) + ICON))
 
-look.hub = look:CreateTexture(nil, "BACKGROUND")
+-- Everything round is a plain square texture cut by this circle.
+local CIRCLE = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+local function circle(tex, owner)
+	local m = owner:CreateMaskTexture()
+	m:SetTexture(CIRCLE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	m:SetAllPoints(tex)
+	tex:AddMaskTexture(m)
+	return m
+end
+local function disc(owner, layer, sub)
+	local t = owner:CreateTexture(nil, layer, nil, sub)
+	t:SetTexture("Interface\\Buttons\\WHITE8X8")
+	circle(t, owner)
+	return t
+end
+
+local function classColor()
+	local _, class = UnitClass("player")
+	local c = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+	if c then return c.r, c.g, c.b end
+	return 0.69, 0.35, 1
+end
+
+-- The backdrop: a faint disc in your class color under the icons, a darker
+-- hub in the middle (let go there to cancel).
+look.track = disc(look, "BACKGROUND", 0)
+look.track:SetPoint("CENTER")
+look.trackEdge = disc(look, "BACKGROUND", -1)
+look.trackEdge:SetPoint("CENTER")
+look.hub = disc(look, "BACKGROUND", 2)
 look.hub:SetPoint("CENTER")
 look.hub:SetSize(DEAD * 2, DEAD * 2)
-look.hub:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
-look.hub:SetVertexColor(0, 0, 0, 0.7)
+look.hubEdge = disc(look, "BACKGROUND", 1)
+look.hubEdge:SetPoint("CENTER")
+look.hubEdge:SetSize(DEAD * 2 + 4, DEAD * 2 + 4)
+
+-- From the middle toward the slot you're aiming at.
+if look.CreateLine then
+	look.pointer = look:CreateLine(nil, "BORDER")
+	look.pointer:SetThickness(3)
+	look.pointer:SetColorTexture(1, 0.82, 0.25, 0.7)
+	look.pointer:SetStartPoint("CENTER", look, 0, 0)
+	look.pointer:SetEndPoint("CENTER", look, 0, 0)
+	look.pointer:Hide()
+end
+
 look.name = look:CreateFontString(nil, "OVERLAY")
 if not look.name:SetFont("Fonts\\ARIALN.TTF", 13, "OUTLINE") then look.name:SetFontObject("GameFontNormal") end
 look.name:SetPoint("CENTER")
@@ -142,20 +183,45 @@ look.nameBg:SetPoint("TOPLEFT", look.name, "TOPLEFT", -6, 3)
 look.nameBg:SetPoint("BOTTOMRIGHT", look.name, "BOTTOMRIGHT", 6, -3)
 look.nameBg:Hide()
 
+local function paintBackdrop(r)
+	local cr, cg, cb = classColor()
+	local size = 2 * (r + ICON * 0.8)
+	look.track:SetSize(size, size)
+	look.track:SetVertexColor(cr, cg, cb, 0.16)
+	look.trackEdge:SetSize(size + 4, size + 4)
+	look.trackEdge:SetVertexColor(cr, cg, cb, 0.35)
+	look.hub:SetVertexColor(0, 0, 0, 0.75)
+	look.hubEdge:SetVertexColor(cr, cg, cb, 0.5)
+end
+
 local icons = {}
 local function iconFrame(i)
 	if icons[i] then return icons[i] end
 	local f = CreateFrame("Frame", nil, look)
 	f:SetSize(ICON, ICON)
-	f.bg = f:CreateTexture(nil, "BACKGROUND")
-	f.bg:SetPoint("TOPLEFT", -2, 2)
-	f.bg:SetPoint("BOTTOMRIGHT", 2, -2)
-	f.bg:SetColorTexture(0, 0, 0, 0.85)
+	-- Soft glow behind the slot you're aiming at.
+	f.glow = f:CreateTexture(nil, "BACKGROUND", nil, -2)
+	f.glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+	f.glow:SetBlendMode("ADD")
+	f.glow:SetPoint("CENTER")
+	f.glow:SetSize(ICON * 2.1, ICON * 2.1)
+	f.glow:SetVertexColor(1, 0.8, 0.3)
+	f.glow:Hide()
+	-- Round icon on a round border.
+	f.border = disc(f, "BACKGROUND", 0)
+	f.border:SetPoint("TOPLEFT", -3, 3)
+	f.border:SetPoint("BOTTOMRIGHT", 3, -3)
 	f.tex = f:CreateTexture(nil, "ARTWORK")
 	f.tex:SetAllPoints()
 	f.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-	f.edges = ns.newEdges(f, "OVERLAY", 2)
-	ns.placeEdges(f.edges, f, 0, 2)
+	circle(f.tex, f)
+	-- Cooldown: the clock sweep with the seconds left, drawn by the game.
+	f.cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
+	f.cd:SetAllPoints()
+	if f.cd.SetSwipeTexture then pcall(f.cd.SetSwipeTexture, f.cd, CIRCLE) end
+	if f.cd.SetUseCircularEdge then pcall(f.cd.SetUseCircularEdge, f.cd, true) end
+	if f.cd.SetHideCountdownNumbers then f.cd:SetHideCountdownNumbers(false) end
+	if f.cd.SetDrawEdge then f.cd:SetDrawEdge(false) end
 	icons[i] = f
 	return f
 end
@@ -166,16 +232,110 @@ local function paintHover(pick)
 	for i, f in ipairs(icons) do
 		if f:IsShown() then
 			local hot = i == pick
-			for _, t in ipairs(f.edges) do
-				if hot then t:SetColorTexture(1, 0.82, 0.2, 1) else t:SetColorTexture(0.25, 0.25, 0.28, 1) end
-			end
+			if hot then f.border:SetVertexColor(1, 0.82, 0.2, 1) else f.border:SetVertexColor(0.12, 0.12, 0.14, 1) end
+			f.glow:SetShown(hot)
 			-- Bigger in place (SetScale would also push it further from the middle).
 			f:SetSize(hot and ICON * 1.2 or ICON, hot and ICON * 1.2 or ICON)
-			f.tex:SetAlpha(hot and 1 or 0.8)
+			f.hot = hot
 		end
 	end
+	local f = pick and icons[pick]
+	if look.pointer then
+		if f and f.vx then
+			look.pointer:SetEndPoint("CENTER", look, f.vx * (f.r - ICON * 0.7), f.vy * (f.r - ICON * 0.7))
+			look.pointer:Show()
+		else
+			look.pointer:Hide()
+		end
+	end
+	look.hubEdge:SetVertexColor(pick and 1 or 0.6, pick and 0.82 or 0.6, pick and 0.25 or 0.6, pick and 0.9 or 0.5)
 	look.name:SetText(pick and labelOf(current[pick]) or "")
 	look.nameBg:SetShown(pick ~= nil)
+end
+
+---------------------------------------------------------------------------
+-- Ready or not: cooldown sweep, and a tint when a spell can't be used now
+-- (gray), lacks mana (blue) or the target is out of range (red). Anything
+-- the game hides in a fight is left plain.
+---------------------------------------------------------------------------
+local function plain(v) if ns.isSecret(v) then return nil end return v end
+
+local function spellOf(s)
+	if s.kind == "spell" then return s.name or s.id end
+	if s.kind == "macro" and GetMacroSpell then
+		local id = plain(ns.safe(GetMacroSpell, s.name))
+		if id then return id end
+	end
+end
+local function itemOf(s)
+	if s.kind == "item" then return s.id end
+	if s.kind == "macro" and GetMacroItem then
+		local _, link = ns.safe(GetMacroItem, s.name)
+		link = plain(link)
+		local id = type(link) == "string" and tonumber(link:match("item:(%d+)"))
+		if id then return id end
+	end
+end
+
+local function cooldownOf(s)
+	local spell, item = spellOf(s), itemOf(s)
+	if spell then
+		if C_Spell and C_Spell.GetSpellCooldown then
+			local info = ns.safe(C_Spell.GetSpellCooldown, spell)
+			if type(info) == "table" then return info.startTime, info.duration end
+		end
+		if GetSpellCooldown then return ns.safe(GetSpellCooldown, spell) end
+	elseif item then
+		local f = (C_Container and C_Container.GetItemCooldown) or GetItemCooldown
+		if f then return ns.safe(f, item) end
+	end
+end
+
+local function stateOf(s)
+	local spell, item = spellOf(s), itemOf(s)
+	if spell then
+		local isUsable = (C_Spell and C_Spell.IsSpellUsable) or IsUsableSpell
+		local usable, noMana = nil, nil
+		if isUsable then usable, noMana = ns.safe(isUsable, spell) end
+		usable, noMana = plain(usable), plain(noMana)
+		if noMana then return "mana" end
+		if usable == false then return "no" end
+		if UnitExists("target") then
+			local inRange = (C_Spell and C_Spell.IsSpellInRange) or IsSpellInRange
+			local r = inRange and plain(ns.safe(inRange, spell, "target"))
+			if r == false or r == 0 then return "range" end
+		end
+	elseif item then
+		local isUsable = (C_Item and C_Item.IsUsableItem) or IsUsableItem
+		local usable = isUsable and plain(ns.safe(isUsable, item))
+		if usable == false then return "no" end
+		local count = (C_Item and C_Item.GetItemCount) or GetItemCount
+		local n = count and plain(ns.safe(count, item))
+		if n == 0 then return "no" end
+	end
+	return "ok"
+end
+
+local function paintReady()
+	for i, s in ipairs(current) do
+		local f = icons[i]
+		if f and f:IsShown() then
+			local start, dur = cooldownOf(s)
+			if start and dur then
+				local d = plain(dur)
+				-- (the global cooldown alone isn't worth a sweep)
+				if d and d <= 1.6 then f.cd:Clear() else pcall(f.cd.SetCooldown, f.cd, start, dur) end
+			else
+				f.cd:Clear()
+			end
+			local st = stateOf(s)
+			f.tex:SetDesaturated(st == "no")
+			if st == "range" then f.tex:SetVertexColor(1, 0.35, 0.35)
+			elseif st == "mana" then f.tex:SetVertexColor(0.45, 0.55, 1)
+			elseif st == "no" then f.tex:SetVertexColor(0.6, 0.6, 0.6)
+			else f.tex:SetVertexColor(1, 1, 1) end
+		end
+	end
 end
 
 -- Same pick as the secure code: the slot whose direction is closest to the mouse's.
@@ -190,9 +350,80 @@ local function pickAt(dx, dy, n)
 	return pick
 end
 
-look:SetScript("OnUpdate", function(self)
+---------------------------------------------------------------------------
+-- Cast flash: the slot you let go on pulses out and fades where it was.
+-- (The ring itself is gone by then: the secure release hides it.)
+---------------------------------------------------------------------------
+local flash = CreateFrame("Frame", nil, UIParent)
+flash:SetFrameStrata("DIALOG")
+flash:SetSize(ICON, ICON)
+flash:Hide()
+flash.tex = flash:CreateTexture(nil, "ARTWORK")
+flash.tex:SetAllPoints()
+flash.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+circle(flash.tex, flash)
+flash.glow = flash:CreateTexture(nil, "OVERLAY")
+flash.glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+flash.glow:SetBlendMode("ADD")
+flash.glow:SetPoint("CENTER")
+flash.glow:SetVertexColor(1, 0.85, 0.35)
+local FLASH_TIME = 0.3
+flash:SetScript("OnUpdate", function(self)
+	local t = (GetTime() - self.start) / FLASH_TIME
+	if t >= 1 then self:Hide() return end
+	local size = ICON * 1.2 * (1 + 0.6 * t)
+	self:SetSize(size, size)
+	self.glow:SetSize(size * 2, size * 2)
+	self:SetAlpha(1 - t)
+end)
+local function flashAt(x, y, tex)
+	flash:ClearAllPoints()
+	flash:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
+	flash.tex:SetTexture(tex)
+	flash.start = GetTime()
+	flash:SetAlpha(1)
+	flash:Show()
+end
+
+---------------------------------------------------------------------------
+-- While the ring is open: the icons fly out from the middle (0.12 s), the
+-- slot you aim at lights up, and the ready state refreshes a few times a second.
+---------------------------------------------------------------------------
+local OPEN_TIME = 0.12
+local readyWait = 0
+look:SetScript("OnShow", function(self)
+	self.lastPick = false
+	self.openAt = GetTime()
+	self.opening = true
+	readyWait = 0
+	paintReady()
+end)
+look:SetScript("OnHide", function(self)
+	-- Let go on a slot: flash it where it was.
+	local f = self.lastPick and icons[self.lastPick]
+	if f and self.flashX then flashAt(self.flashX, self.flashY, f.tex:GetTexture()) end
+end)
+look:SetScript("OnUpdate", function(self, elapsed)
 	local n = #current
 	if n == 0 then return end
+	if self.opening then
+		local t = math.min(1, (GetTime() - (self.openAt or 0)) / OPEN_TIME)
+		local ease = 1 - (1 - t) ^ 3
+		for i = 1, n do
+			local f = icons[i]
+			if f and f.vx then
+				f:ClearAllPoints()
+				f:SetPoint("CENTER", look, "CENTER", f.vx * f.r * ease, f.vy * f.r * ease)
+				f:SetAlpha(t)
+			end
+		end
+		if t >= 1 then self.opening = false end
+	end
+	readyWait = readyWait + (elapsed or 0)
+	if readyWait > 0.15 then
+		readyWait = 0
+		paintReady()
+	end
 	local cx, cy = self:GetCenter()
 	local x, y = GetCursorPosition()
 	if ns.isSecret(cx) or ns.isSecret(cy) or ns.isSecret(x) or ns.isSecret(y) then return end
@@ -204,8 +435,14 @@ look:SetScript("OnUpdate", function(self)
 		self.lastPick = pick
 		paintHover(pick)
 	end
+	-- Where the picked slot sits, for the flash after the ring closes.
+	local f = pick and icons[pick]
+	if f and f.vx then
+		self.flashX, self.flashY = cx + f.vx * f.r, cy + f.vy * f.r
+	else
+		self.flashX, self.flashY = nil, nil
+	end
 end)
-look:SetScript("OnShow", function(self) self.lastPick = false end)
 
 ---------------------------------------------------------------------------
 -- The key. Bound as CLICK ZydeForeverRadialKey:LeftButton.
@@ -291,14 +528,18 @@ local function apply()
 	local n = #current
 	local r = radiusFor(n)
 	look.name:ClearAllPoints()
-	look.name:SetPoint("TOP", look, "CENTER", 0, -(r + ICON / 2 + 10))
+	look.name:SetPoint("TOP", look, "CENTER", 0, -(r + ICON * 0.8 + 8))
+	paintBackdrop(r)
 	for i = 1, MAX do
 		local f = icons[i]
 		if i <= n then
 			f = iconFrame(i)
 			local vx, vy = dir(i, n)
+			-- (kept for the fly-out, the pointer and the cast flash)
+			f.vx, f.vy, f.r = vx, vy, r
 			f:ClearAllPoints()
 			f:SetPoint("CENTER", look, "CENTER", vx * r, vy * r)
+			f:SetAlpha(1)
 			f.tex:SetTexture(iconOf(current[i]))
 			f:Show()
 			local t, v = actionOf(current[i])
