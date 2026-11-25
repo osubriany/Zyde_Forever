@@ -737,10 +737,18 @@ title:HookScript("OnDragStop", function() refresh() end)
 
 local FIGHT_ALPHA, AFTER = 0.3, 3
 local lastFight, alpha = 0, 1
+local settled, idle = false, 0
 frame:SetScript("OnUpdate", function(self, elapsed)
+	-- Nothing fading: look again 10 times a second, not every frame.
+	if settled then
+		idle = idle + elapsed
+		if idle < 0.1 then return end
+		idle = 0
+	end
 	if UnitAffectingCombat("player") then lastFight = GetTime() end
 	local goal = (GetTime() - lastFight < AFTER and not self:IsMouseOver()) and FIGHT_ALPHA or 1
-	if alpha == goal then return end
+	settled = alpha == goal
+	if settled then return end
 	-- Dim gently, come back quickly.
 	local step = elapsed * (goal > alpha and 5 or 2)
 	alpha = goal > alpha and math.min(goal, alpha + step) or math.max(goal, alpha - step)

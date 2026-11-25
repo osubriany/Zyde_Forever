@@ -489,6 +489,8 @@ end)
 local wait = 0
 
 ev:SetScript("OnUpdate", function(_, dt)
+	-- Feature off: nothing to follow (syncOn already hid everything).
+	if not on() then return end
 	-- The secure click shows and hides the row. Follow that here, out of combat,
 	-- to put it on the real cursor and paint the current mark. Do not hide it
 	-- during a fight: that call is blocked and can cancel the next open.

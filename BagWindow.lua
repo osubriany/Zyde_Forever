@@ -398,22 +398,10 @@ end
 
 -- How many slots Restack would free: for each item, the stacks it has now
 -- minus the fewest it could fit in (two stacks of 12 linen: 1 slot).
-local function restackSavings(bags)
-	local byID = {}
-	for _, bag in ipairs(bags) do
-		for slot = 1, numSlots(bag) do
-			local info = C_Container.GetContainerItemInfo(bag, slot)
-			local max = info and info.itemID and stackSize(info.itemID)
-			if max and max > 1 then
-				local e = byID[info.itemID]
-				if not e then e = { stacks = 0, total = 0, max = max } byID[info.itemID] = e end
-				e.stacks = e.stacks + 1
-				e.total = e.total + (info.stackCount or 1)
-			end
-		end
-	end
+-- tally: itemID -> { stacks, total, max }, filled by gather's single pass.
+local function restackSavings(tally)
 	local saved = 0
-	for _, e in pairs(byID) do
+	for _, e in pairs(tally) do
 		saved = saved + math.max(0, e.stacks - math.ceil(e.total / e.max))
 	end
 	return saved
@@ -449,6 +437,7 @@ local function gather(bags)
 		out[sec][group] = out[sec][group] or {}
 		table.insert(out[sec][group], entry)
 	end
+	local tally = {}
 	for _, bag in ipairs(bags) do
 		for slot = 1, numSlots(bag) do
 			local info = C_Container.GetContainerItemInfo(bag, slot)
@@ -456,6 +445,14 @@ local function gather(bags)
 				info.bag, info.slot = bag, slot
 				local sec, group = categorize(info)
 				add(sec, group, { bag = bag, slot = slot, info = info, name = nameOf(info) })
+				-- (for Restack's count, in the same pass)
+				local max = stackSize(info.itemID)
+				if max and max > 1 then
+					local t = tally[info.itemID]
+					if not t then t = { stacks = 0, total = 0, max = max } tally[info.itemID] = t end
+					t.stacks = t.stacks + 1
+					t.total = t.total + (info.stackCount or 1)
+				end
 			end
 		end
 	end
@@ -495,7 +492,7 @@ local function gather(bags)
 			end
 		end
 	end
-	return out, ordinaryFree, extra
+	return out, ordinaryFree, extra, restackSavings(tally)
 end
 
 local function groupOrder(sec, groups)
@@ -702,14 +699,13 @@ function View:ContentTop() return 34 + (self.bagRowShown and self.bagRowShown() 
 function View:Layout()
 	if InCombatLockdown() then self.dirty = true return end
 	self.dirty = false
-	local data, free, extra = gather(self.bags())
+	local data, free, extra, saved = gather(self.bags())
 	if self.omitKeys and self.omitKeys() and data.General then data.General.Keys = nil end
 	self.free, self.extraFree = free, extra
 	self:SetTitle()
 	-- Restack only shows when it would free something: "Restack +3".
 	local rb = self.win.restackBtn
 	if rb then
-		local saved = restackSavings(self.bags())
 		rb:SetText("Restack +" .. saved)
 		rb:SetShown(saved > 0)
 		self.win.Flow()
@@ -789,7 +785,8 @@ function View:Changed()
 	if InCombatLockdown() then self:Repaint() return end
 	if self.pending then return end
 	self.pending = true
-	C_Timer.After(0.05, function()
+	-- (a short wait gathers a burst of bag, quest and item-info events into one re-sort)
+	C_Timer.After(0.2, function()
 		self.pending = false
 		if self.win:IsShown() and self.dirty and not InCombatLockdown() then self:Layout() end
 	end)

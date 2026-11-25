@@ -285,7 +285,7 @@ if WARRIOR then
 		return kind == "DODGE" or kind == "PARRY" or kind == "BLOCK"
 	end
 	revengeEv:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-	pcall(revengeEv.RegisterEvent, revengeEv, "UNIT_COMBAT")
+	pcall(revengeEv.RegisterUnitEvent, revengeEv, "UNIT_COMBAT", "player") -- (only your own dodges and parries matter)
 	revengeEv:SetScript("OnEvent", function(_, event, a, b, c)
 		if event == "UNIT_COMBAT" then
 			a, b = plain(a), plain(b)

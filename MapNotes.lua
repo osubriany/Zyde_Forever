@@ -201,8 +201,9 @@ local function setup()
 	-- Redraw when the map, its zoom or its size changes. This frame is not a
 	-- child of the map, so the map's own show handler stays clean.
 	local watcher = CreateFrame("Frame", nil, UIParent)
-	watcher:SetScript("OnUpdate", function()
-		if not WorldMapFrame:IsShown() then catcher:Hide() return end
+	watcher:SetScript("OnUpdate", function(self)
+		-- Map closed: stop until it opens again (it ran every frame all session).
+		if not WorldMapFrame:IsShown() then catcher:Hide() self:Hide() return end
 		placeCatcher()
 		local c = canvas()
 		if not c then return end
@@ -211,6 +212,12 @@ local function setup()
 			refresh()
 		end
 	end)
+	-- Wake it when the map opens. Hooks on the map's Show methods, not its
+	-- OnShow script, keep the map's own handler clean.
+	local function wake() watcher:Show() end
+	hooksecurefunc(WorldMapFrame, "Show", wake)
+	hooksecurefunc(WorldMapFrame, "SetShown", function(_, shown) if shown then wake() end end)
+	watcher:SetShown(WorldMapFrame:IsShown())
 end
 
 local ev = CreateFrame("Frame")

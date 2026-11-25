@@ -427,13 +427,19 @@ ev:RegisterEvent("PLAYER_LOGIN")
 ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
 	if event == "PLAYER_LOGIN" then
 		if not IS_HUNTER then return end
-		for _, e in ipairs({ "BAG_UPDATE_DELAYED", "UNIT_PET", "UNIT_HEALTH", "UNIT_LEVEL", "UNIT_HAPPINESS",
+		for _, e in ipairs({ "BAG_UPDATE_DELAYED",
 			"PET_UI_UPDATE", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD", "UPDATE_BINDINGS",
 			"UI_ERROR_MESSAGE", "GET_ITEM_INFO_RECEIVED",
 			"CHAT_MSG_SYSTEM", "CHAT_MSG_PET_INFO", "CHAT_MSG_MONSTER_EMOTE", "UI_INFO_MESSAGE" }) do
 			pcall(ev.RegisterEvent, ev, e)
 		end
 		pcall(ev.RegisterUnitEvent, ev, "UNIT_SPELLCAST_SUCCEEDED", "player")
+		-- Only your pet's (and your own UNIT_PET): every other unit's health and
+		-- level changes were waking this up for nothing, thousands of times in a raid.
+		pcall(ev.RegisterUnitEvent, ev, "UNIT_PET", "player")
+		for _, e in ipairs({ "UNIT_HEALTH", "UNIT_LEVEL", "UNIT_HAPPINESS" }) do
+			pcall(ev.RegisterUnitEvent, ev, e, "pet")
+		end
 		watchPetChange()
 		refreshSoon()
 		return
