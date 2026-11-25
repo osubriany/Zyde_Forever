@@ -523,6 +523,7 @@ local function markFor(button)
 end
 
 refreshMarks = function()
+	if ns.BagWindowRepaint then ns.BagWindowRepaint() end
 	for _, m in pairs(marks) do m:Hide() end
 	if not on() then return end
 	pcall(R.eachBlizzardBagButton, function(button)
@@ -915,6 +916,12 @@ end)
 ns.OnFeatureChanged(function(key) if key == "vendor" then refreshAll() end end)
 
 ns.Vendor = {
+	-- For the bag window: "vendor", "auction", "keep" or "check" for a bag slot (nil when off).
+	Verdict = function(bag, slot)
+		if not on() then return nil end
+		local v = bySlot[bag .. ":" .. slot]
+		return v and v.kind
+	end,
 	Toggle = function()
 		ns.setFeature("vendor", not ns.featureWanted("vendor"))
 		print("|cff66ccffZyde_Forever|r: vendor advice " .. (ns.F("vendor") and "on" or "off")
