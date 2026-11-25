@@ -239,10 +239,26 @@ local function angle()
 	return a
 end
 
+-- On a square map the corner sticks out past the circle the button was built for.
+-- Sit just outside that corner so the icon is not covered.
+local function orbitRadius(rad)
+	local half = Minimap:GetWidth()
+	if ns.isSecret(half) or type(half) ~= "number" then return 80 end
+	half = half / 2
+	if ns.MinimapLook and ns.MinimapLook.Get and ns.MinimapLook.Get() == "square" then
+		if not rad then rad = math.rad(angle()) end
+		local ax = math.abs(math.cos(rad))
+		local ay = math.abs(math.sin(rad))
+		local edge = half / math.max(ax, ay, 0.01)
+		return edge + 22
+	end
+	return half + 6
+end
+
 local function placeToggle()
 	if not Minimap or toggle.dragging then return end
-	local r = (Minimap:GetWidth() / 2) + 6
 	local rad = math.rad(angle())
+	local r = orbitRadius(rad)
 	toggle:ClearAllPoints()
 	toggle:SetPoint("CENTER", Minimap, "CENTER", math.cos(rad) * r, math.sin(rad) * r)
 end
@@ -575,6 +591,7 @@ local function release(frame)
 	end
 	if saved.showOnMouseover then frame.showOnMouseover = true end
 	if frame.zydeRing then frame.zydeRing:Hide() end
+	if saved.shown == false then frame:Hide() else frame:Show() end
 	laying = false
 end
 
@@ -631,8 +648,14 @@ local function isCandidate(frame)
 	return true
 end
 
-local function grab(frame)
-	if not isCandidate(frame) then return false end
+local function grab(frame, force)
+	if type(frame) ~= "table" or frame.zydeOwned then return false end
+	if not force and not isCandidate(frame) then return false end
+	if force then
+		if not frame.IsObjectType or not frame:IsObjectType("Button") then return false end
+		if frame.IsForbidden and frame:IsForbidden() then return false end
+		if frame.IsProtected and frame:IsProtected() then return false end
+	end
 	local points = {}
 	for i = 1, frame:GetNumPoints() do
 		local point, rel, relPoint, x, y = frame:GetPoint(i)
@@ -654,6 +677,7 @@ local function grab(frame)
 		parent = frame:GetParent(),
 		points = points,
 		scale = frame:GetScale(),
+		shown = frame:IsShown() and true or false,
 		strata = frame:GetFrameStrata(),
 		level = frame:GetFrameLevel(),
 		w = frame:GetWidth(),
@@ -689,6 +713,27 @@ local function scan()
 	walk(Minimap, 0)
 	walk(MinimapCluster, 0)
 	walk(MinimapBackdrop, 0)
+	-- Addons that registered with the "9" compartment instead of leaving a button on the map.
+	local lib = LibStub and LibStub("LibDBIcon-1.0", true)
+	local objects = lib and lib.objects
+	local reg = AddonCompartmentFrame and AddonCompartmentFrame.registeredAddons
+	if type(reg) == "table" and objects then
+		for _, entry in ipairs(reg) do
+			local text = entry and entry.text
+			local button = type(text) == "string" and objects[text]
+			if button and grab(button, true) then found = true end
+		end
+	end
+	local compartment = AddonCompartmentFrame
+	if on() and compartment then
+		if not compartment.zydeBagHook then
+			compartment.zydeBagHook = true
+			compartment:HookScript("OnShow", function(self)
+				if on() then self:Hide() end
+			end)
+		end
+		compartment:Hide()
+	end
 	placeToggle()
 	if found then schedule() end
 end
@@ -696,9 +741,99 @@ end
 ---------------------------------------------------------------------------
 -- Layout
 ---------------------------------------------------------------------------
+-- Compartment entries that have no real minimap button. Same icons in the
+-- pull-out and in the popup.
+local compPool = {}
+local function compartmentButtons()
+	local reg = AddonCompartmentFrame and AddonCompartmentFrame.registeredAddons
+	local list = {}
+	if type(reg) ~= "table" then return list end
+	local lib = LibStub and LibStub("LibDBIcon-1.0", true)
+	local objects = lib and lib.objects
+	local n = 0
+	for _, entry in ipairs(reg) do
+		if type(entry) == "table" then
+			local text = entry.text
+			local real = objects and type(text) == "string" and objects[text]
+			if not (real and real.zydeOwned) then
+				n = n + 1
+				local b = compPool[n]
+				if not b then
+					b = CreateFrame("Button", nil, UIParent)
+					b:SetSize(31, 31)
+					b:RegisterForClicks("AnyUp")
+					b:EnableMouse(true)
+					b.zydeCompartment = true
+					b.icon = b:CreateTexture(nil, "ARTWORK")
+					b.icon:SetAllPoints()
+					b:SetScript("OnClick", function(self, mouseButton)
+						local item = self.entry
+						local func = item and item.func
+						if type(func) == "function" then
+							local input = { buttonName = mouseButton or "LeftButton" }
+							if not pcall(func, self, input, item) then
+								pcall(func, self, mouseButton)
+							end
+						end
+						if popup:IsShown() then popup:Hide() end
+					end)
+					b:SetScript("OnEnter", function(self)
+						local item = self.entry
+						if item and type(item.funcOnEnter) == "function" then
+							pcall(item.funcOnEnter, self, item)
+						end
+						if GameTooltip:IsShown() then return end
+						GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+						local name = item and item.text
+						GameTooltip:AddLine(type(name) == "string" and name or "Addon", GOLD[1], GOLD[2], GOLD[3])
+						GameTooltip:Show()
+					end)
+					b:SetScript("OnLeave", function(self)
+						local item = self.entry
+						if item and type(item.funcOnLeave) == "function" then
+							pcall(item.funcOnLeave, self, item)
+						end
+						GameTooltip:Hide()
+					end)
+					compPool[n] = b
+				end
+				b.entry = entry
+				local icon = entry.icon
+				if type(icon) == "string" or type(icon) == "number" then
+					b.icon:SetTexture(icon)
+				else
+					b.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+				end
+				b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+				list[#list + 1] = b
+			end
+		end
+	end
+	for i = n + 1, #compPool do compPool[i]:Hide() end
+	return list
+end
+
+local function placeProxy(frame, parent, left, top)
+	frame:SetParent(parent)
+	frame:SetScale(1)
+	frame:SetSize(31, 31)
+	frame:ClearAllPoints()
+	frame:SetPoint("CENTER", parent, "TOPLEFT", left + CELL / 2, -(top + CELL / 2))
+	frame:SetFrameStrata(parent:GetFrameStrata() or "HIGH")
+	frame:SetFrameLevel((parent:GetFrameLevel() or 1) + 8)
+	frame:Show()
+end
+
+local function gathered()
+	local list = {}
+	for _, frame in ipairs(sorted()) do list[#list + 1] = frame end
+	for _, frame in ipairs(compartmentButtons()) do list[#list + 1] = frame end
+	return list
+end
+
 layoutFlyout = function()
 	if popup:IsShown() then return end
-	local list = sorted()
+	local list = gathered()
 	local n = #list
 	if n == 0 then
 		flyout.note:Show()
@@ -711,7 +846,9 @@ layoutFlyout = function()
 		for i, frame in ipairs(list) do
 			local col = (i - 1) % cols
 			local row = math.floor((i - 1) / cols)
-			park(frame, flyout, PAD + col * (CELL + GAP), PAD + row * (CELL + GAP))
+			local left = PAD + col * (CELL + GAP)
+			local top = PAD + row * (CELL + GAP)
+			if frame.zydeCompartment then placeProxy(frame, flyout, left, top) else park(frame, flyout, left, top) end
 		end
 	end
 	anchorFlyout()
@@ -1471,7 +1608,19 @@ local function layoutList(menu, buttons, profs)
 			local row = math.floor((i - 1) / miniCols)
 			local inRow = math.min(miniCols, #buttons - row * miniCols)
 			local originX = PAD + math.floor((contentW - inRow * miniSlot) / 2)
-			placeCenter(frame, originX + col * miniSlot, gridY + row * miniSlot, "TOPLEFT", MINI)
+			if frame.zydeCompartment then
+				local side = math.floor(31 * MINI)
+				frame:SetParent(popup)
+				frame:SetScale(1)
+				frame:SetSize(side, side)
+				frame:ClearAllPoints()
+				frame:SetPoint("TOPLEFT", popup, "TOPLEFT", originX + col * miniSlot + math.floor((miniSlot - side) / 2), -(gridY + row * miniSlot))
+				frame:SetFrameStrata(popup:GetFrameStrata() or "DIALOG")
+				frame:SetFrameLevel((popup:GetFrameLevel() or 1) + 8)
+				frame:Show()
+			else
+				placeCenter(frame, originX + col * miniSlot, gridY + row * miniSlot, "TOPLEFT", MINI)
+			end
 		end
 	end
 	anchorPopup("CENTER")
@@ -1479,7 +1628,7 @@ end
 
 layoutPopup = function()
 	local menu = menuButtons()
-	local list = sorted()
+	local list = gathered()
 	local profs = orderedProfessions()
 	hideProxies()
 	hideProfButtons()
@@ -1564,7 +1713,7 @@ toggle:SetScript("OnUpdate", function(self)
 	local rad = math.atan2(cy / scale - my, cx / scale - mx)
 	ZydeForeverDB = ZydeForeverDB or {}
 	ZydeForeverDB.minimapBagAngle = math.deg(rad)
-	local r = (Minimap:GetWidth() / 2) + 6
+	local r = orbitRadius(rad)
 	self:ClearAllPoints()
 	self:SetPoint("CENTER", Minimap, "CENTER", math.cos(rad) * r, math.sin(rad) * r)
 	if flyout:IsShown() then anchorFlyout() end
@@ -1598,6 +1747,8 @@ key:SetScript("OnClick", function(_, _, down)
 	end
 end)
 
+ns.PlaceMinimapBag = placeToggle
+
 local function apply()
 	if on() then
 		toggle:Show()
@@ -1609,6 +1760,9 @@ local function apply()
 		flyout:Hide()
 		catcher:Hide()
 		releaseAll()
+		if AddonCompartmentFrame and AddonCompartmentFrame.UpdateDisplay then
+			AddonCompartmentFrame:UpdateDisplay()
+		end
 		toggle:Hide()
 	end
 end

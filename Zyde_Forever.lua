@@ -191,7 +191,7 @@ end
 -- AHledger) is off when that addon isn't loaded.
 ---------------------------------------------------------------------------
 local FEATURES = {
-	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "A bar of icons beside you. Shift-drag it to move it. Ctrl+click it to switch between a column and a row. Alt+click it to cycle the size (-60%, -30%, normal, +30%, +60%). Size is also the option under this one. Battle Shout, Thunder Clap, being out of melee range, Eviscerate and Seal of Righteousness pulse. Warriors: in a fight, Battle Shout, Thunder Clap and being out of melee range. Also Overpower / Execute / Revenge / Victory Rush ready, Shield Block flashing when ready and counting down while it recharges, wrong stance, and Sunder stacks in Defensive Stance. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing (solo), target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Shamans: weapon imbue missing or running out, Lightning Shield missing or low, Earth Shock to interrupt, a totem out of range, no Ankh. Everyone: Well-Rested low, eat when Well Fed is down, use a Camp Tent when rested XP is under 5% and Boosted Rest is off, gear needs repair, low on food or water" },
+	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "A bar of icons beside you. Shift-drag it to move it. Ctrl+click it to switch between a column and a row. Alt+click it to cycle the size (-60%, -30%, normal, +30%, +60%). Size is also the option under this one. Battle Shout, Thunder Clap, Demoralizing Shout, being out of melee range, Eviscerate and Seal of Righteousness pulse. Warriors: in a fight, Battle Shout, Thunder Clap, Demoralizing Shout and being out of melee range. Also Overpower / Execute / Revenge / Victory Rush ready, Shield Block flashing when ready and counting down while it recharges, wrong stance, and Sunder stacks in Defensive Stance. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing (solo), target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Shamans: weapon imbue missing or running out, Lightning Shield missing or low, Earth Shock to interrupt, a totem out of range, no Ankh. Everyone: Well-Rested low, eat when Well Fed is down, use a Camp Tent when rested XP is under 5% and Boosted Rest is off, gear needs repair, low on food or water" },
 	{ key = "ammo", class = "HUNTER", short = "count, refill, warning", label = "Hunter ammo", desc = "Arrows or bullets left and how long they last (in the XP readout), a warning when you leave town low, and a Fill quiver button at ammo vendors (hunters)" },
 	{ key = "petCare", class = "HUNTER", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast reminder: off in a group, on when solo (hunters)" },
 	{ key = "markerWheel", short = "marks on the target", label = "Target markers", desc = "Hold the marker key and two rows of four icons show just under your cursor. Top: skull, X, square, moon. Bottom: triangle, diamond, circle, star. The red button removes the mark on your target. The gold ALL button removes every mark. Clicking the icon already on your target removes that mark too. Click a different icon to change it. Letting go hides the icons. World markers stay a separate key: press it to show or hide the squares, drag the title to move them, click a square, then the ground. The last square clears those." },
@@ -210,6 +210,7 @@ local FEATURES = {
 	{ key = "gear", short = "borders, item levels", label = "Character screen gear", desc = "Rarity borders and item levels; a green arrow when your bags hold an upgrade for a slot (scored by GearAdvisor if loaded), empty slots quiet gray unless your bags can fill them, and your average item level in the header", reload = true },
 	{ key = "fishing", short = "one-key fishing", label = "One Button Fishing", desc = "Same key casts and reels in (set the key in Keybindings)" },
 	{ key = "buttonBag", short = "one button, a key for the rest", label = "Minimap button bag", desc = "Gathers the other addon buttons on the minimap onto one button. Click that button to spread them out. Drag it around the minimap to move it. Hold Buttons at cursor (Options > Keybindings > Zyde Forever) to open tradeskills, the game menu, and those buttons at the mouse" },
+	{ key = "minimap", short = "zone, local and server time", label = "Minimap", desc = "A few looks for the minimap: Round, Gilded, or Square. Drag the map to move it. The zone name sits under it, with your local time and the server time side by side. Off while SexyMap is loaded", conflict = "SexyMap" },
 	{ key = "mapNotes", short = "alt-click to mark", label = "Map markers", desc = "Your own named markers on the world map, kept between sessions. Alt-click the map to drop one and name it, alt-click a marker to remove it, right-click to rename it" },
 	{ key = "flight", short = "skip flight chat", label = "Flight master shortcut", desc = "Flight masters open the map directly (hold Shift to talk)" },
 	{ key = "tracking", short = "re-enable after death", label = "Keep tracking after death", desc = "Turns Find Minerals, Find Herbs... back on after you die" },
@@ -500,6 +501,7 @@ local EDGE = {
 	shout = { 0.95, 0.72, 0.15, 1 },
 	meleeRange = { 0.95, 0.15, 0.1, 1 },
 	thunderClap = { 0.25, 0.55, 1, 1 },
+	demoShout = { 0.72, 0.22, 0.18, 1 },
 	eviscerate = { 0.85, 0.1, 0.25, 1 },
 	sealRighteousness = { 1, 0.85, 0.35, 1 },
 }
@@ -1897,6 +1899,7 @@ local CATEGORIES = {
 			{ "plates", children = { "comboPoints" } }, "xp",
 			{ "reminders", children = {}, choosers = { "reminderSize" } },
 			{ group = "Action bars", children = { "hideBars", "hideMicroMenu", "barTidy" } },
+			{ "minimap", children = {}, choosers = { "minimapLook" } },
 			"buttonBag", "gear",
 			{ "radial", children = {}, button = { label = "Set up", click = function() if ns.Radial then ns.Radial.ToggleEditor() end end } },
 		} },
@@ -1976,6 +1979,14 @@ local function buildOptions()
 				return "0"
 			end,
 			set = function(k) ns.SetReminderSize(k) end,
+			changed = function() return false end,
+		},
+		minimapLook = {
+			label = "Look", parent = "minimap", width = 120,
+			desc = "Round, Gilded, or Square. The zone name, local time, and server time stay under the map.",
+			options = function() return ns.MinimapLook and ns.MinimapLook.LOOKS or {} end,
+			get = function() return ns.MinimapLook and ns.MinimapLook.Get() or "round" end,
+			set = function(k) if ns.MinimapLook then ns.MinimapLook.Set(k) end end,
 			changed = function() return false end,
 		},
 		playerAuras = {

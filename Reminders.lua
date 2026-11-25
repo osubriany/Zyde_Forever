@@ -2,7 +2,7 @@
 -- (all under the "Reminder icons" toggle).
 --   Warrior: Execute ready, Revenge ready, Victory Rush ready, Shield Block
 --            flashing when ready and counting down while it recharges,
---            Thunder Clap missing on your target, wrong stance
+--            Thunder Clap or Demoralizing Shout missing on your target, wrong stance
 --            (out of combat, and not while a one-hand and shield are equipped),
 --            Sunder Armor stacks in Defensive Stance,
 --            target too far for melee.
@@ -232,7 +232,7 @@ rankEv:RegisterEvent("SPELLS_CHANGED")
 rankEv:SetScript("OnEvent", refreshBookSpells)
 refreshBookSpells()
 local THUNDER_CLAP = { 6343, 8198, 8204, 8205, 11580, 11581, 25264 }
-local THUNDER_SET = set(THUNDER_CLAP)
+local DEMO_SHOUT = { 1160, 6190, 11554, 11555, 11556, 25202, 25203, 47437 }
 local REND = { 772, 6546, 6547, 6548, 11572, 11573, 11574, 25208 } -- (an instant melee attack: its range is melee reach)
 
 if WARRIOR then
@@ -670,33 +670,66 @@ if WARRIOR then
 		return true, "Victory"
 	end)
 
-	-- Thunder Clap's slow lasts 30 seconds. In a fight the game often hides the
-	-- debuff, so a cast you just made keeps the icon down until that time is up.
-	local thunderExpires, THUNDER_TIME = 0, 30
-	local thunderEv = CreateFrame("Frame")
-	thunderEv:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-	thunderEv:SetScript("OnEvent", function(_, _, _, _, spellID)
-		spellID = plain(spellID)
-		if spellID and THUNDER_SET[spellID] then thunderExpires = GetTime() + THUNDER_TIME end
-	end)
-	-- Missing on a target you're in melee with (from anyone: it's the same slow),
-	-- when you could cast it now.
-	local thunderTile = ns.AddReminder("thunderClap", "ZydeForeverThunderClap", icon(THUNDER_CLAP, "Spell_Nature_ThunderClap"), function(preview)
-		if preview then return true, "Thunder" end
-		if not on() or not inCombat() or not hostileTarget() or not ready(THUNDER_CLAP) then return false end
-		local rend = knownRank(REND)
-		if rend and inRange(rend) == false then return false end -- (out of reach: it wouldn't land)
-		local found, hidden, a = hasAura("target", "HARMFUL", THUNDER_SET)
-		if found then
-			local dur, exp = a and plain(a.duration), a and plain(a.expirationTime)
-			if dur and dur > 0 then THUNDER_TIME = dur end
-			if exp and exp > 0 then thunderExpires = exp end
-			return false
+	-- Thunder Clap and Demoralizing Shout each last 30 seconds. In a fight the
+	-- game often hides the debuff, so a cast you just made keeps that icon down
+	-- until the time is up. A duration or expiry that isn't a short debuff (a
+	-- timestamp, a 0, a time already past) must not stick.
+	local DEBUFF_MAX = 60
+	local function debuffReminder(spellName, ids, fallback, label, key, frameName, iconFile)
+		local idSet = set(ids)
+		absorbRanks(ids, idSet, spellName)
+		local expires, forGuid, length = 0, nil, fallback
+		local function arm(seconds, guid)
+			if type(seconds) ~= "number" or seconds <= 0 or seconds > DEBUFF_MAX then seconds = fallback end
+			length = seconds
+			expires = GetTime() + seconds
+			forGuid = guid
 		end
-		if hidden and GetTime() < thunderExpires then return false end
-		return true, "Thunder"
+		local function onCast(spellID, name)
+			if idSet[spellID] or name == spellName then arm(length, plain(UnitGUID("target"))) end
+		end
+		local tile = ns.AddReminder(key, frameName, icon(ids, iconFile), function(preview)
+			if preview then return true, label end
+			if not on() or not inCombat() or not hostileTarget() or not ready(ids) then return false end
+			local rend = knownRank(REND)
+			if rend and inRange(rend) == false then return false end -- (out of reach: it wouldn't land)
+			local guid = plain(UnitGUID("target"))
+			local now = GetTime()
+			local found, hidden, a = hasAura("target", "HARMFUL", idSet)
+			if found then
+				local dur, exp = a and plain(a.duration), a and plain(a.expirationTime)
+				if type(dur) == "number" and dur > 0 and dur <= DEBUFF_MAX then length = dur end
+				if type(exp) == "number" and exp > now and (exp - now) <= DEBUFF_MAX then
+					expires, forGuid = exp, guid
+					return false
+				end
+				if exp == nil then
+					if forGuid ~= guid or now >= expires then arm(length, guid) end
+					return false
+				end
+				expires = 0
+			elseif not hidden then
+				expires = 0
+			end
+			if hidden and forGuid == guid and now < expires then return false end
+			return true, label
+		end)
+		tile.prominent = true
+		return onCast
+	end
+	local onThunder = debuffReminder("Thunder Clap", THUNDER_CLAP, 30, "Thunder", "thunderClap", "ZydeForeverThunderClap", "Spell_Nature_ThunderClap")
+	local onDemo = debuffReminder("Demoralizing Shout", DEMO_SHOUT, 30, "Demo", "demoShout", "ZydeForeverDemoShout", "Ability_Warrior_WarCry")
+	local debuffEv = CreateFrame("Frame")
+	debuffEv:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	debuffEv:SetScript("OnEvent", function(_, _, _, _, spellID)
+		spellID = plain(spellID)
+		if not spellID then return end
+		local name = (C_Spell and C_Spell.GetSpellName and safe(C_Spell.GetSpellName, spellID))
+			or (GetSpellInfo and safe(GetSpellInfo, spellID))
+		name = plain(name)
+		onThunder(spellID, name)
+		onDemo(spellID, name)
 	end)
-	thunderTile.prominent = true
 end
 
 ---------------------------------------------------------------------------
