@@ -29,7 +29,7 @@ local function db()
 end
 local function slots() return db().slots end
 
-local function radiusFor(n) return math.max(64, math.floor(n * (ICON + 8) / (2 * math.pi) + 0.5)) end
+local function radiusFor(n) return math.max(76, math.floor(n * (ICON + 8) / (2 * math.pi) + 0.5)) end
 
 -- Slot i of n: clockwise from the top. Returns a unit vector (x right, y up).
 local function dir(i, n)
@@ -134,6 +134,13 @@ look.name = look:CreateFontString(nil, "OVERLAY")
 if not look.name:SetFont("Fonts\\ARIALN.TTF", 13, "OUTLINE") then look.name:SetFontObject("GameFontNormal") end
 look.name:SetPoint("CENTER")
 look.name:SetTextColor(1, 0.84, 0.35)
+-- The name sits on a dark label under the ring, not in the middle: a long
+-- name ("Mithril Head Trout") ran over the icons beside it.
+look.nameBg = look:CreateTexture(nil, "BORDER")
+look.nameBg:SetColorTexture(0, 0, 0, 0.75)
+look.nameBg:SetPoint("TOPLEFT", look.name, "TOPLEFT", -6, 3)
+look.nameBg:SetPoint("BOTTOMRIGHT", look.name, "BOTTOMRIGHT", 6, -3)
+look.nameBg:Hide()
 
 local icons = {}
 local function iconFrame(i)
@@ -162,11 +169,13 @@ local function paintHover(pick)
 			for _, t in ipairs(f.edges) do
 				if hot then t:SetColorTexture(1, 0.82, 0.2, 1) else t:SetColorTexture(0.25, 0.25, 0.28, 1) end
 			end
-			f:SetScale(hot and 1.2 or 1)
+			-- Bigger in place (SetScale would also push it further from the middle).
+			f:SetSize(hot and ICON * 1.2 or ICON, hot and ICON * 1.2 or ICON)
 			f.tex:SetAlpha(hot and 1 or 0.8)
 		end
 	end
 	look.name:SetText(pick and labelOf(current[pick]) or "")
+	look.nameBg:SetShown(pick ~= nil)
 end
 
 -- Same pick as the secure code: the slot whose direction is closest to the mouse's.
@@ -281,6 +290,8 @@ local function apply()
 	end
 	local n = #current
 	local r = radiusFor(n)
+	look.name:ClearAllPoints()
+	look.name:SetPoint("TOP", look, "CENTER", 0, -(r + ICON / 2 + 10))
 	for i = 1, MAX do
 		local f = icons[i]
 		if i <= n then
