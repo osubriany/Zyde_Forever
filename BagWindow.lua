@@ -178,9 +178,34 @@ local function isNewItem(bag, slot)
 	return ns.safe(C_NewItems.IsNewItem, bag, slot) == true
 end
 
+-- A yellow ! on an item that starts a quest you haven't taken yet: click it.
+-- Our own texture, so the slot button's own quest marks stay out of the way.
+local QUEST_BANG = "Interface\\ContainerFrame\\UI-Icon-QuestBang"
+local function setBang(b, show)
+	local own = b.IconQuestTexture or _G[(b:GetName() or "") .. "IconQuestTexture"]
+	if own then own:Hide() end
+	if show and not b.bang then
+		b.bang = b:CreateTexture(nil, "OVERLAY", nil, 6)
+		b.bang:SetAllPoints()
+		b.bang:SetTexture(QUEST_BANG)
+	end
+	if b.bang then b.bang:SetShown(show and true or false) end
+end
+
+local function startsQuest(bag, slot)
+	local q = C_Container.GetContainerItemQuestInfo and ns.safe(C_Container.GetContainerItemQuestInfo, bag, slot)
+	if type(q) ~= "table" then return false end
+	local id = q.questID
+	if not id or ns.isSecret(id) or q.isActive then return false end
+	-- Done already (some starters stay in your bags): no !.
+	local done = C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted and ns.safe(C_QuestLog.IsQuestFlaggedCompleted, id)
+	return done ~= true
+end
+
 local function paint(b)
 	if b.empty then
 		setNew(b, false)
+		setBang(b, false)
 		SetItemButtonTexture(b, b.emptyTex)
 		SetItemButtonCount(b, b.emptyCount)
 		SetItemButtonDesaturated(b, false)
@@ -192,6 +217,7 @@ local function paint(b)
 	local info = C_Container.GetContainerItemInfo(b:GetParent():GetID(), b:GetID())
 	if not info then
 		setNew(b, false)
+		setBang(b, false)
 		SetItemButtonTexture(b, nil)
 		SetItemButtonCount(b, 0)
 		if SetItemButtonQuality then pcall(SetItemButtonQuality, b, nil) end
@@ -212,6 +238,7 @@ local function paint(b)
 	SetItemButtonDesaturated(b, info.isLocked)
 	if SetItemButtonQuality then pcall(SetItemButtonQuality, b, info.quality, info.hyperlink) end
 	setNew(b, isNewItem(b:GetParent():GetID(), b:GetID()), info.quality)
+	setBang(b, startsQuest(b:GetParent():GetID(), b:GetID()))
 	if b.cd and C_Container.GetContainerItemCooldown then
 		local start, dur, enable = C_Container.GetContainerItemCooldown(b:GetParent():GetID(), b:GetID())
 		if CooldownFrame_Set then pcall(CooldownFrame_Set, b.cd, start, dur, enable) end
