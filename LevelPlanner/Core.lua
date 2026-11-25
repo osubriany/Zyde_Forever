@@ -7,7 +7,7 @@ local ns = zyde.LP
 
 ns.cfg = LevelPlannerConfig or {}
 ns.debug = false
-ns.skipped = {}        -- [questId] = true: left out by /lp next until /lp reset or reload
+ns.skipped = {}        -- [questId] = name: left out of the plan (saved per character once loaded: UI/Skip.lua)
 ns.plan = nil          -- latest plan from Planner
 ns.candidates = nil    -- latest candidate list from QuestSource
 
@@ -599,6 +599,7 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2)
 		LevelPlannerCharDB = LevelPlannerCharDB or {}
 		ns.db, ns.char = LevelPlannerDB, LevelPlannerCharDB
 		ns.debug = ns.char.debug and true or false
+		if ns.Skip then ns.Skip.Load() end
 	elseif event == "PLAYER_LOGIN" then
 		-- a Zyde feature: runs only when "Level planner" is on in /zyde (it also needs Questie).
 		-- Off = no windows, no events, nothing done; turning it on or off takes a /reload.
@@ -719,13 +720,10 @@ SlashCmdList.LEVELPLANNER = function(msg)
 		local q = stop.quest
 		local id = q and q.isDungeon and q.id or stop.questId
 		local name = q and q.isDungeon and q.name or stop.questName
-		ns.skipped[id] = true
-		ns.print("skipping \"" .. (name or "?") .. "\" until /lp reset. Re-planning...")
-		ns.RequestReplan(true)
+		ns.Skip.Add(id, name, q and q.isDungeon)
 	elseif msg == "reset" then
-		wipe(ns.skipped)
-		ns.print("skipped quests cleared. Re-planning...")
-		ns.RequestReplan(true)
+		if next(ns.skipped) == nil then ns.print("nothing is skipped.") return end
+		ns.Skip.Clear()
 	elseif msg == "replan" then
 		ns.forceFresh = true -- a fresh plan, ignoring the switch threshold
 		ns.RequestReplan(true)
@@ -822,8 +820,8 @@ SlashCmdList.LEVELPLANNER = function(msg)
 	else
 		ns.print("commands:")
 		ns.print("/lp - show or hide the step list")
-		ns.print("/lp next - skip the current step's quest")
-		ns.print("/lp reset - stop skipping quests")
+		ns.print("/lp next - skip the current step's quest (or right-click any quest step)")
+		ns.print("/lp reset - stop skipping quests (one at a time: \"...\" > Skipped quests)")
 		ns.print("/lp replan - plan again from scratch now")
 		ns.print("/lp group on|off - plan elite and red quests for a group")
 		ns.print("/lp steps - print the whole plan in chat (times and XP of every step)")

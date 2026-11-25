@@ -146,14 +146,17 @@ end
 local function makeRow(i)
 	local r = buildRow()
 	addSlide(r)
-	-- clicks: right-click a pinned NPC step to remove it; drag still moves the list
+	-- clicks: right-click a pinned NPC step to remove it, a "..." > Travel step to stop the trip, a quest
+	-- step to skip the quest; drag still moves the list
 	r:EnableMouse(true)
 	r:RegisterForDrag("LeftButton")
 	r:SetScript("OnDragStart", function() if L.HideHearth then L.HideHearth() end frame:StartMoving() end)
 	r:SetScript("OnDragStop", function() frame:StopMovingOrSizing() savePos() end)
 	r:SetScript("OnMouseUp", function(self, button)
-		if button == "RightButton" and self.kind == "pin" and ns.Pin then ns.Pin.Clear() end
-		if button == "RightButton" and self.travelTo and ns.TravelTo then ns.TravelTo.Clear() end
+		if button ~= "RightButton" then return end
+		if self.kind == "pin" and ns.Pin then ns.Pin.Clear()
+		elseif self.travelTo and ns.TravelTo then ns.TravelTo.Clear()
+		elseif self.skips and #self.skips > 0 and ns.Skip then ns.Skip.ShowRowMenu(self, self.skips) end
 	end)
 	rows[i] = r
 	return r
@@ -196,7 +199,7 @@ function L.Init()
 	more:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
 		GameTooltip:AddLine("Find an NPC, travel, settings")
-		GameTooltip:AddLine("Innkeeper, ammo vendor, class trainer, repair or auctioneer: the nearest goes at the top of the steps. Right-click that step to remove it. Travel: route to any dungeon or zone first.", 1, 1, 1, true)
+		GameTooltip:AddLine("Innkeeper, ammo vendor, class trainer, repair or auctioneer: the nearest goes at the top of the steps. Right-click that step to remove it. Travel: route to any dungeon or zone first. Right-click a quest step to skip it; Skipped quests brings it back.", 1, 1, 1, true)
 		GameTooltip:Show()
 	end)
 	more:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -385,8 +388,15 @@ local function groupSteps(plan)
 			last.n = last.n + 1
 			last.xp = last.xp + (s.xp or 0)
 			last.names[#last.names + 1] = s.questName
+			local t = ns.Skip and ns.Skip.TargetOf(s)
+			if t then
+				local dup = false
+				for _, o in ipairs(last.skips) do if o.id == t.id then dup = true end end
+				if not dup then last.skips[#last.skips + 1] = t end
+			end
 		else
 			local q = s.quest
+			local t = ns.Skip and ns.Skip.TargetOf(s)
 			steps[#steps + 1] = {
 				kind = s.kind, mode = s.mode, point = s.point, n = 1, xp = s.xp or 0, mobXp = s.mobXp or 0,
 				work = s.work or 0, label = s.label, names = { s.questName }, npcName = s.npcName,
@@ -398,6 +408,8 @@ local function groupSteps(plan)
 				dropFrom = s.dropFrom, mobs = s.mobs,
 				-- "..." > Travel steps (UI/TravelTo.lua): right-click stops the trip
 				travelTo = s.travelTo, destKind = s.destKind, travelSecs = s.travelSecs, guessed = s.guessed,
+				-- right-click > "Skip quest" (UI/Skip.lua)
+				skips = { t },
 			}
 		end
 	end
@@ -749,6 +761,7 @@ function L.Update(plan)
 		if need and not dinged and gained >= need then dinged, dingHere = true, true end
 		r.kind = s.kind
 		r.travelTo = s.travelTo
+		r.skips = s.skips
 		if s.kind == "travel" and s.mode == "hearth" and not hearthFound then hearthFound = r end
 		r.icon:SetTexture(icon)
 		r.title:SetText(titleText)

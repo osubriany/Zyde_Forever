@@ -96,7 +96,12 @@ local function explainOne(id)
 
 	local complete = Questie and Questie.db and Questie.db.char and Questie.db.char.complete or {}
 	if complete[id] then say("  Already done.") return end
-	if ns.skipped[id] then say("  You skipped it with /lp next. /lp reset brings it back.") return end
+	if ns.skipped[id] then say("  You skipped it. Bring it back from \"...\" > Skipped quests (or /lp reset for all).") return end
+	local dun = ns.Dungeons and ns.Dungeons.Of and ns.Dungeons.Of(id)
+	if dun and ns.skipped["d:" .. dun] then
+		say("  Its dungeon run is skipped. Bring it back from \"...\" > Skipped quests (or /lp reset for all).")
+		return
+	end
 
 	local idx, s, dungeon = stepOf(id)
 	-- a step done in passing (the step list's "On the way" section)

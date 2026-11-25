@@ -143,7 +143,10 @@ function Pin.ToggleMenu(anchor)
 		tr.arrow = tr:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		tr.arrow:SetPoint("RIGHT", -6, 0)
 		tr.arrow:SetText("<")
-		tr:SetScript("OnClick", function(self) if ns.TravelTo then ns.TravelTo.ToggleSide(self) end end)
+		tr:SetScript("OnClick", function(self)
+			if ns.Skip then ns.Skip.HideList() end
+			if ns.TravelTo then ns.TravelTo.ToggleSide(self) end
+		end)
 		tr:SetScript("OnEnter", function(self)
 			GameTooltip:SetOwner(self, "ANCHOR_LEFT")
 			GameTooltip:AddLine("Travel")
@@ -151,6 +154,40 @@ function Pin.ToggleMenu(anchor)
 			GameTooltip:Show()
 		end)
 		tr:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		y = y - 20
+		-- Skipped quests (UI/Skip.lua): the quests you right-clicked away; click one to bring it back
+		local sk = CreateFrame("Button", nil, menu)
+		sk:SetSize(150, 20)
+		sk:SetPoint("TOPLEFT", 4, y)
+		sk.hl = sk:CreateTexture(nil, "HIGHLIGHT")
+		sk.hl:SetAllPoints()
+		sk.hl:SetColorTexture(1, 1, 1, 0.1)
+		sk.icon = sk:CreateTexture(nil, "ARTWORK")
+		sk.icon:SetSize(16, 16)
+		sk.icon:SetPoint("LEFT", 4, 0)
+		sk.icon:SetTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Up")
+		sk.text = sk:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		sk.text:SetPoint("LEFT", sk.icon, "RIGHT", 6, 0)
+		sk.arrow = sk:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		sk.arrow:SetPoint("RIGHT", -6, 0)
+		sk.arrow:SetText("<")
+		menu.skipRefresh = function()
+			local n = 0
+			for _ in pairs(ns.skipped) do n = n + 1 end
+			sk.text:SetText(n > 0 and string.format("Skipped quests |cff999999(%d)|r", n) or "Skipped quests")
+		end
+		sk:SetScript("OnClick", function(self)
+			local side = _G.LevelPlannerTravelMenu
+			if side then side:Hide() end
+			if ns.Skip then ns.Skip.ToggleList(self) end
+		end)
+		sk:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+			GameTooltip:AddLine("Skipped quests")
+			GameTooltip:AddLine("Quests and dungeon runs the planner leaves out. Right-click a step to skip it; click one here to put it back. Saved for this character.", 1, 1, 1, true)
+			GameTooltip:Show()
+		end)
+		sk:SetScript("OnLeave", function() GameTooltip:Hide() end)
 		y = y - 20
 		-- planner setting: elite quests (auto -> on -> off; same as /lp elites)
 		local sep = menu:CreateTexture(nil, "ARTWORK")
@@ -243,6 +280,8 @@ function Pin.ToggleMenu(anchor)
 	end
 	menu.eliteRefresh()
 	menu.pickupRefresh()
+	menu.skipRefresh()
+	if ns.Skip then ns.Skip.HideList() end
 	menu:ClearAllPoints()
 	menu:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -2)
 	menu:Show()

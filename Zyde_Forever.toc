@@ -84,6 +84,7 @@ LevelPlanner\UI\ItemButton.lua
 LevelPlanner\UI\TaxiArrow.lua
 LevelPlanner\UI\Pin.lua
 LevelPlanner\UI\TravelTo.lua
+LevelPlanner\UI\Skip.lua
 LevelPlanner\UI\Shopping.lua
 LevelPlanner\Auto.lua
 LevelPlanner\Why.lua
