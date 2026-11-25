@@ -820,6 +820,11 @@ local function newView(o)
 
 	win.title = win:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	win.title:SetPoint("TOPLEFT", PAD, -9)
+	-- Fenced to the space left of the bag-row button and the search box: a
+	-- longer line ("30 free · 12 reagent") cuts off there instead of running under them.
+	win.title:SetWidth(INNER_W - 140 - 6 - 24 - 40)
+	win.title:SetJustifyH("LEFT")
+	win.title:SetWordWrap(false)
 	win.close = CreateFrame("Button", nil, win, "UIPanelCloseButton")
 	win.close:SetPoint("TOPRIGHT", 2, 2)
 	win.close:SetScript("OnClick", function() win:Hide() end)
@@ -1033,7 +1038,7 @@ local closeBlizzard -- forward
 local function buildBags()
 	local v = newView({
 		frameName = "ZydeForeverBags", bags = myBags, posKey = "bagPos",
-		titleText = (UnitName("player") or "") .. "'s bags",
+		titleText = "Bags",
 		defaultPoint = { "BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -60, 110 },
 		bagRowShown = bagRowShown,
 	})
