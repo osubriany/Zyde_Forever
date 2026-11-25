@@ -67,6 +67,8 @@ Seeds.crossings = {
 	{ name = "Stonetalon / Desolace road", map = DESOLACE, x = 55.0, y = 6.0, other = STONETALON },
 	{ name = "Desolace / Feralas road", map = DESOLACE, x = 43.0, y = 96.0, other = FERALAS },
 	{ name = "Feralas / Thousand Needles", map = FERALAS, x = 90.0, y = 45.0, other = NEEDLES },
+	-- (seen in game 2026-11-25: the road south from the Shimmering Flats)
+	{ name = "Thousand Needles / Tanaris road", map = NEEDLES, x = 75.0, y = 93.0, other = 1446 }, -- 1446 = Tanaris
 }
 
 -- Boats, zeppelins, tram. Each end is either a spawn of a known NPC (preferred: exact position from

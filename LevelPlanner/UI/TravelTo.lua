@@ -186,6 +186,57 @@ local function zoneMiddle(map)
 	return p
 end
 
+-- Is `m` the zone, or a map inside it?
+local function within(m, zoneMap)
+	local guard = 0
+	while m and guard < 6 do
+		if m == zoneMap then return true end
+		local info = C_Map.GetMapInfo(m)
+		m = info and info.parentMapID
+		guard = guard + 1
+	end
+	return false
+end
+
+-- The zone border on the way in: from where you stand, straight toward the zone's middle on the
+-- continent map, the first spot the game's map calls that zone (a little inside it). For zones
+-- with no known crossing from your zone. Kept for 10 s, or until you've moved 200 yd.
+local edgeCache
+local EDGE_STEPS = 120
+local function zoneEdge(map)
+	local here = ns.Geo.PlayerPoint()
+	if not here then return nil end
+	local c = edgeCache
+	if c and c.map == map and c.inst == here.inst and GetTime() - c.at < 10 then
+		local d = ns.Geo.Distance(here, c.from)
+		if d and d < 200 then return c.point end
+	end
+	local mid = ns.Geo.PointOnMap(map, 50, 50)
+	local found
+	for _, cont in ipairs(CONTINENTS) do
+		local hx, hy = ns.Geo.ZoneCoords(here, cont.map)
+		local mx, my
+		if mid then mx, my = ns.Geo.ZoneCoords(mid, cont.map) end
+		if hx and mx then
+			hx, hy, mx, my = hx / 100, hy / 100, mx / 100, my / 100
+			for i = 1, EDGE_STEPS do
+				local t = math.min(1, (i + 1) / EDGE_STEPS) -- (one step past the line: inside the zone)
+				if within(ns.Geo.ZoneAt(cont.map, hx + (mx - hx) * i / EDGE_STEPS, hy + (my - hy) * i / EDGE_STEPS), map) then
+					local p = ns.Geo.PointOnMap(cont.map, (hx + (mx - hx) * t) * 100, (hy + (my - hy) * t) * 100)
+					-- (on the zone's own map, so the pin and arrow land in the right place)
+					local zx, zy
+					if p then zx, zy = ns.Geo.ZoneCoords(p, map) end
+					found = (zx and ns.Geo.PointOnMap(map, zx, zy)) or p
+					break
+				end
+			end
+			break
+		end
+	end
+	edgeCache = { map = map, inst = here.inst, from = here, point = found, at = GetTime() }
+	return found
+end
+
 -- The points you could head for, each { point, label }.
 local function candidates(dest)
 	local out = {}
@@ -197,9 +248,26 @@ local function candidates(dest)
 			if p then out[#out + 1] = { point = p } end
 		end
 	else
+		-- your zone (a city counts as the zone it's in)
+		local mine = C_Map.GetBestMapForUnit("player")
+		local info = mine and isCity[mine] and C_Map.GetMapInfo(mine)
+		if info and info.parentMapID then mine = info.parentMapID end
+		local mineNames = {}
+		for _, n in ipairs(mine and ns.Travel.NodesOn and ns.Travel.NodesOn(mine) or {}) do mineNames[n.name or ""] = true end
+		local crossing = false
 		for _, n in ipairs(ns.Travel.NodesOn and ns.Travel.NodesOn(dest.map) or {}) do
 			local p = ns.Geo.PointOnMap(n.map, n.x, n.y)
 			if p then out[#out + 1] = { point = p, via = n.name } end
+			-- a known crossing from your zone into it (a pass: its other end is in your zone)
+			if (n.kind == "border" and n.maps and n.maps[mine]) or (n.kind == "pass" and mineNames[n.name or ""]) then
+				crossing = true
+			end
+		end
+		-- no known crossing from here into it: the border straight ahead (known ones know the roads
+		-- and passes - the Great Lift, Talondeep Path)
+		if not crossing and not isCity[dest.map] then
+			local e = zoneEdge(dest.map)
+			if e then out[#out + 1] = { point = e, via = "zone border" } end
 		end
 		local mid = zoneMiddle(dest.map)
 		if mid then out[#out + 1] = { point = mid } end
