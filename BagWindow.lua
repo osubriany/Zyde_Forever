@@ -579,6 +579,19 @@ end
 
 local closeBlizzard -- forward
 
+-- Your gold for the bottom-right corner: 14g 71s 18c with the coin icons.
+local function coin(n, icon) return n .. "|TInterface\\MoneyFrame\\" .. icon .. ":12:12:2:0|t" end
+local function moneyText()
+	local c = ns.safe(GetMoney)
+	if ns.isSecret(c) or type(c) ~= "number" then return "" end
+	local g, sv, cp = math.floor(c / 10000), math.floor(c / 100) % 100, c % 100
+	local parts = {}
+	if g > 0 then parts[#parts + 1] = coin(g, "UI-GoldIcon") end
+	if g > 0 or sv > 0 then parts[#parts + 1] = coin(sv, "UI-SilverIcon") end
+	parts[#parts + 1] = coin(cp, "UI-CopperIcon")
+	return table.concat(parts, "  ")
+end
+
 local function build()
 	win = CreateFrame("Frame", "ZydeForeverBags", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
 	win:SetWidth(INNER_W + PAD * 2)
@@ -647,7 +660,7 @@ local function build()
 	placeContent()
 	paintBagSlots()
 
-	win.money = win:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	win.money = win:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	win.money:SetPoint("BOTTOMRIGHT", -PAD, 12)
 	if C_Container.SortBags then
 		local sort = CreateFrame("Button", nil, win, "UIPanelButtonTemplate")
@@ -671,7 +684,7 @@ local function build()
 	win:SetScript("OnShow", function()
 		placeWin()
 		paintBagSlots()
-		win.money:SetText(GetCoinTextureString and GetCoinTextureString(GetMoney()) or "")
+		win.money:SetText(moneyText())
 		if dirty and not InCombatLockdown() then layout() else repaint() end
 	end)
 	win:SetScript("OnHide", function()
@@ -783,7 +796,7 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 		return
 	end
 	if event == "PLAYER_MONEY" then
-		win.money:SetText(GetCoinTextureString and GetCoinTextureString(GetMoney()) or "")
+		win.money:SetText(moneyText())
 		return
 	end
 	if event == "BAG_CONTAINER_UPDATE" or event == "BAG_UPDATE_DELAYED" then paintBagSlots() end
