@@ -641,7 +641,8 @@ function View:SetTitle()
 	local more = {}
 	for _, kind in ipairs({ "reagent", "ammo", "soul", "special" }) do
 		local n = self.extraFree and self.extraFree[kind]
-		if n then more[#more + 1] = n .. " " .. kind end
+		-- (a full quiver or ammo pouch is normal: only bags with room are listed)
+		if n and n > 0 then more[#more + 1] = n .. " " .. kind end
 	end
 	local tail = #more > 0 and ("  |cff888888· " .. table.concat(more, " · ") .. "|r") or ""
 	self.win.title:SetText(self.titleText .. string.format("  |cff%02x%02x%02x%s|r", r * 255, g * 255, bl * 255, free) .. tail)
