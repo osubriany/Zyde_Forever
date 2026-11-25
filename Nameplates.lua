@@ -601,8 +601,7 @@ local function updateName(f)
 	local boss = lvl < 0 or class == "worldboss"
 	local txt = boss and "??" or tostring(lvl)
 	if class == "elite" or class == "rareelite" then txt = txt .. "+" end
-	local c = GetCreatureDifficultyColor and GetCreatureDifficultyColor(boss and 999 or lvl)
-		or (GetQuestDifficultyColor and GetQuestDifficultyColor(boss and 999 or lvl))
+	local c = ns.levelColor(boss and -1 or lvl) -- (Classic's rules, like Blizzard's frames)
 	f.level:SetText(txt)
 	if c then f.level:SetTextColor(c.r, c.g, c.b) else f.level:SetTextColor(1, 0.82, 0) end
 	if boss then

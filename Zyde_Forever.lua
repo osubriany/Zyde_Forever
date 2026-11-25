@@ -110,6 +110,41 @@ local function spellTexture(id, fallback)
 	return tex
 end
 
+-- A mob's level color, by Classic's rules (what Blizzard's frames show on Forever;
+-- the modern client's own GetCreatureDifficultyColor greys mobs out sooner). By
+-- the mob's level against yours: red 5+ above, orange 3-4 above, yellow within 2,
+-- green below that, grey at or under the "no XP" level: none until 6; then your
+-- level - 5 - level/10 up to 39; your level - 1 - level/5 from 40 to 59; 51 at 60.
+-- Bosses ("??", level -1) are red.  ns.levelColor(level) -> { r, g, b }
+do
+	local FALLBACK = {
+		impossible = { r = 1, g = 0.1, b = 0.1 }, verydifficult = { r = 1, g = 0.5, b = 0.25 },
+		difficult = { r = 1, g = 0.82, b = 0 }, standard = { r = 0.25, g = 0.75, b = 0.25 },
+		trivial = { r = 0.5, g = 0.5, b = 0.5 },
+	}
+	local function color(kind)
+		local t = QuestDifficultyColors and QuestDifficultyColors[kind]
+		return (type(t) == "table" and t.r) and t or FALLBACK[kind]
+	end
+	local function grayLevel(me)
+		if me <= 5 then return 0 end
+		if me <= 39 then return me - 5 - math.floor(me / 10) end
+		if me <= 59 then return me - 1 - math.floor(me / 5) end
+		return me - 9
+	end
+	function ns.levelColor(level)
+		local me = UnitLevel("player")
+		if isSecret(me) or type(me) ~= "number" or type(level) ~= "number" then return color("difficult") end
+		if level < 0 then return color("impossible") end
+		local diff = level - me
+		if diff >= 5 then return color("impossible") end
+		if diff >= 3 then return color("verydifficult") end
+		if diff >= -2 then return color("difficult") end
+		if level > grayLevel(me) then return color("standard") end
+		return color("trivial")
+	end
+end
+
 -- Your buffs, read once and shared by every reminder tile (several tiles each
 -- re-reading up to 40 buffs five times a second added up). Read again when your
 -- buffs change, a fight starts or ends, or after a second at most.

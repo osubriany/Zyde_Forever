@@ -297,8 +297,7 @@ local function levelText(unit)
 	local txt = (lvl < 0) and "??" or tostring(lvl)
 	local class = plain(UnitClassification(unit))
 	if class == "elite" or class == "worldboss" or class == "rareelite" then txt = txt .. "+" end
-	local c = GetCreatureDifficultyColor and GetCreatureDifficultyColor(lvl < 0 and 999 or lvl)
-		or (GetQuestDifficultyColor and GetQuestDifficultyColor(lvl < 0 and 999 or lvl))
+	local c = ns.levelColor(lvl) -- (Classic's rules, like Blizzard's frames)
 	if c then
 		return string.format("|cff%02x%02x%02x%s|r ", c.r * 255, c.g * 255, c.b * 255, txt)
 	end
