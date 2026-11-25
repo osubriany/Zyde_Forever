@@ -7,7 +7,7 @@
 --   links. Drop an item on an Empty tile to put it in that free slot.
 --   Alt-click an item to put it in Perma (or take it out). Click a heading to fold it.
 --   The title shows your free slots (orange at 5 or fewer, red when full).
---   Buttons: Sort (the game's own tidy), Restack (joins part stacks in the
+--   Buttons: Restack (joins part stacks in the
 --   real bags), Sell junk (at a vendor; junk also sells by itself there, see
 --   "Sell junk at vendors" in /zyde).
 --   At a banker the bank gets the same sorted window, where the game's bank
@@ -1030,11 +1030,6 @@ local function buildBags()
 	v:PlaceContent()
 	paintBagSlots()
 
-	if C_Container.SortBags then
-		win.AddButton("Sort", 50, "Tidy the bags themselves",
-			"This window sorts itself. Sort also moves the items in your real bags.",
-			function() if not InCombatLockdown() then pcall(C_Container.SortBags) end end)
-	end
 	win.AddButton("Restack", 64, "Join part stacks",
 		"Puts part stacks of the same item together in your real bags, which frees up slots.",
 		function() restack(myBags()) end)
@@ -1091,11 +1086,6 @@ local function buildBank()
 	})
 	local win = v.win
 	v:PlaceContent()
-	if C_Container.SortBankBags then
-		win.AddButton("Sort", 50, "Tidy the bank itself",
-			"This window sorts itself. Sort also moves the items in the real bank.",
-			function() if not InCombatLockdown() then pcall(C_Container.SortBankBags) end end)
-	end
 	win.AddButton("Restack", 64, "Join part stacks",
 		"Puts part stacks of the same item together in the bank, which frees up slots.",
 		function() restack(bankBags()) end)
