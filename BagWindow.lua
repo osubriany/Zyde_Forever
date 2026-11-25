@@ -203,8 +203,9 @@ end
 -- Small marks on an item: red tint (can't use it), green arrow (upgrade),
 -- gold coin (junk that sells), BoE (could go on the auction house), a
 -- red-orange-yellow outline and number (the scrap list's picks, bags full),
--- and Open / Lock (a clam or a lockbox). What the tooltip says is read once
--- per item in a slot and kept until the bags, your level, skills or gear change.
+-- Open / Lock (a clam or a lockbox), and the required level on gear, in the
+-- top right. What the tooltip says is read once per item in a slot and kept
+-- until the bags, your level, skills or gear change.
 ---------------------------------------------------------------------------
 local scanCache = {}
 local getInfoAny = (C_Item and C_Item.GetItemInfo) or GetItemInfo
@@ -228,10 +229,15 @@ local function scan(bag, slot, info)
 			end
 		end
 	end
-	local name, _, _, _, _, _, _, _, equipLoc, _, sellPrice, _, _, bindType = ns.safe(getInfoAny, info.hyperlink or info.itemID)
-	if type(name) ~= "string" then return c end -- not loaded yet: ask again next paint
-	c.sells = type(sellPrice) == "number" and sellPrice > 0 and not info.hasNoValue
-	c.boe = bindType == 2 and type(equipLoc) == "string" and equipLoc ~= "" -- still unbound: checked at paint
+	local name, _, _, _, reqLevel, _, _, _, equipLoc, _, sellPrice, classID, _, bindType = ns.safe(getInfoAny, info.hyperlink or info.itemID)
+	if type(name) ~= "string" or ns.isSecret(name) then return c end -- not loaded yet: ask again next paint
+	c.sells = not ns.isSecret(sellPrice) and type(sellPrice) == "number" and sellPrice > 0 and not info.hasNoValue
+	local loc = (not ns.isSecret(equipLoc) and type(equipLoc) == "string") and equipLoc or ""
+	c.boe = not ns.isSecret(bindType) and bindType == 2 and loc ~= "" -- still unbound: checked at paint
+	-- Weapons and armor. A required level of 1 is every starter piece, so it stays off.
+	local req = (not ns.isSecret(reqLevel) and type(reqLevel) == "number") and reqLevel or nil
+	local cls = (not ns.isSecret(classID) and type(classID) == "number") and classID or nil
+	if req and req > 1 and (cls == 2 or (cls == 4 and loc ~= "")) then c.req = req end
 	c.upgrade = ns.BagItemUpgrade and ns.BagItemUpgrade(bag, slot, info.hyperlink) or nil
 	scanCache[key] = c
 	return c
@@ -265,6 +271,10 @@ local function marks(b)
 	m.tag = b:CreateFontString(nil, "OVERLAY")
 	markFont(m.tag, 10)
 	m.tag:SetPoint("TOPRIGHT", -1, -2)
+	m.req = b:CreateFontString(nil, "OVERLAY")
+	markFont(m.req, 9)
+	m.req:SetPoint("TOPRIGHT", -1, -1)
+	m.req:SetJustifyH("RIGHT")
 	m.scrapNum = b:CreateFontString(nil, "OVERLAY")
 	markFont(m.scrapNum, 14)
 	m.scrapNum:SetPoint("TOPRIGHT", -2, -1)
@@ -282,7 +292,7 @@ local function setMarks(b, info)
 	local m = marks(b)
 	local icon = iconOf(b)
 	if not info then
-		for _, k in ipairs({ "arrow", "coin", "ah", "boe", "tag", "scrapNum" }) do m[k]:Hide() end
+		for _, k in ipairs({ "arrow", "coin", "ah", "boe", "tag", "scrapNum", "req" }) do m[k]:Hide() end
 		for _, t in ipairs(m.scrapEdges) do t:Hide() end
 		if icon then icon:SetVertexColor(1, 1, 1) end
 		return
@@ -317,6 +327,7 @@ local function setMarks(b, info)
 		m.scrapNum:SetTextColor(col[1], col[2], col[3])
 		m.scrapNum:Show()
 		m.tag:Hide()
+		m.req:Hide()
 		return
 	end
 	m.scrapNum:Hide()
@@ -331,6 +342,15 @@ local function setMarks(b, info)
 		m.tag:Show()
 	else
 		m.tag:Hide()
+	end
+	if c.req and not m.tag:IsShown() then
+		local mine = UnitLevel("player")
+		local low = not ns.isSecret(mine) and type(mine) == "number" and mine < c.req
+		m.req:SetText(c.req)
+		if low then m.req:SetTextColor(1, 0.25, 0.2) else m.req:SetTextColor(1, 1, 1) end
+		m.req:Show()
+	else
+		m.req:Hide()
 	end
 end
 

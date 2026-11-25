@@ -638,6 +638,22 @@ local function updateResting()
 	if show then pulse:Play() else pulse:Stop() end
 end
 
+function UF.UpdateCombat(on)
+	if on == nil then
+		-- A poll can turn the mark on if the combat event was missed. It does
+		-- not turn it off; leaving combat is PLAYER_REGEN_ENABLED.
+		local v = UnitAffectingCombat("player")
+		local detected
+		if isSecret(v) then detected = InCombatLockdown() and true or false
+		else detected = (v and true or false) or (InCombatLockdown() and true or false) end
+		if not detected then return end
+		on = true
+	end
+	player.combatOn = on and true or false
+	local overlay = player.combatOverlay
+	if overlay then overlay:SetShown(player.combatOn and player:IsShown()) end
+end
+
 local target = createUnitFrame("ZydeForeverTargetFrame", "target", LAYOUT.target)
 target.watched = true
 target.name = makeText(target, 13)
@@ -1927,6 +1943,39 @@ local function addPortrait(f, spec, onRight)
 	end
 	f.portraitSize = d
 	f.ringKind = spec.ring
+	-- In combat: a red strobe over the portrait, and crossed swords on the corner.
+	-- Parent is the screen, not the unit frame. The unit frame sits on a low
+	-- strata, and a child there was drawing underneath the portrait button.
+	if f.unit == "player" then
+		local overlay = CreateFrame("Frame", nil, UIParent)
+		overlay:SetFrameStrata("MEDIUM")
+		overlay:SetFrameLevel(80)
+		overlay:SetAllPoints(s)
+		local flash = overlay:CreateTexture(nil, "ARTWORK")
+		flash:SetPoint("TOPLEFT", f.portrait, "TOPLEFT")
+		flash:SetPoint("BOTTOMRIGHT", f.portrait, "BOTTOMRIGHT")
+		flash:SetTexture(FLAT)
+		flash:SetVertexColor(1, 0, 0, 1)
+		cut(overlay, spec.portrait, flash, { flash })
+		overlay.flash = flash
+		local sw = math.max(16, math.floor(d * 0.32))
+		local icon = overlay:CreateTexture(nil, "OVERLAY")
+		icon:SetSize(sw, sw)
+		-- Upper-right of the face, inside the circle rather than above the bar.
+		icon:SetPoint("CENTER", f.portrait, "TOPRIGHT", math.floor(-sw * 0.55), math.floor(-sw * 0.7))
+		icon:SetTexture("Interface\\Icons\\Ability_DualWield")
+		icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		overlay:SetScript("OnUpdate", function()
+			local a = math.abs(math.sin(GetTime() * 6))
+			flash:SetAlpha(0.05 + a * 0.28)
+		end)
+		overlay:Hide()
+		f:HookScript("OnShow", function()
+			if f.combatOn then overlay:Show() end
+		end)
+		f:HookScript("OnHide", function() overlay:Hide() end)
+		f.combatOverlay = overlay
+	end
 	-- The portrait hangs off the bar, so the bar's own click misses it.
 	-- This button is a child of the unit frame and aimed with the frame's own
 	-- points, which stays allowed once a fight starts.
@@ -2282,6 +2331,7 @@ ev:SetScript("OnEvent", function(_, event, unit)
 		hideBlizzardUnitFrames()
 		for _, f in ipairs(frames) do updateAll(f, true) end
 		updateRaid(true)
+		UF.UpdateCombat()
 	elseif event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE" then
 		buildRaid()
 		hideBlizzardUnitFrames()
@@ -2289,6 +2339,7 @@ ev:SetScript("OnEvent", function(_, event, unit)
 		updateRaid(true)
 		updateResting()
 		updatePlayerDebuffs()
+		UF.UpdateCombat()
 	elseif event == "RAID_TARGET_UPDATE" or event == "PARTY_LEADER_CHANGED"
 		or event == "PARTY_LOOT_METHOD_CHANGED" or event == "PLAYER_ROLES_ASSIGNED" then
 		-- Markers and group icons on every frame (these name no unit).
@@ -2312,7 +2363,9 @@ ev:SetScript("OnEvent", function(_, event, unit)
 		if unit == "pet" or unit == "target" or unit == "player" then auraChanged(unit) end
 	elseif event == "PLAYER_REGEN_DISABLED" then
 		UF.Lock(true) -- frames can't move in combat
+		UF.UpdateCombat(true)
 	elseif event == "PLAYER_REGEN_ENABLED" then
+		UF.UpdateCombat(false)
 		if UF.pendingPlace then placeAll() end
 		if UF.pendingTot then applyTot() end
 		buildRaid()
@@ -2339,6 +2392,7 @@ if C_Timer and C_Timer.NewTicker then
 		end
 		-- Pet mood can change without an event on this client: re-read it.
 		if pet:IsShown() and UnitExists("pet") and not unlocked then updateName(pet) updatePetXP() end
+		if player.combatOverlay then UF.UpdateCombat() end
 	end)
 end
 
