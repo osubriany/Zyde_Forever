@@ -45,7 +45,8 @@ Seeds.crossings = {
 	{ name = "Loch Modan / Badlands", map = LOCH, x = 46.5, y = 77.0, other = BADLANDS },
 	{ name = "Tirisfal / Silverpine road", map = TIRISFAL, x = 50.0, y = 72.0, other = SILVERPINE },
 	{ name = "Silverpine / Hillsbrad road", map = HILLSBRAD, x = 13.5, y = 46.0, other = SILVERPINE },
-	{ name = "Hillsbrad / Alterac road", map = HILLSBRAD, x = 59.0, y = 22.0, other = ALTERAC },
+	-- (seen in game 2026-11-25)
+	{ name = "Hillsbrad / Alterac road", map = HILLSBRAD, x = 54.4, y = 8.6, other = ALTERAC },
 	{ name = "Thoradin's Wall", map = ARATHI, x = 18.5, y = 31.0, other = HILLSBRAD },
 	{ name = "Arathi / Hinterlands", map = HINTERLANDS, x = 9.5, y = 59.0, other = ARATHI },
 	{ name = "Hillsbrad / Hinterlands", map = HINTERLANDS, x = 3.5, y = 47.5, other = HILLSBRAD },
