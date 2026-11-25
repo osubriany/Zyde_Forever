@@ -577,8 +577,19 @@ end
 
 local lastFirst   -- identity of the first row last time, to notice when a step is finished
 
+-- The header's level-up time, shared with Zyde's XP readout (XP.lua) so the two agree while this
+-- window is up: { secs = seconds to the next level, at = when that was worked out } or nil.
+local levelEta
+-- Seconds to the next level by the current plan, counting down since the header was drawn; nil
+-- while the window is hidden or the plan gives no time.
+function L.LevelUpSeconds()
+	if not (frame and frame:IsShown() and levelEta) then return nil end
+	return math.max(0, levelEta.secs - (GetTime() - levelEta.at))
+end
+
 function L.Update(plan)
 	if not frame then return end
+	levelEta = nil
 	local newPlan = plan ~= lastPlan
 	lastPlan = plan
 	footer:Hide()
@@ -614,9 +625,11 @@ function L.Update(plan)
 	end
 	local parts = { "Next " .. ns.shortTime(plan.seconds), ns.short(plan.xp) .. " XP", ns.short(rate) .. " XP/min" }
 	if need and rate > 0 then
-		parts[#parts + 1] = string.format("|cffffd100Lvl %d in %s|r", ns.playerLevel() + 1,
-			ns.shortTime(corpseSecs + need / rate * 60))
+		local secs = corpseSecs + need / rate * 60
+		parts[#parts + 1] = string.format("|cffffd100Lvl %d in %s|r", ns.playerLevel() + 1, ns.shortTime(secs))
+		levelEta = { secs = secs, at = GetTime() }
 	end
+	if zyde.UpdateXP then zyde.UpdateXP() end -- (the XP readout shows this same time while the window is up)
 	if restedBonus > 0 then parts[#parts + 1] = "|cff66ccffrested|r" end
 	if corpseSecs > 0 then parts[#parts + 1] = "|cff999999+corpse run|r" end
 	if ns.IsGrouped() then parts[#parts + 1] = "|cff66ccffgrouped|r" end

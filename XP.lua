@@ -102,6 +102,13 @@ local function formatTime(sec)
 	return ("%dm"):format(math.max(m, 1))
 end
 
+-- LevelPlanner's time to the next level while its step window is up (so the two agree), else nil.
+local function plannerSeconds()
+	local SL = ns.LP and ns.LP.StepList
+	local secs = SL and SL.LevelUpSeconds and SL.LevelUpSeconds()
+	return type(secs) == "number" and secs or nil
+end
+
 local xpClock = CreateFrame("Frame")
 xpClock:RegisterEvent("PLAYER_LOGIN")
 xpClock:RegisterEvent("PLAYER_LOGOUT")
@@ -172,11 +179,15 @@ local function updateXP()
 			xp.rested:Hide()
 		end
 
-		-- Time to level, from the last 2 hours of play.
-		local rate = xpRate()
+		-- Time to level: LevelPlanner's while its window is up, else from the last 2 hours of play.
+		local secs = plannerSeconds()
+		if not secs then
+			local rate = xpRate()
+			secs = rate and (max - cur) / rate
+		end
 		xp.ttl:ClearAllPoints()
 		xp.ttl:SetPoint("TOP", below, "BOTTOM", 0, -1)
-		xp.ttl:SetText("TTL: " .. (rate and formatTime((max - cur) / rate) or "--"))
+		xp.ttl:SetText("TTL: " .. (secs and formatTime(secs) or "--"))
 		xp.ttl:Show()
 		width = math.max(width, xp.ttl:GetStringWidth())
 		lines, below = lines + 1, xp.ttl
@@ -206,6 +217,21 @@ ns.UpdateXP = updateXP
 ns.formatTime = formatTime
 ns.xpRate = xpRate
 C_Timer.NewTicker(30, updateXP) -- TTL drifts as the 2-hour window moves
+-- Opening or closing LevelPlanner's window switches which time to level shows.
+do
+	local hook = CreateFrame("Frame")
+	hook:RegisterEvent("PLAYER_LOGIN")
+	hook:SetScript("OnEvent", function()
+		C_Timer.After(1, function()
+			local w = _G.LevelPlannerStepList
+			if w and not w.zydeXPHooked then
+				w.zydeXPHooked = true
+				w:HookScript("OnShow", function() updateXP() end)
+				w:HookScript("OnHide", function() updateXP() end)
+			end
+		end)
+	end)
+end
 ns.OnFeatureChanged(function(key) if key == "xp" then updateXP() end end)
 
 -- Right-click the XP readout: ask, then start the time-to-level data fresh.
@@ -299,7 +325,13 @@ local function xpTooltip(self)
 	end
 	local rate = xpRate()
 	GameTooltip:AddDoubleLine("XP per hour (last 2h)", rate and val(math.floor(rate * 3600)) or "--", 1, 1, 1, 0.85, 0.85, 0.85)
-	GameTooltip:AddDoubleLine("Time to level", rate and formatTime(need / rate) or "--", 1, 1, 1, 0.85, 0.85, 0.85)
+	local planned = plannerSeconds()
+	if planned then
+		GameTooltip:AddDoubleLine("Time to level (Level Planner)", formatTime(planned), 1, 1, 1, 1, 0.82, 0)
+		GameTooltip:AddDoubleLine("Time to level (last 2h)", rate and formatTime(need / rate) or "--", 1, 1, 1, 0.85, 0.85, 0.85)
+	else
+		GameTooltip:AddDoubleLine("Time to level", rate and formatTime(need / rate) or "--", 1, 1, 1, 0.85, 0.85, 0.85)
+	end
 
 	local count, total = readyQuestXP()
 	GameTooltip:AddLine(" ")
