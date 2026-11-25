@@ -199,7 +199,7 @@ local FEATURES = {
 	{ key = "hideBars", short = "cleaner action bars", label = "Hide Blizzard bar art", desc = "Hides the action bar art and the bag bar", reload = true },
 	{ key = "hideMicroMenu", short = "game menu buttons", label = "Hide micro menu", desc = "Hides the row of small game menu buttons (character, spellbook, talents, quest log, social, game menu...). Their keybinds still work", reload = true },
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
-	{ key = "infoBar", short = "location, gold, bags", label = "Info bar", desc = "One line you can drag: where you are, gold, bag space, and ammo for a bow, gun, or throwing weapon. Travel opens a second line with steps (miles in parentheses), yards swum, yards mounted, and jumps. Mining, once learned, opens a count of each ore in your bags and bank. Herbs does the same for Herbalism. Both lines can be open at once. Those travel counts are kept for this character. Ctrl+click a line to paste it into chat" },
+	{ key = "infoBar", short = "location, gold, bags", label = "Info bar", desc = "One line you can drag: where you are, gold, bag space, ammo for a bow, gun, or throwing weapon, and gear durability. Travel opens a second line with steps (miles in parentheses), yards swum, yards mounted, and jumps. Mining, once learned, opens a count of each ore in your bags and bank. Herbs does the same for Herbalism. Both lines can be open at once. Those travel counts are kept for this character. Ctrl+click a line to paste it into chat" },
 	{ key = "threatBox", short = "tank threat table", label = "Tank threat list", desc = "While you are set to the tank role in a party or raid: a draggable table of mobs you have threat on. Columns are the mob, your threat percent, then the two people closest behind you and their percent. Only mobs with a nameplate, bosses, and your target can be listed. Drag the title to move it" },
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames with buffs and debuffs, mana / rage / energy on party frames. Shift-drag a frame to move it", reload = true },
 	{ key = "targetTarget", short = "small frame by target", label = "Target of target", desc = "A small frame beside the target frame showing who your target is targeting (with the Zyde unit frames on). Shift-drag it to move it" },
@@ -209,7 +209,7 @@ local FEATURES = {
 	{ key = "barTidy", short = "short keys, no empty slots", label = "Tidy action bars", desc = "Short keybind labels on action buttons (a-1 becomes A1, Mouse Button 4 becomes M4) and empty slots hidden - they show again while you drag a spell or item" },
 	{ key = "gear", short = "borders, item levels", label = "Character screen gear", desc = "Rarity borders and item levels; a green arrow when your bags hold an upgrade for a slot (scored by GearAdvisor if loaded), empty slots quiet gray unless your bags can fill them, and your average item level in the header", reload = true },
 	{ key = "fishing", short = "one-key fishing", label = "One Button Fishing", desc = "Same key casts and reels in (set the key in Keybindings)" },
-	{ key = "buttonBag", short = "one button, a key for the rest", label = "Minimap button bag", desc = "Gathers the other addon buttons on the minimap onto one button. Click that button to spread them out. Drag it around the minimap to move it. Hold Buttons at cursor (Options > Keybindings > Zyde Forever) to open the game menu and those buttons at the mouse. Hold menu, under this option, chooses the dial or a labeled list" },
+	{ key = "buttonBag", short = "one button, a key for the rest", label = "Minimap button bag", desc = "Gathers the other addon buttons on the minimap onto one button. Click that button to spread them out. Drag it around the minimap to move it. Hold Buttons at cursor (Options > Keybindings > Zyde Forever) to open tradeskills, the game menu, and those buttons at the mouse" },
 	{ key = "mapNotes", short = "alt-click to mark", label = "Map markers", desc = "Your own named markers on the world map, kept between sessions. Alt-click the map to drop one and name it, alt-click a marker to remove it, right-click to rename it" },
 	{ key = "flight", short = "skip flight chat", label = "Flight master shortcut", desc = "Flight masters open the map directly (hold Shift to talk)" },
 	{ key = "tracking", short = "re-enable after death", label = "Keep tracking after death", desc = "Turns Find Minerals, Find Herbs... back on after you die" },
@@ -263,7 +263,8 @@ ns.addonOn = addonOn
 -- Other addons some features use (listed in the /zyde window).
 ns.ADDONS = {
 	{ name = "Questie", title = "Questie", used = "Needed for Questie drop chances and quest mobs nearby. Also helps spot quest objects." },
-	{ name = "AHledger", title = "AHledger", used = "Needed for vendor / auction advice. Adds auction prices to the scrap list." },}
+	{ name = "AHledger", title = "AHledger", used = "Needed for vendor / auction advice. Adds auction prices to the scrap list." },
+	{ name = "ForeverDungeonJournal", title = "DungeonJournal", used = "Adds a Dungeon Journal button to the hold menu.", plain = true },}
 
 -- "on" (loaded), "off" (installed but disabled) or "missing".
 function ns.addonState(name)
@@ -1881,7 +1882,7 @@ local ROW = 24
 local HEAD = 28      -- height of a category heading
 local COL_W = 330    -- width of one column of features
 
--- The window's categories: two columns, each a list of { heading, entries }.
+-- The window's categories. Each one is a tab. A column is a list of { heading, entries }.
 -- An entry is a feature key, or
 --   { key, children = {...} }     a feature with options under it (they gray
 --                                 out while it's off)
@@ -1896,7 +1897,7 @@ local CATEGORIES = {
 			{ "plates", children = { "comboPoints" } }, "xp",
 			{ "reminders", children = {}, choosers = { "reminderSize" } },
 			{ group = "Action bars", children = { "hideBars", "hideMicroMenu", "barTidy" } },
-			{ "buttonBag", children = {}, choosers = { "buttonBagLayout" } }, "gear",
+			"buttonBag", "gear",
 			{ "radial", children = {}, button = { label = "Set up", click = function() if ns.Radial then ns.Radial.ToggleEditor() end end } },
 		} },
 		{ "Hunter", { "ammo", "petCare" } },
@@ -1977,19 +1978,6 @@ local function buildOptions()
 			set = function(k) ns.SetReminderSize(k) end,
 			changed = function() return false end,
 		},
-		buttonBagLayout = {
-			label = "Hold menu", parent = "buttonBag", width = 110,
-			desc = "What holding Buttons at cursor opens. The dial is circles around the mouse. The list is three bands: tradeskills, the game menu, then the minimap buttons.",
-			options = function()
-				return {
-					{ key = "dial", label = "Dial", desc = "Circles around the cursor. The game menu is inside, the minimap buttons outside, and professions sit along the top." },
-					{ key = "list", label = "List", desc = "Three bands of the same button. Tradeskills on top, then the game menu at five a row, then the minimap buttons. The icon is centered and the name sits along the bottom." },
-				}
-			end,
-			get = function() return ns.ButtonBagLayout and ns.ButtonBagLayout() or "dial" end,
-			set = function(k) if ns.SetButtonBagLayout then ns.SetButtonBagLayout(k) end end,
-			changed = function() return false end,
-		},
 		playerAuras = {
 			label = "Your auras", parent = "unitFrames", width = 168,
 			desc = "What is drawn above your own frame. Applies right away, while buffs / debuffs are on.",
@@ -2012,7 +2000,7 @@ local function buildOptions()
 		return true
 	end
 
-	-- Anything not placed in a category goes under "Other" in the second column.
+	-- Anything not placed in a category goes under an Other tab.
 	local placed, other = {}, {}
 	local function mark(e)
 		if type(e) == "string" then placed[e] = true return end
@@ -2064,6 +2052,10 @@ local function buildOptions()
 
 	o.rows, o.sliders, o.choosers = {}, {}, {}
 
+	-- Category rows are built onto the open tab's page. The footer stays on the window.
+	local host = o
+	local span = COL_W
+
 	local function heading(x, y, text)
 		local h = o:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 		h:SetPoint("TOPLEFT", x + 4, y - 8)
@@ -2088,7 +2080,7 @@ local function buildOptions()
 
 	-- A checkbox for one feature. small: the short label, for an indented line.
 	local function checkbox(feat, x, y, small, parentKey)
-		local cb = CreateFrame("CheckButton", nil, o, "UICheckButtonTemplate")
+		local cb = CreateFrame("CheckButton", nil, host, "UICheckButtonTemplate")
 		cb:SetSize(small and 20 or 24, small and 20 or 24)
 		cb:SetPoint("TOPLEFT", x, small and y - 2 or y)
 		cb.label = cb:CreateFontString(nil, "OVERLAY", small and "GameFontHighlightSmall" or "GameFontHighlight")
@@ -2112,9 +2104,9 @@ local function buildOptions()
 	end
 
 	local function sliderRow(def, x, y)
-		local s = CreateFrame("Slider", nil, o, "BackdropTemplate")
+		local s = CreateFrame("Slider", nil, host, "BackdropTemplate")
 		s.def = def
-		s.label = o:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		s.label = host:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		s.label:SetPoint("TOPLEFT", x + 4, y - 6)
 		s.label:SetText(def.label)
 		s:SetOrientation("HORIZONTAL")
@@ -2130,7 +2122,7 @@ local function buildOptions()
 		s:SetMinMaxValues(def.min, def.max)
 		s:SetValueStep(1)
 		if s.SetObeyStepOnDrag then s:SetObeyStepOnDrag(true) end
-		s.value = o:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		s.value = host:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 		s.value:SetPoint("LEFT", s, "RIGHT", 8, 0)
 		s:SetScript("OnValueChanged", function(self, v)
 			v = math.floor(v + 0.5)
@@ -2155,9 +2147,9 @@ local function buildOptions()
 	-- "Style  [ Gilded Slant  v ]": click for the list, hover a choice for what it looks like.
 	local function chooserRow(def, x, y)
 		local wide = def.width or 150
-		local c = CreateFrame("Button", nil, o, "BackdropTemplate")
+		local c = CreateFrame("Button", nil, host, "BackdropTemplate")
 		c.def = def
-		c.label = o:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		c.label = host:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		c.label:SetPoint("TOPLEFT", x + 4, y - 6)
 		c.label:SetText(def.label)
 		c:SetSize(wide, 20)
@@ -2173,7 +2165,7 @@ local function buildOptions()
 		local arrow = c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 		arrow:SetPoint("RIGHT", -7, 0)
 		arrow:SetText("v")
-		c.note = o:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		c.note = host:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 		c.note:SetPoint("LEFT", c, "RIGHT", 8, 0)
 
 		local menu = CreateFrame("Frame", nil, c, "BackdropTemplate")
@@ -2255,10 +2247,22 @@ local function buildOptions()
 		return false
 	end
 
-	-- Lay out both columns, top to bottom.
-	local tallest = 0
-	for c, col in ipairs(CATEGORIES) do
-		local x, y = 12 + (c - 1) * COL_W, -46
+	-- One page per category. The tab is the section name, so the page has no second heading.
+	local pages = {}
+	local function paintOptTab(b, on)
+		if on then
+			b:SetBackdropColor(0.69, 0.35, 1, 0.45)
+			b:SetBackdropBorderColor(0.69, 0.35, 1, 1)
+			b.text:SetTextColor(1, 0.82, 0.2)
+		else
+			b:SetBackdropColor(0, 0, 0, 0.45)
+			b:SetBackdropBorderColor(0.69, 0.35, 1, 0.35)
+			b.text:SetTextColor(0.72, 0.72, 0.72)
+		end
+	end
+
+	local cats = {}
+	for _, col in ipairs(CATEGORIES) do
 		for _, cat in ipairs(col) do
 			local entries = {}
 			for _, e in ipairs(cat[2]) do
@@ -2270,45 +2274,103 @@ local function buildOptions()
 					entries[#entries + 1] = e
 				end
 			end
-			if #entries > 0 then
-				heading(x, y, cat[1])
-				y = y - HEAD
-				for _, e in ipairs(entries) do
-					if type(e) == "string" then
-						if SLIDERS[e] then sliderRow(SLIDERS[e], x, y) else checkbox(FEATURE_BY_KEY[e], x, y) end
-						y = y - ROW
-					elseif e.group then
-						-- "Action bars:  [x] Hide bar art  [x] Tidy keys & slots"
-						local name = o:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-						name:SetPoint("TOPLEFT", x + 4, y - 5)
-						name:SetText(e.group)
-						local lines = childLine(e.children, x + math.max(84, math.ceil(name:GetStringWidth()) + 14) - INDENT, y, nil, x + COL_W - 16)
-						y = y - ROW * math.max(1, lines)
-					else
-						checkbox(FEATURE_BY_KEY[e[1]], x, y)
-						if e.button then
-							local b = CreateFrame("Button", nil, o, "UIPanelButtonTemplate")
-							b:SetSize(72, 20)
-							b:SetPoint("TOPRIGHT", o, "TOPLEFT", x + COL_W - 24, y - 2)
-							b:SetText(e.button.label)
-							b:SetScript("OnClick", e.button.click)
-						end
-						y = y - ROW
-						y = y - ROW * childLine(e.children, x, y, e[1], x + COL_W - 16)
-						local chooserKeys = e.choosers or (e.chooser and { e.chooser })
-						if chooserKeys then
-							for _, key in ipairs(chooserKeys) do
-								if CHOOSERS[key] then
-									chooserRow(CHOOSERS[key], x + INDENT, y)
-									y = y - ROW
-								end
-							end
+			if #entries > 0 then cats[#cats + 1] = { name = cat[1], entries = entries } end
+		end
+	end
+
+	local tabGap, tabRow = 4, 0
+	for i, cat in ipairs(cats) do
+		local b = CreateFrame("Button", nil, o, "BackdropTemplate")
+		b:SetHeight(22)
+		b:SetFrameLevel((o:GetFrameLevel() or 1) + 8)
+		b:RegisterForClicks("LeftButtonUp")
+		b:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+		b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		b.text:SetPoint("CENTER")
+		b.text:SetText(cat.name)
+		local measured = b.text:GetStringWidth() or 0
+		if measured < 8 then measured = #cat.name * 7 end
+		local w = math.ceil(measured + 20)
+		if w < 64 then w = 64 end
+		b:SetWidth(w)
+		b:SetScript("OnClick", function() o:SelectTab(i) end)
+		cat.tab = b
+		tabRow = tabRow + w
+	end
+	if #cats > 1 then tabRow = tabRow + (#cats - 1) * tabGap end
+
+	-- Options stay in the original column. The window is sized once, to the
+	-- old width and the tallest tab, so switching tabs does not move anything.
+	local width = math.max(24 + 2 * COL_W, tabRow + 24)
+	local maxH = 8
+
+	for _, cat in ipairs(cats) do
+		local page = CreateFrame("Frame", nil, o)
+		page:SetPoint("TOPLEFT", 12, -76)
+		page:SetWidth(span)
+		host = page
+		local x, y = 0, 0
+		for _, e in ipairs(cat.entries) do
+			if type(e) == "string" then
+				if SLIDERS[e] then sliderRow(SLIDERS[e], x, y) else checkbox(FEATURE_BY_KEY[e], x, y) end
+				y = y - ROW
+			elseif e.group then
+				-- "Action bars:  [x] Hide bar art  [x] Tidy keys & slots"
+				local name = host:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+				name:SetPoint("TOPLEFT", x + 4, y - 5)
+				name:SetText(e.group)
+				local lines = childLine(e.children, x + math.max(84, math.ceil(name:GetStringWidth()) + 14) - INDENT, y, nil, x + span - 16)
+				y = y - ROW * math.max(1, lines)
+			else
+				checkbox(FEATURE_BY_KEY[e[1]], x, y)
+				if e.button then
+					local b = CreateFrame("Button", nil, host, "UIPanelButtonTemplate")
+					b:SetSize(72, 20)
+					b:SetPoint("TOPRIGHT", host, "TOPLEFT", x + span - 24, y - 2)
+					b:SetText(e.button.label)
+					b:SetScript("OnClick", e.button.click)
+				end
+				y = y - ROW
+				y = y - ROW * childLine(e.children, x, y, e[1], x + span - 16)
+				local chooserKeys = e.choosers or (e.chooser and { e.chooser })
+				if chooserKeys then
+					for _, key in ipairs(chooserKeys) do
+						if CHOOSERS[key] then
+							chooserRow(CHOOSERS[key], x + INDENT, y)
+							y = y - ROW
 						end
 					end
 				end
 			end
 		end
-		tallest = math.max(tallest, -y)
+		local h = -y + 8
+		if h < 8 then h = 8 end
+		if h > maxH then maxH = h end
+		page:SetHeight(h)
+		page:Hide()
+		pages[#pages + 1] = { name = cat.name, frame = page, height = h, tab = cat.tab }
+	end
+	host = o
+	o:SetSize(width, 76 + maxH + 72)
+
+	local tabX = 12
+	for _, cat in ipairs(cats) do
+		cat.tab:SetPoint("TOPLEFT", o, "TOPLEFT", tabX, -46)
+		tabX = tabX + cat.tab:GetWidth() + tabGap
+	end
+
+	function o:SelectTab(index)
+		if #pages == 0 then return end
+		if index < 1 or index > #pages then index = 1 end
+		for i, p in ipairs(pages) do
+			local on = i == index
+			p.frame:SetShown(on)
+			paintOptTab(p.tab, on)
+		end
+		for _, c in ipairs(self.choosers) do
+			if c.menu then c.menu:Hide() end
+		end
+		if ZydeForeverDB then ZydeForeverDB.optionsTab = pages[index].name end
 	end
 
 	-- Who else is running Zyde. Officers of Blackrock Breakfast Club can click it.
@@ -2357,7 +2419,9 @@ local function buildOptions()
 		for _, a in ipairs(ns.ADDONS) do
 			local state = ns.addonState(a.name)
 			local r, g, b = 1, 0.3, 0.3
-			if state == "on" then r, g, b = 0.35, 1, 0.35 elseif state == "off" then r, g, b = 1, 0.6, 0.2 end
+			if a.plain then
+				if state == "on" then r, g, b = 1, 0.82, 0 else r, g, b = 0.6, 0.6, 0.6 end
+			elseif state == "on" then r, g, b = 0.35, 1, 0.35 elseif state == "off" then r, g, b = 1, 0.6, 0.2 end
 			GameTooltip:AddDoubleLine(a.title, state == "on" and "Installed" or (state == "off" and "Disabled" or "Not installed"), 1, 1, 1, r, g, b)
 			GameTooltip:AddLine(a.used, 0.7, 0.7, 0.7, true)
 		end
@@ -2375,8 +2439,6 @@ local function buildOptions()
 	o.reloadHint = o:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	o.reloadHint:SetPoint("RIGHT", reload, "LEFT", -8, 0)
 	o.reloadHint:SetText("Some changes need a reload")
-
-	o:SetSize(24 + 2 * COL_W, 46 + tallest + 76)
 
 	function o:Refresh()
 		local needReload = false
@@ -2432,11 +2494,16 @@ local function buildOptions()
 		end
 		self.reload:SetShown(needReload)
 		self.reloadHint:SetShown(needReload)
-		-- Addons: green installed, orange disabled, red missing (hover for details).
+		-- Addons: green installed, orange disabled, red missing. Dungeon Journal is yellow or gray.
 		local parts = {}
 		for _, a in ipairs(ns.ADDONS) do
 			local state = ns.addonState(a.name)
-			local color = state == "on" and "|cff59ff59" or (state == "off" and "|cffff9933" or "|cffff4d4d")
+			local color
+			if a.plain then
+				color = state == "on" and "|cffffd100" or "|cff999999"
+			else
+				color = state == "on" and "|cff59ff59" or (state == "off" and "|cffff9933" or "|cffff4d4d")
+			end
 			parts[#parts + 1] = color .. a.title .. "|r"
 		end
 		self.addonLine:SetText("Addons:  " .. table.concat(parts, "  "))
@@ -2448,6 +2515,14 @@ local function buildOptions()
 		end
 	end
 	o:SetScript("OnShow", function(self) self:Refresh() end)
+	local openTab = 1
+	local want = ZydeForeverDB and ZydeForeverDB.optionsTab
+	if type(want) == "string" then
+		for i, p in ipairs(pages) do
+			if p.name == want then openTab = i end
+		end
+	end
+	o:SelectTab(openTab)
 	o:Hide()
 	return o
 end

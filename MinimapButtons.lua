@@ -3,12 +3,9 @@
 --
 -- Click the button on the minimap to spread the gathered buttons out beside
 -- it. Drag the button around the minimap to move it. Hold "Buttons at
--- cursor" (Options > Keybindings > Zyde Forever) to open them at the mouse.
--- Hold menu, under Minimap button bag, picks the shape: circles, or a
--- labeled list. The list is three bands of the same size button: tradeskills,
--- the game menu at five a row, then the minimap buttons. The icon is centered
--- and the name sits along the bottom.
--- Let go and it closes.
+-- cursor" (Options > Keybindings > Zyde Forever) and a panel opens at the
+-- mouse: tradeskills, then the game menu, then the minimap buttons. Let go
+-- and it closes.
 --
 -- Addon buttons are taken off the minimap and kept here. The game menu
 -- buttons stay where they are; the panel clicks them, so this still works
@@ -1022,7 +1019,7 @@ local function placeCenter(frame, x, y, anchor, scale)
 	if anchor == "TOPLEFT" then
 		frame:SetPoint("TOPLEFT", popup, "TOPLEFT", x / s, -y / s)
 	else
-		frame:SetPoint("CENTER", popup, "CENTER", x, y)
+		frame:SetPoint("CENTER", popup, "CENTER", x / s, y / s)
 	end
 	frame:SetFrameStrata(popup:GetFrameStrata() or "DIALOG")
 	frame:SetFrameLevel((popup:GetFrameLevel() or 1) + 8)
@@ -1031,28 +1028,6 @@ local function placeCenter(frame, x, y, anchor, scale)
 	armClicks(frame)
 	frame:Show()
 	laying = false
-end
-
--- Clockwise from the top. Radius keeps neighbors from sitting on each other,
--- and keeps the first ring off the cursor itself.
-local function ringRadius(n, size, gap)
-	if n <= 1 then return 70 end
-	local r = (size + gap) / (2 * math.sin(math.pi / n))
-	if r < 70 then r = 70 end
-	return r
-end
-
-local function ringSpot(i, n, radius)
-	local ang = math.pi / 2 - (i - 1) * (2 * math.pi / n)
-	return math.cos(ang) * radius, math.sin(ang) * radius
-end
-
--- Upper half only, left to right. The ends stay above the midline so they
--- don't sit on the side buttons of the rings below.
-local function topSpot(i, n, radius)
-	local left, right = math.pi - 0.35, 0.35
-	local ang = (n <= 1) and (math.pi / 2) or (left - (i - 1) * ((left - right) / (n - 1)))
-	return math.cos(ang) * radius, math.sin(ang) * radius
 end
 
 -- Skill line ids the professions window opens by. GetProfessionInfo's own id wins
@@ -1244,7 +1219,7 @@ local function learnedProfessions()
 end
 
 -- First Aid, Cooking, Fishing, then the two primary tradeskills, then anything
--- else that was learned (archaeology, gathering). The dial keeps the old order.
+-- else that was learned (archaeology, gathering).
 local function orderedProfessions()
 	local raw = learnedProfessions()
 	local gathering = { Herbalism = true, Mining = true, Skinning = true, Archaeology = true }
@@ -1269,12 +1244,6 @@ local function orderedProfessions()
 	return out
 end
 
-local function bagLayout()
-	local v = ZydeForeverDB and ZydeForeverDB.buttonBagLayout
-	if v == "list" then return "list" end
-	return "dial"
-end
-
 local listHeaders = {}
 local function hideHeaders()
 	for _, fs in ipairs(listHeaders) do fs:Hide() end
@@ -1293,9 +1262,7 @@ local function listHeader(i, text, x, y)
 	fs:Show()
 end
 
--- The dial keeps these squares. The list uses one smaller size for every
--- tile: 110% of the old profession icon, centered, with the name along the
--- bottom.
+-- One tile size: icon centered above the name.
 local TILE_W, TILE_H, TILE_ICON, TILE_GAP = 116, 82, 40, 8
 local LIST_ICON = math.floor(TILE_ICON * 0.6 * 1.1 + 0.5)
 local LIST_W = math.floor(TILE_W * 0.6 * 1.1 + 0.5)
@@ -1364,58 +1331,6 @@ local function anchorPopup(point)
 	else
 		popup:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, py)
 	end
-end
-
-local function layoutDial(menu, list, profs)
-	for _, t in ipairs(popup.edges) do t:Hide() end
-	local innerR = #menu > 0 and ringRadius(#menu, 36, 8) or 0
-	local outerR = #list > 0 and ringRadius(#list, 36, 6) or 0
-	if #menu > 0 and #list > 0 and outerR < innerR + 52 then outerR = innerR + 52 end
-	local profR = #profs > 0 and (math.max(innerR, outerR, 70) + 58) or 0
-	local reach = math.max(innerR, outerR, profR, 36) + 40
-	popup:SetSize(reach * 2, reach * 2)
-	-- The list paints this nearly opaque; the circle dial must not keep it.
-	popup.bg:Hide()
-	if popup.circle then
-		popup.rim:Hide()
-		popup.disc:SetColorTexture(0, 0, 0, 0.35)
-		popup.disc:ClearAllPoints()
-		popup.disc:SetPoint("CENTER")
-		popup.disc:SetSize(reach * 2, reach * 2)
-		popup.disc:Show()
-	else
-		popup.bg:SetColorTexture(0, 0, 0, 0.35)
-		popup.bg:Show()
-	end
-
-	for i, b in ipairs(menu) do
-		local x, y = ringSpot(i, #menu, innerR)
-		applyIcon(b, _G[b.realName])
-		dressRow(b, false)
-		b:ClearAllPoints()
-		b:SetPoint("CENTER", popup, "CENTER", x, y)
-		b:SetFrameLevel((popup:GetFrameLevel() or 1) + 12)
-		b:Show()
-	end
-	for i, frame in ipairs(list) do
-		local x, y = ringSpot(i, #list, outerR)
-		placeCenter(frame, x, y)
-	end
-	for i, info in ipairs(profs) do
-		local b = profButton(i)
-		local x, y = topSpot(i, #profs, profR)
-		b.info = info
-		paintProf(b, info)
-		dressRow(b, false)
-		b:ClearAllPoints()
-		b:SetPoint("CENTER", popup, "CENTER", x, y)
-		b:SetFrameLevel((popup:GetFrameLevel() or 1) + 20)
-		b:SetAlpha(1)
-		if b.EnableMouse then b:EnableMouse(true) end
-		if b.SetMouseClickEnabled then b:SetMouseClickEnabled(true) end
-		b:Show()
-	end
-	anchorPopup("CENTER")
 end
 
 -- Three bands of the same button. Tradeskills on the first row, the game
@@ -1565,24 +1480,13 @@ end
 layoutPopup = function()
 	local menu = menuButtons()
 	local list = sorted()
-	local listed = bagLayout() == "list"
-	local profs = listed and orderedProfessions() or learnedProfessions()
+	local profs = orderedProfessions()
 	hideProxies()
 	hideProfButtons()
 	hideHeaders()
 	popup.rule:Hide()
 	popup.rule2:Hide()
-	if listed then layoutList(menu, list, profs) else layoutDial(menu, list, profs) end
-end
-
-function ns.ButtonBagLayout()
-	return bagLayout()
-end
-
-function ns.SetButtonBagLayout(key)
-	ZydeForeverDB = ZydeForeverDB or {}
-	ZydeForeverDB.buttonBagLayout = key == "list" and "list" or "dial"
-	if popup:IsShown() then layoutPopup() end
+	layoutList(menu, list, profs)
 end
 
 local function showPopup()
@@ -1677,7 +1581,7 @@ toggle:SetScript("OnEnter", function(self)
 	else
 		GameTooltip:AddLine(n .. " gathered.", 0.8, 0.8, 0.8, true)
 	end
-	GameTooltip:AddLine("Hold Buttons at cursor, in Keybindings, to open the game menu and these at the mouse. The shape is Hold menu, under Minimap button bag.", 0.75, 0.75, 0.75, true)
+	GameTooltip:AddLine("Hold Buttons at cursor, in Keybindings, to open the game menu and these at the mouse.", 0.75, 0.75, 0.75, true)
 	GameTooltip:Show()
 end)
 toggle:SetScript("OnLeave", function() GameTooltip:Hide() end)

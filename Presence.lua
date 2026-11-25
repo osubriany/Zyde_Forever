@@ -15,8 +15,8 @@ local HELLO_EVERY = 15 * 60
 local ONLINE_FOR = 18 * 60
 
 local GUILD = "blackrock breakfast club"
--- "Stepdad" is the character. "Smurf" is not part of that name, so the
--- smurf/variz/varuz check never saw it.
+-- The character name may be a first name plus a surname ("Stepdad Smurf").
+-- Either tag is enough for the officer review.
 local NAME_TAGS = { "smurf", "variz", "varuz", "stepdad" }
 
 local seen, names, reports = {}, {}, {}
@@ -39,8 +39,21 @@ local function characterName(value)
 	return (name:match("^([^%-]+)"))
 end
 
+-- Forever's UnitName is (first, surname). The guild message names you with
+-- both, so a hello that only keeps the first name shows up as a second person.
 local function myName()
-	return characterName(UnitName("player"))
+	local first, second = UnitName("player")
+	first = characterName(first)
+	if not first then return nil end
+	second = plain(second)
+	if not second or second == "" or second:find("-", 1, true) then return first end
+	local realm = ""
+	if GetRealmName then
+		local ok, got = pcall(GetRealmName)
+		if ok then realm = plain(got) or "" end
+	end
+	if realm ~= "" and second:lower() == realm:lower() then return first end
+	return first .. " " .. second
 end
 
 local function nameMatches()
@@ -172,9 +185,37 @@ local function reportLines(info)
 	return first, second
 end
 
+-- "Stepdad" and "Stepdad Smurf" are one person. The longer name wins.
+local function samePerson(short, full)
+	if not short or not full or short == full then return false end
+	return full:sub(1, #short + 1):lower() == (short .. " "):lower()
+end
+
+local function dropName(name)
+	seen[name] = nil
+	reports[name] = nil
+	for i = #names, 1, -1 do
+		if names[i] == name then table.remove(names, i) end
+	end
+end
+
 local function hear(name, message)
 	name = characterName(name)
 	if not name then return end
+	for i = 1, #names do
+		local other = names[i]
+		if samePerson(name, other) then
+			seen[other] = GetTime()
+			local info = parseReport(message)
+			if info then reports[other] = info end
+			paint()
+			return
+		end
+	end
+	local i = 1
+	while i <= #names do
+		if samePerson(names[i], name) then dropName(names[i]) else i = i + 1 end
+	end
 	if not seen[name] then names[#names + 1] = name end
 	seen[name] = GetTime()
 	local info = parseReport(message)
