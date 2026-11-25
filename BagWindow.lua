@@ -1,10 +1,10 @@
 -- Zyde_Forever: all your bags in one window, sorted into sections.
 --   Opens instead of the game's bags (B, the bag buttons, vendors, mail...).
---   General: Perma (never delete), Quest, Junk, Keys, Other, and Empty slots.
+--   General: Perma (never delete), Quest, Junk, Keys, Other.
 --   Gear: weapons, armor, bags, ammo. Consumables: food & drink, potions,
 --   bandages, scrolls, other. Profession: trade goods by type, reagents, recipes.
 --   Items are real bag slots: right-click uses or sells, drag moves, shift-click
---   links. Drop an item on an Empty tile to put it in that free slot.
+--   links. The title counts free slots (reagent bag, quiver... apart, in gray).
 --   Alt-click an item to put it in Perma (or take it out). Click a heading to fold it.
 --   The title shows your free slots (orange at 5 or fewer, red when full).
 --   Buttons: Restack (joins part stacks in the
@@ -92,7 +92,7 @@ end
 ---------------------------------------------------------------------------
 local SECTIONS = { "General", "Gear", "Consumables", "Profession" }
 local ORDER = {
-	General = { "Empty", "Perma", "Quest", "Junk", "Keys", "Other" },
+	General = { "Perma", "Quest", "Junk", "Keys", "Other" },
 	Gear = { "Weapons", "Armor", "Bags", "Ammo" },
 	Consumables = { "Food & drink", "Potions", "Bandages", "Scrolls", "Other" },
 	Profession = {}, -- the game's trade goods types, then Reagents, Recipes
@@ -414,36 +414,23 @@ local function gather(bags)
 			end
 		end
 	end
-	-- Empty: one tile per kind of bag (normal, quiver, soul bag...), pointing at its first free slot.
-	local byFamily, famOrder, ordinaryFree = {}, {}, 0
+	-- Free slots: ordinary bags for the title, and the bags that only take one
+	-- kind of thing (reagent bag, quiver, ammo pouch, soul bag) counted apart.
+	local ordinaryFree, extra = 0, {}
 	for _, bag in ipairs(bags) do
-		local n = numSlots(bag)
 		local free, fam = C_Container.GetContainerNumFreeSlots(bag)
 		free, fam = tonumber(free) or 0, tonumber(fam) or 0
-		if bag == REAGENT_BAG and HAS_REAGENT then fam = 100000 end -- reagents only: its own tile, last
-		if fam == 0 then ordinaryFree = ordinaryFree + free end
-		if n > 0 and free > 0 then
-			local e = byFamily[fam]
-			if not e then
-				local tex = "Interface\\PaperDoll\\UI-Backpack-EmptySlot"
-				local inv = fam ~= 0 and invSlot(bag)
-				if inv then tex = GetInventoryItemTexture("player", inv) or tex end
-				e = { empty = true, count = 0, tex = tex, ordinary = fam == 0 }
-				byFamily[fam] = e
-				famOrder[#famOrder + 1] = fam
-			end
-			e.count = e.count + free
-			if not e.bag then
-				for slot = 1, n do
-					if not C_Container.GetContainerItemID(bag, slot) then e.bag, e.slot = bag, slot break end
-				end
-			end
+		local kind
+		if bag == REAGENT_BAG and HAS_REAGENT then kind = "reagent"
+		elseif fam == 0 then kind = nil
+		elseif bit and bit.band and bit.band(fam, 3) ~= 0 then kind = "ammo"
+		elseif bit and bit.band and bit.band(fam, 4) ~= 0 then kind = "soul"
+		else kind = "special" end
+		if kind then
+			if numSlots(bag) > 0 then extra[kind] = (extra[kind] or 0) + free end
+		else
+			ordinaryFree = ordinaryFree + free
 		end
-	end
-	table.sort(famOrder)
-	for _, fam in ipairs(famOrder) do
-		local e = byFamily[fam]
-		if e.bag then add("General", "Empty", e) end
 	end
 	-- Same items next to each other, best quality first.
 	for _, groups in pairs(out) do
@@ -460,7 +447,7 @@ local function gather(bags)
 			end
 		end
 	end
-	return out, ordinaryFree
+	return out, ordinaryFree, extra
 end
 
 local function groupOrder(sec, groups)
@@ -650,7 +637,14 @@ end
 function View:SetTitle()
 	local r, g, bl = freeColor(self.free or 0)
 	local free = (self.free or 0) <= 0 and "full" or ((self.free or 0) .. " free")
-	self.win.title:SetText(self.titleText .. string.format("  |cff%02x%02x%02x%s|r", r * 255, g * 255, bl * 255, free))
+	-- "30 free  ·  12 reagent": special bags after the ordinary count, in gray.
+	local more = {}
+	for _, kind in ipairs({ "reagent", "ammo", "soul", "special" }) do
+		local n = self.extraFree and self.extraFree[kind]
+		if n then more[#more + 1] = n .. " " .. kind end
+	end
+	local tail = #more > 0 and ("  |cff888888· " .. table.concat(more, " · ") .. "|r") or ""
+	self.win.title:SetText(self.titleText .. string.format("  |cff%02x%02x%02x%s|r", r * 255, g * 255, bl * 255, free) .. tail)
 end
 
 function View:ContentTop() return 34 + (self.bagRowShown and self.bagRowShown() and (S + 8) or 0) end
@@ -658,8 +652,8 @@ function View:ContentTop() return 34 + (self.bagRowShown and self.bagRowShown() 
 function View:Layout()
 	if InCombatLockdown() then self.dirty = true return end
 	self.dirty = false
-	local data, free = gather(self.bags())
-	self.free = free
+	local data, free, extra = gather(self.bags())
+	self.free, self.extraFree = free, extra
 	self:SetTitle()
 	-- Restack only shows when it would free something: "Restack +3".
 	local rb = self.win.restackBtn
