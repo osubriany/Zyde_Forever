@@ -221,6 +221,7 @@ local FEATURES = {
 	{ key = "nodeGlow", short = "herbs, ore, chests", label = "Herb, ore and chest glow", desc = "A colored glow and icon on herbs (green) and ore (copper) you can gather with your professions, and on chests (gold), within 30 yards. Brighter on the one you face" },
 	{ key = "guildRoster", short = "class colors, levels, zones", label = "Guild member list", desc = "In the Guild & Communities window: online members' names in class colors, each member's level at the right (colored by how near your level), and their zone when you hover them" },
 	{ key = "lfg", short = "groups that fit you", label = "Group finder helper", desc = "Beside Looking For Group: groups with room for your role first, one-click whisper to the leader" },
+	{ key = "bagWindow", short = "one bag, sorted for you", label = "One bag window", desc = "All your bags in one window, sorted into sections by itself: Perma (never delete: Hearthstone, Philosopher's Stone, profession tools), Quest, Junk, gear, food and potions, profession goods, and your empty slots. Items work as in the normal bags (right-click to use or sell, drag, shift-click to link). Alt-click an item to put it in Perma or take it out. Click a heading to fold it. Off while Baganator is loaded", conflict = "Baganator", reload = true },
 	{ key = "scrap", short ="what to delete", label = "Scrap list (bags full)", desc = "The 3 cheapest items to throw away when your bags are full" },
 	{ key = "vendor", short = "sell or auction tips", label = "Vendor / auction advice", desc = "Vendor it / Auction it / Keep in tooltips, merchant and AH panels", needs = "AHledger" },
 	{ key = "recipes", short = "what to learn, where, price", label = "Unlearned recipes", desc = "Beside a profession window: the recipes you haven't learned yet, where to get each (vendor, quest or drop) and, with AHledger, its auction price. Click one for a waypoint to its vendor. The Unlearned button on the window shows or hides it", needs = "Questie" },
@@ -1908,7 +1909,7 @@ local CATEGORIES = {
 			{ group = "Questie", children = { "questMobs", "questieDrops" } },
 			"rares",
 		} },
-		{ "Bags & vendors", { "scrap", "vendor", "recipes" } },
+		{ "Bags & vendors", { "bagWindow", "scrap", "vendor", "recipes" } },
 		{ "Travel & gathering", { "mapNotes", "flight", "tracking", "fishing" } },
 	},
 }

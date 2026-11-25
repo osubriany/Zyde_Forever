@@ -109,7 +109,7 @@ local function kept() db().scrapKeep = db().scrapKeep or {} return db().scrapKee
 -- Returns value, needsRetry (item info not loaded yet).
 local function slotValue(bag, slot, info)
 	local id = info.itemID
-	if not id or NEVER[id] or barIDs[id] or kept()[id] then return nil end
+	if not id or NEVER[id] or barIDs[id] or kept()[id] or (ns.IsPerma and ns.IsPerma(id)) then return nil end
 	local quest = C_Container.GetContainerItemQuestInfo and C_Container.GetContainerItemQuestInfo(bag, slot)
 	if quest and (quest.isQuestItem or quest.questID) then return nil end
 

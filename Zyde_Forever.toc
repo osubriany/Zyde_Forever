@@ -30,6 +30,7 @@ PetCare.lua
 Reminders.lua
 MarkerWheel.lua
 Radial.lua
+BagWindow.lua
 MapNotes.lua
 MinimapButtons.lua
 Tidy.lua
