@@ -472,9 +472,23 @@ local function savePos()
 end
 
 local placingMap = false
+local wasClamped
 local function applyPos()
 	if InCombatLockdown() or placingMap then return end
 	db().minimapPos = nil
+	-- Spots saved before the cluster was unclamped stopped short of the
+	-- corner (the clamp held them there): start those over from the corner.
+	if not db().minimapSpotV2 then
+		db().minimapSpot = nil
+		db().minimapSpotV2 = true
+	end
+	-- The cluster keeps empty room above the map for the game's header. To put
+	-- the map in the corner that room has to go past the screen's edge, which
+	-- the game's clamp won't allow. (Put back when the look is turned off.)
+	if mover.IsClampedToScreen and mover.SetClampedToScreen then
+		if wasClamped == nil then wasClamped = mover:IsClampedToScreen() and true or false end
+		mover:SetClampedToScreen(false)
+	end
 	local spot = db().minimapSpot
 	local wantR, wantT
 	if type(spot) == "table" and type(spot.right) == "number" and type(spot.top) == "number" then
@@ -574,6 +588,9 @@ local function apply()
 		restoreMask()
 		fitSquare(false)
 		restoreHeader()
+		if wasClamped ~= nil and mover.SetClampedToScreen and not InCombatLockdown() then
+			mover:SetClampedToScreen(wasClamped)
+		end
 		if ns.PlaceMinimapBag then ns.PlaceMinimapBag() end
 		return
 	end
