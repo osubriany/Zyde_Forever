@@ -387,6 +387,11 @@ local function notMyTap(unit)
 	local mine = UnitIsTappedByPlayer and UnitIsTappedByPlayer(unit)
 	if isSecret(mine) then return false end
 	if mine then return false end
+	-- In a group, "tapped, but not by you" is usually a party member's tag:
+	-- UnitIsTappedByPlayer only answers for you. Tap-denied already said no,
+	-- so it's the group's. (The checks below are for solo play.)
+	local grouped = IsInGroup and IsInGroup()
+	if not isSecret(denied) and denied == false and not isSecret(grouped) and grouped then return false end
 	local everyone = UnitIsTappedByAllThreatList and UnitIsTappedByAllThreatList(unit)
 	if not isSecret(everyone) and everyone then return false end
 	return true

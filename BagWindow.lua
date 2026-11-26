@@ -115,8 +115,10 @@ end
 ---------------------------------------------------------------------------
 -- Which section and group an item goes in.
 ---------------------------------------------------------------------------
-local SECTIONS = { "General", "Gear", "Consumables", "Profession" }
+-- Upgrades comes first: gear that beats what you wear (the green arrow).
+local SECTIONS = { "Upgrades", "General", "Gear", "Consumables", "Profession" }
 local ORDER = {
+	Upgrades = { "Weapons", "Armor" },
 	General = { "Perma", "Quest", "Junk", "Keys", "Other" },
 	Gear = { "Weapons", "Armor", "Bags", "Ammo" },
 	Consumables = { "Food & drink", "Potions", "Bandages", "Scrolls", "Other" },
@@ -444,6 +446,12 @@ local function gather(bags)
 			if info and info.itemID then
 				info.bag, info.slot = bag, slot
 				local sec, group = categorize(info)
+				-- An upgrade you can wear now goes to the top. Same read as the
+				-- green arrow, kept per item until your level, skills or gear change.
+				if sec == "Gear" and (group == "Weapons" or group == "Armor") then
+					local c = scan(bag, slot, info)
+					if c.upgrade ~= nil and not c.red then sec = "Upgrades" end
+				end
 				add(sec, group, { bag = bag, slot = slot, info = info, name = nameOf(info) })
 				-- (for Restack's count, in the same pass)
 				local max = stackSize(info.itemID)
@@ -1360,6 +1368,10 @@ local function rememberBank(force)
 			end
 		end
 	end
+	-- An empty read while the old one had items is the bank closing under
+	-- us (slots still counted, items already gone), not an empty bank.
+	local old = savedBank()
+	if #items == 0 and old and type(old.items) == "table" and #old.items > 0 then return end
 	local savedExtra = {}
 	for k, v in pairs(extra or {}) do
 		if type(k) == "string" and type(v) == "number" and v > 0 then savedExtra[k] = v end
@@ -1794,7 +1806,8 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 		return
 	end
 	if event == "BANKFRAME_CLOSED" then
-		rememberBank(true)
+		-- (no snapshot here: by now the items can already be gone, which
+		-- saved an empty bank over the real one)
 		gameBankShown = true -- (so hiding ours doesn't close the bank again)
 		bankView.win:Hide()
 		tuckGameBank(false)
@@ -1804,7 +1817,8 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 		or event == "LEARNED_SPELL_IN_TAB" or event == "NEW_RECIPE_LEARNED" then
 		-- What you can use, and what's an upgrade, may have changed: read the tooltips again.
 		wipe(scanCache)
-		ns.BagWindowRepaint()
+		-- (a full sort, not just a repaint: the Upgrades section may change)
+		allChanged()
 		return
 	end
 	if event == "PLAYER_MONEY" then
