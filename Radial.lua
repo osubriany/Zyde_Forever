@@ -267,6 +267,14 @@ local function iconFrame(i)
 	if f.cd.SetUseCircularEdge then pcall(f.cd.SetUseCircularEdge, f.cd, true) end
 	if f.cd.SetHideCountdownNumbers then f.cd:SetHideCountdownNumbers(false) end
 	if f.cd.SetDrawEdge then f.cd:SetDrawEdge(false) end
+	-- How many you have (food, drink, potions...), above the cooldown sweep.
+	local over = CreateFrame("Frame", nil, f)
+	over:SetAllPoints()
+	over:SetFrameLevel((f.cd:GetFrameLevel() or f:GetFrameLevel() or 1) + 2)
+	f.count = over:CreateFontString(nil, "OVERLAY")
+	if not f.count:SetFont("Fonts\\ARIALN.TTF", 13, "OUTLINE") then f.count:SetFontObject("NumberFontNormal") end
+	f.count:SetPoint("BOTTOMRIGHT", 2, -1)
+	f.count:SetJustifyH("RIGHT")
 	icons[i] = f
 	return f
 end
@@ -372,6 +380,28 @@ local function paintReady()
 				if d and d <= 1.6 then f.cd:Clear() else pcall(f.cd.SetCooldown, f.cd, start, dur) end
 			else
 				f.cd:Clear()
+			end
+			-- The count, like an action button: items that stack or get used up,
+			-- and a macro that uses one. 0 in red when you're out.
+			local item = itemOf(s)
+			local n
+			if item then
+				local count = (C_Item and C_Item.GetItemCount) or GetItemCount
+				n = count and plain(ns.safe(count, item))
+				if type(n) == "number" and n == 1 then
+					local used = C_Item and C_Item.IsConsumableItem or IsConsumableItem
+					local stack = C_Item and C_Item.GetItemMaxStackSizeByID
+					local consumable = used and plain(ns.safe(used, item))
+					local stacks = stack and plain(ns.safe(stack, item))
+					if not consumable and not (type(stacks) == "number" and stacks > 1) then n = nil end
+				end
+			end
+			if type(n) == "number" then
+				f.count:SetText(n > 9999 and "*" or n)
+				if n == 0 then f.count:SetTextColor(1, 0.3, 0.25) else f.count:SetTextColor(1, 1, 1) end
+				f.count:Show()
+			else
+				f.count:Hide()
 			end
 			local st = stateOf(s)
 			f.tex:SetDesaturated(st == "no")
