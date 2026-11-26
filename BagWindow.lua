@@ -659,10 +659,38 @@ function View:Button(i)
 	b:SetSize(S, S)
 	b.cd = b.Cooldown or _G[name .. "Cooldown"]
 	b.countText = b.Count or _G[name .. "Count"]
-	-- Do not hook OnClick. On this client a click hook taints the button, and
-	-- the game then blocks UseContainerItem. Alt-click Perma is a post-hook
-	-- on the game's function, below, so the use itself stays the game's.
+	-- Do not hook OnClick, and do not wrap ContainerFrameItemButton_OnClick.
+	-- Either one taints the click, and the game then blocks UseContainerItem.
+	-- Alt-click Perma is a cover that only shows while Alt is held, so the
+	-- item button's own click is the one that uses, picks up, and drops.
 	b.zydeBag = true
+	local alt = CreateFrame("Button", nil, b)
+	alt:SetAllPoints()
+	alt:RegisterForClicks("LeftButtonUp")
+	alt:Hide()
+	alt:SetScript("OnClick", function()
+		if b.empty then return end
+		local parent = b:GetParent()
+		if not parent or not parent.GetID then return end
+		local info = C_Container.GetContainerItemInfo(parent:GetID(), b:GetID())
+		if ns.isSecret(info) or not info or ns.isSecret(info.itemID) or not info.itemID then return end
+		togglePerma(info.itemID)
+		for _, v in pairs(views) do
+			v.dirty = true
+			if v.win:IsShown() and not InCombatLockdown() then v:Layout() end
+		end
+	end)
+	alt:SetScript("OnEnter", function()
+		local parent = b:GetParent()
+		GameTooltip:SetOwner(b, "ANCHOR_RIGHT")
+		if parent and parent.GetID and GameTooltip.SetBagItem then
+			GameTooltip:SetBagItem(parent:GetID(), b:GetID())
+		end
+		GameTooltip:AddLine("Alt-click: " .. (b.perma and "take out of Perma" or "keep in Perma"), 0.6, 0.8, 1)
+		GameTooltip:Show()
+	end)
+	alt:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	b.alt = alt
 	b:HookScript("OnEnter", function(btn)
 		if btn.empty then
 			GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
@@ -690,28 +718,35 @@ function View:Button(i)
 	return b
 end
 
--- After the game's click, not instead of it. hooksecurefunc does not taint
--- UseContainerItem the way a button OnClick hook does.
-if hooksecurefunc then
-	local function afterBagClick(btn, mouse)
-		if not btn or not btn.zydeBag or btn.empty then return end
-		if mouse ~= "LeftButton" or not IsAltKeyDown() then return end
-		local parent = btn.GetParent and btn:GetParent()
-		if not parent or not parent.GetID then return end
-		local info = C_Container.GetContainerItemInfo(parent:GetID(), btn:GetID())
-		if ns.isSecret(info) or not info or ns.isSecret(info.itemID) or not info.itemID then return end
-		togglePerma(info.itemID)
-		for _, v in pairs(views) do
-			v.dirty = true
-			if v.win:IsShown() and not InCombatLockdown() then v:Layout() end
+-- The cover sits on a slot only while Alt is held, and never while a cursor
+-- item is waiting to drop. The slot's own click is left alone.
+local function cursorHolding()
+	if not CursorHasItem then return false end
+	local ok, has = pcall(CursorHasItem)
+	return ok and not ns.isSecret(has) and has
+end
+local function refreshAltCovers()
+	local altDown = IsAltKeyDown()
+	if ns.isSecret(altDown) then altDown = false end
+	local show = altDown and not cursorHolding()
+	for _, v in pairs(views) do
+		for i, b in ipairs(v.pool) do
+			if b.alt then
+				if show and i <= (v.used or 0) and b:IsShown() and not b.empty then
+					b.alt:SetFrameLevel((b:GetFrameLevel() or 1) + 5)
+					b.alt:Show()
+				else
+					b.alt:Hide()
+				end
+			end
 		end
 	end
-	if type(ContainerFrameItemButton_OnClick) == "function" then
-		hooksecurefunc("ContainerFrameItemButton_OnClick", afterBagClick)
-	elseif ContainerFrameItemButtonMixin and type(ContainerFrameItemButtonMixin.OnClick) == "function" then
-		hooksecurefunc(ContainerFrameItemButtonMixin, "OnClick", afterBagClick)
-	end
 end
+local altWatch = CreateFrame("Frame")
+altWatch:RegisterEvent("MODIFIER_STATE_CHANGED")
+altWatch:SetScript("OnEvent", function(_, _, key)
+	if key == "LALT" or key == "RALT" then refreshAltCovers() end
+end)
 
 function View:Label(i)
 	if self.labels[i] then return self.labels[i] end
@@ -943,6 +978,7 @@ function View:Layout()
 	for i = headUsed + 1, #self.heads do self.heads[i]:Hide() end
 	content:SetHeight(math.max(10, y))
 	self.win:SetHeight(y + self:ContentTop() + 2 + 34 + PAD)
+	refreshAltCovers()
 end
 
 -- Bags changed: lay out again soon (or repaint only, in a fight).
