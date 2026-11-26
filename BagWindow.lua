@@ -113,6 +113,15 @@ local function togglePerma(id)
 	permaDB()[id] = not ns.IsPerma(id)
 end
 
+-- Junk you marked yourself, any quality: sorted under Junk and sold at
+-- vendors like grays. Marking something junk takes it out of Perma.
+local function junkDB() db().bagJunk = db().bagJunk or {} return db().bagJunk end
+function ns.IsMarkedJunk(id) return id ~= nil and junkDB()[id] == true end
+local function setJunk(id, on)
+	junkDB()[id] = on and true or nil
+	if on and ns.IsPerma(id) then permaDB()[id] = false end
+end
+
 ---------------------------------------------------------------------------
 -- Which section and group an item goes in.
 ---------------------------------------------------------------------------
@@ -137,6 +146,7 @@ end
 local function categorize(info)
 	local id = info.itemID
 	if ns.IsPerma(id) then return "General", "Perma" end
+	if ns.IsMarkedJunk(id) then return "General", "Junk" end
 	local _, _, subType, equipLoc, _, classID, subID = ns.safe(getInstant, id)
 	if classID == 12 then return "General", "Quest" end
 	local q = C_Container.GetContainerItemQuestInfo and ns.safe(C_Container.GetContainerItemQuestInfo, info.bag, info.slot)
@@ -578,6 +588,12 @@ function View:Button(i)
 		end
 		if GameTooltip:IsOwned(btn) then
 			GameTooltip:AddLine("Alt-click: " .. (btn.perma and "take out of Perma" or "keep in Perma"), 0.6, 0.8, 1)
+			local info = C_Container.GetContainerItemInfo(btn:GetParent():GetID(), btn:GetID())
+			if info and ns.IsMarkedJunk(info.itemID) then
+				GameTooltip:AddLine("Marked as junk: sold at vendors. Drag it onto the bar at the top of your bags to unmark it.", 1, 0.55, 0.3, true)
+			else
+				GameTooltip:AddLine("Drag it onto the Junk bar at the top of your bags to sell it at vendors.", 0.6, 0.6, 0.6, true)
+			end
 			GameTooltip:Show()
 		end
 	end)
@@ -989,7 +1005,7 @@ local function sellJunk(quiet)
 	for _, bag in ipairs(myBags()) do
 		for slot = 1, numSlots(bag) do
 			local info = C_Container.GetContainerItemInfo(bag, slot)
-			if info and info.itemID and info.quality == 0 and not info.hasNoValue and not info.isLocked
+			if info and info.itemID and (info.quality == 0 or ns.IsMarkedJunk(info.itemID)) and not info.hasNoValue and not info.isLocked
 				and not ns.IsPerma(info.itemID) then
 				local price = select(11, ns.safe(getInfoAny, info.hyperlink or info.itemID))
 				if type(price) == "number" and not ns.isSecret(price) and price > 0 then
@@ -1178,8 +1194,70 @@ local function buildBags()
 		"Puts part stacks of the same item together in your real bags. The number is how many slots that frees.",
 		function() restack(shownBags()) end)
 	win.sellJunk = win.AddButton("Sell junk", 70, "Sell your junk",
-		"Sells every gray item that's worth something (never Perma). Only at a vendor.",
+		"Sells every gray item, and everything you marked as junk, that's worth something (never Perma). Only at a vendor.",
 		function() sellJunk(false) end)
+
+	-- Junk bar: while you hold an item from your bags, a bar shows across the
+	-- top of the window. Drop the item on it to mark it as junk (sorted under
+	-- Junk and sold at vendors like grays); drop an item already marked to
+	-- unmark it. The item goes back to its slot either way.
+	local junkBar = CreateFrame("Button", nil, win)
+	junkBar:SetPoint("TOPLEFT", win.content, "TOPLEFT", 0, 0)
+	junkBar:SetPoint("TOPRIGHT", win.content, "TOPRIGHT", 0, 0)
+	junkBar:SetHeight(34)
+	junkBar:SetFrameLevel((win:GetFrameLevel() or 1) + 40)
+	junkBar:RegisterForClicks("LeftButtonUp")
+	junkBar:Hide()
+	junkBar.bg = junkBar:CreateTexture(nil, "BACKGROUND")
+	junkBar.bg:SetAllPoints()
+	junkBar.edges = ns.newEdges(junkBar, "BORDER", 1)
+	ns.placeEdges(junkBar.edges, junkBar, 0, 1)
+	junkBar.icon = junkBar:CreateTexture(nil, "ARTWORK")
+	junkBar.icon:SetSize(18, 18)
+	junkBar.icon:SetPoint("LEFT", 10, 0)
+	junkBar.icon:SetTexture("Interface\\MoneyFrame\\UI-GoldIcon")
+	junkBar.text = junkBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	junkBar.text:SetPoint("LEFT", junkBar.icon, "RIGHT", 8, 0)
+	junkBar.text:SetPoint("RIGHT", -10, 0)
+	junkBar.text:SetJustifyH("LEFT")
+	local function heldItem()
+		local kind, id, link = GetCursorInfo()
+		if kind == "item" and type(id) == "number" and not ns.isSecret(id) then return id, link end
+	end
+	local function paintJunkBar(hover)
+		local id = heldItem()
+		local marked = id and ns.IsMarkedJunk(id)
+		local r, g, b = 0.9, 0.35, 0.2
+		if marked then r, g, b = 0.35, 0.85, 0.45 end
+		junkBar.bg:SetColorTexture(r * 0.25, g * 0.25, b * 0.25, hover and 0.97 or 0.9)
+		for _, t in ipairs(junkBar.edges) do t:SetColorTexture(r, g, b, hover and 1 or 0.7) end
+		junkBar.text:SetText(marked and "Drop here: no longer junk" or "Drop here: mark as junk (sold at vendors)")
+		junkBar.text:SetTextColor(r + 0.1, g + 0.1, b + 0.1)
+	end
+	local function dropped()
+		local id, link = heldItem()
+		if not id then return end
+		local mark = not ns.IsMarkedJunk(id)
+		setJunk(id, mark)
+		ClearCursor() -- (the item goes back to its slot)
+		print(P .. (type(link) == "string" and link or "item") .. (mark and " is marked as junk: it sells at vendors"
+			or " is no longer junk"))
+		junkBar:Hide()
+		for _, vw in pairs(views) do vw.dirty = true end
+		if not InCombatLockdown() then v:Layout() else v:Repaint() end
+	end
+	junkBar:SetScript("OnReceiveDrag", dropped)
+	junkBar:SetScript("OnClick", dropped)
+	junkBar:SetScript("OnEnter", function() paintJunkBar(true) end)
+	junkBar:SetScript("OnLeave", function() paintJunkBar(false) end)
+	function win.UpdateJunkBar()
+		if win:IsShown() and heldItem() then
+			paintJunkBar(junkBar:IsMouseOver())
+			junkBar:Show()
+		else
+			junkBar:Hide()
+		end
+	end
 	win.sellJunk:Hide()
 	win.AddButton("Bank", 56, "Your bank",
 		"Opens the bank from the last time you visited a banker. Your bags stay open. At a banker this opens the real bank.",
@@ -1762,7 +1840,7 @@ for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "BAG_UPDATE_DELAYE
 	"BAG_UPDATE_COOLDOWN", "PLAYER_REGEN_ENABLED", "PLAYER_MONEY", "GET_ITEM_INFO_RECEIVED", "QUEST_LOG_UPDATE",
 	"BAG_CONTAINER_UPDATE", "PLAYER_LEVEL_UP", "SKILL_LINES_CHANGED", "PLAYER_EQUIPMENT_CHANGED",
 	"LEARNED_SPELL_IN_TAB", "NEW_RECIPE_LEARNED", "MERCHANT_SHOW", "MERCHANT_CLOSED",
-	"BANKFRAME_OPENED", "BANKFRAME_CLOSED", "PLAYERBANKSLOTS_CHANGED", "PLAYERBANKBAGSLOTS_CHANGED" }) do
+	"BANKFRAME_OPENED", "BANKFRAME_CLOSED", "PLAYERBANKSLOTS_CHANGED", "PLAYERBANKBAGSLOTS_CHANGED", "CURSOR_CHANGED" }) do
 	pcall(ev.RegisterEvent, ev, e)
 end
 -- For a few seconds after login or a reload the game can flag everything you
@@ -1783,6 +1861,11 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 		return
 	end
 	if event == "BAG_UPDATE_DELAYED" and GetTime() < loginQuietUntil then clearNew() end
+	-- Picking an item up (or putting it down) shows or hides the Junk bar.
+	if event == "CURSOR_CHANGED" then
+		if bagsView and bagsView.win.UpdateJunkBar then bagsView.win.UpdateJunkBar() end
+		return
+	end
 	-- Junk sells by itself at a vendor, bag window or not.
 	if event == "MERCHANT_SHOW" then
 		if ns.F("sellJunk") then C_Timer.After(0.3, function() sellJunk(true) end) end
