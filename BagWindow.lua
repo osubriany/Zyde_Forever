@@ -691,6 +691,26 @@ function View:Button(i)
 	end)
 	alt:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	b.alt = alt
+	-- Right-click use cannot run from this addon button: the game blocks it as
+	-- tainted. A secure button sits on the slot and uses the item itself.
+	-- Left clicks pass through to this button, which still picks up and drops.
+	local use = CreateFrame("Button", nil, UIParent, "SecureActionButtonTemplate")
+	use:SetSize(S, S)
+	use:SetFrameStrata("HIGH")
+	use:SetFrameLevel(40)
+	use:RegisterForClicks("RightButtonUp")
+	use:Hide()
+	use.owner = b
+	if use.SetMouseMotionEnabled then use:SetMouseMotionEnabled(false) end
+	if use.SetPassThroughButtons then use:SetPassThroughButtons("LeftButton", "MiddleButton") end
+	b.use = use
+	local origClick = b:GetScript("OnClick")
+	if origClick then
+		b:SetScript("OnClick", function(self, button, ...)
+			if button == "RightButton" then return end
+			return origClick(self, button, ...)
+		end)
+	end
 	b:HookScript("OnEnter", function(btn)
 		if btn.empty then
 			GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
@@ -747,6 +767,58 @@ altWatch:RegisterEvent("MODIFIER_STATE_CHANGED")
 altWatch:SetScript("OnEvent", function(_, _, key)
 	if key == "LALT" or key == "RALT" then refreshAltCovers() end
 end)
+
+-- Keep each secure use-button over its slot. It is not a child of the bag
+-- window, so the window itself does not become protected.
+local function placeUse(b, active)
+	local use = b.use
+	if not use or InCombatLockdown() then return end
+	if not active or b.empty or not b:IsShown() or not b:IsVisible() or cursorHolding() then
+		use:Hide()
+		return
+	end
+	local left, top = b:GetLeft(), b:GetTop()
+	if ns.isSecret(left) or ns.isSecret(top) or type(left) ~= "number" or type(top) ~= "number" then return end
+	if use.lx ~= left or use.ly ~= top then
+		use.lx, use.ly = left, top
+		use:ClearAllPoints()
+		use:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+	end
+	local bag = b.bagID
+	if type(bag) ~= "number" and b:GetParent() and b:GetParent().GetID then bag = b:GetParent():GetID() end
+	local slot = b:GetID()
+	if ns.isSecret(bag) or ns.isSecret(slot) or type(bag) ~= "number" or type(slot) ~= "number" then return end
+	local key = bag .. " " .. slot
+	if use.itemKey ~= key then
+		use.itemKey = key
+		use:SetAttribute("type", "item")
+		use:SetAttribute("item", key)
+	end
+	use:Show()
+end
+local function refreshUses()
+	if InCombatLockdown() then return end
+	local open = false
+	for _, v in pairs(views) do
+		if v.win and v.win:IsShown() then open = true break end
+	end
+	if not open then
+		for _, v in pairs(views) do
+			for _, b in ipairs(v.pool) do
+				if b.use and b.use:IsShown() then b.use:Hide() end
+			end
+		end
+		return
+	end
+	for _, v in pairs(views) do
+		local n = v.used or 0
+		local shown = v.win and v.win:IsShown()
+		for i, b in ipairs(v.pool) do
+			placeUse(b, shown and i <= n)
+		end
+	end
+end
+altWatch:SetScript("OnUpdate", refreshUses)
 
 function View:Label(i)
 	if self.labels[i] then return self.labels[i] end
@@ -979,6 +1051,7 @@ function View:Layout()
 	content:SetHeight(math.max(10, y))
 	self.win:SetHeight(y + self:ContentTop() + 2 + 34 + PAD)
 	refreshAltCovers()
+	refreshUses()
 end
 
 -- Bags changed: lay out again soon (or repaint only, in a fight).
