@@ -442,23 +442,25 @@ local MACRO_LIMIT = 255
 local function macroFor(mobs, namesOnly)
 	local names = macroNames(mobs)
 	if #names == 0 then return "" end
-	local text = "/cleartarget"
+	-- Two marker lines (start and end) tell /zyde mobsdebug whether the macro ran at all and
+	-- whether it got to the end.
+	local START, FINISH = "/run _ZQa=1", "\n/run _ZQb=1"
+	local text = START .. "\n/cleartarget"
 	local function add(...)
 		local chunk = table.concat({ ... }, "\n")
-		if #text + 1 + #chunk > MACRO_LIMIT then return false end
+		if #text + 1 + #chunk + #FINISH > MACRO_LIMIT then return false end
 		text = text .. "\n" .. chunk
 		return true
 	end
-	-- (No "/tar [@nameplateN]" lines any more: on Forever a macro line that targets a nameplate
-	-- unit stops the whole macro - /zyde mobsdebug showed every press ending on nothing whenever
-	-- one was in it, while names-only macros worked. Names only, so someone else's tag can't be
-	-- skipped except by leaving out names whose mobs in view are all tagged; see macroNames.)
+	-- (Names only: a "/tar [@nameplateN]" line looked like it stopped the whole macro. So
+	-- someone else's tag can't be skipped except by leaving out names whose mobs in view are
+	-- all tagged; see macroNames.)
 	for _ = 1, 2 do
 		for _, name in ipairs(names) do
 			add("/tar [noexists] " .. name, "/cleartarget [dead]")
 		end
 	end
-	return text
+	return text .. FINISH
 end
 
 local lastMacro
@@ -563,11 +565,13 @@ targetButton:HookScript("PreClick", function()
 	presses[#presses + 1] = { at = GetTime(), before = describeTarget(), combat = InCombatLockdown(),
 		lines = select(2, (targetButton:GetAttribute("macrotext") or ""):gsub("\n", "\n")) }
 	if #presses > 4 then table.remove(presses, 1) end
+	_G._ZQa, _G._ZQb = nil, nil
 end)
 targetButton:HookScript("PostClick", function()
 	local p = presses[#presses]
 	if not p then return end
 	p.after = describeTarget()
+	p.ran = _G._ZQb and "ran to the end" or (_G._ZQa and "STOPPED part-way" or "did NOT run")
 	C_Timer.After(0.3, function() p.later = describeTarget() end)
 end)
 
@@ -598,9 +602,9 @@ local function debug()
 	if #presses == 0 then print(p .. "key presses: none yet this session") end
 	for i = #presses, 1, -1 do
 		local k = presses[i]
-		print(("%s  press %.0fs ago%s (%d-line macro): before %s -> after %s -> 0.3s later %s"):format(p,
-			GetTime() - k.at, k.combat and " in combat" or "", (k.lines or 0) + 1, k.before, tostring(k.after or "?"),
-			tostring(k.later or "?")))
+		print(("%s  press %.0fs ago%s (%d-line macro, %s): before %s -> after %s -> 0.3s later %s"):format(p,
+			GetTime() - k.at, k.combat and " in combat" or "", (k.lines or 0) + 1, k.ran or "?", k.before,
+			tostring(k.after or "?"), tostring(k.later or "?")))
 	end
 end
 
