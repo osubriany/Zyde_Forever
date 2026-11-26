@@ -22,6 +22,7 @@ local DUNMOROGH, BURNING, ELWYNN, DEADWIND, DUSKWOOD, LOCH, REDRIDGE, STV, SWAMP
 local TELDRASSIL, DARKSHORE, ASHENVALE, NEEDLES, STONETALON, DESOLACE, FERALAS, DUSTWALLOW, AZSHARA, FELWOOD =
 	1438, 1439, 1440, 1441, 1442, 1443, 1444, 1445, 1447, 1448
 local MULGORE, ALTERAC = 1412, 1416
+local RIVERGLADES = 2548 -- (Forever's own zone)
 
 -- Zone crossings: the point is on `map`; the crossing joins `map` and `other`.
 -- pass = true shows the crossing as its own step ("Go through Thandol Span").
@@ -52,6 +53,12 @@ Seeds.crossings = {
 	{ name = "Hillsbrad / Hinterlands", map = HINTERLANDS, x = 3.5, y = 47.5, other = HILLSBRAD },
 	{ name = "The Bulwark", map = TIRISFAL, x = 83.5, y = 69.0, other = WPL },
 	{ name = "Western / Eastern Plaguelands", map = WPL, x = 69.0, y = 50.0, other = EPL },
+	-- Forever's Riverglades (east of Redridge, north of the Swamp of Sorrows, south of the Badlands).
+	-- Points on the Riverglades side, from an AI-written guide summary (2026-11-26) - NOT checked in
+	-- game; the crossing you really walk is learned and wins over these.
+	{ name = "Redridge / Riverglades (Bristle Hills)", map = RIVERGLADES, x = 27.0, y = 63.0, other = REDRIDGE },
+	{ name = "Swamp of Sorrows / Riverglades (Meadowsbrook)", map = RIVERGLADES, x = 45.0, y = 81.0, other = SWAMP },
+	{ name = "Badlands / Riverglades trail", map = RIVERGLADES, x = 27.4, y = 37.0, other = BADLANDS },
 	-- Kalimdor
 	{ name = "Durotar / Barrens bridge", map = DUROTAR, x = 34.5, y = 42.5, other = BARRENS },
 	{ name = "Barrens / Mulgore road", map = BARRENS, x = 34.0, y = 62.0, other = MULGORE },

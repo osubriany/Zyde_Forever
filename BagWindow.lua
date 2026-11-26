@@ -649,6 +649,20 @@ function View:Holder(bag)
 end
 
 local buttonCount = 0
+-- The secure right-click buttons (View:Button) live on this layer. The game hides it for the
+-- whole of a fight (a state driver, which works in combat), because addon code can't move or
+-- hide secure buttons then: closing the bags mid-fight would otherwise leave invisible buttons
+-- where the slots were, and a right-click there would use that item.
+local layer
+local function useLayer()
+	if layer then return layer end
+	layer = CreateFrame("Frame", "ZydeForeverBagUseLayer", UIParent, "SecureHandlerStateTemplate")
+	layer:SetAllPoints()
+	layer:SetFrameStrata("HIGH")
+	RegisterStateDriver(layer, "visibility", "[combat] hide; show")
+	return layer
+end
+
 function View:Button(i)
 	if self.pool[i] then return self.pool[i] end
 	buttonCount = buttonCount + 1
@@ -694,7 +708,7 @@ function View:Button(i)
 	-- Right-click use cannot run from this addon button: the game blocks it as
 	-- tainted. A secure button sits on the slot and uses the item itself.
 	-- Left clicks pass through to this button, which still picks up and drops.
-	local use = CreateFrame("Button", nil, UIParent, "SecureActionButtonTemplate")
+	local use = CreateFrame("Button", nil, useLayer(), "SecureActionButtonTemplate")
 	use:SetSize(S, S)
 	-- The bag window is HIGH and toplevel, and its item buttons sit above that.
 	-- A HIGH button under them never sees the click. DIALOG is above the window.
@@ -712,7 +726,9 @@ function View:Button(i)
 	local origClick = b:GetScript("OnClick")
 	if origClick then
 		b:SetScript("OnClick", function(self, button, ...)
-			if button == "RightButton" then return end
+			-- (the secure button took this right-click; in a fight it's hidden, see useLayer,
+			-- and the slot's own click handles it as before)
+			if button == "RightButton" and use:IsVisible() then return end
 			return origClick(self, button, ...)
 		end)
 	end
@@ -1900,11 +1916,18 @@ end
 function ns.BankUsage()
 	local f = bankFrame()
 	if f and f:IsShown() then
-		local _, free, _, _, slots = gather(bankBags())
-		if type(slots) == "number" and slots > 0 then
-			local freeN = type(free) == "number" and free or 0
-			return math.max(0, slots - freeN), slots
+		-- (only the slot counts: gather() would sort and check every item, and this runs for
+		-- the Bank button, the info bar and the bank row on every bag change)
+		local free, slots = 0, 0
+		for _, bag in ipairs(bankBags()) do
+			local fr, fam = C_Container.GetContainerNumFreeSlots(bag)
+			fr, fam = plainNum(fr), plainNum(fam)
+			if isOrdinaryBag(bag, fam) then
+				free = free + fr
+				slots = slots + numSlots(bag)
+			end
 		end
+		if slots > 0 then return math.max(0, slots - free), slots end
 	end
 	local saved = savedBank()
 	if saved and type(saved.slots) == "number" and saved.slots > 0 then

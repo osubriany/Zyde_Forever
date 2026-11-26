@@ -34,7 +34,13 @@ local AURA, AURA_MAX = 16, 5  -- debuff icon size, how many
 -- bar under the debuffs does not get covered.
 local DEMO_SECONDS = 45
 local demoSet = { [1160] = true, [6190] = true, [11554] = true, [11555] = true, [11556] = true, [25202] = true, [25203] = true, [47437] = true }
-local demoUntil = 0
+local demoOn = {} -- [mob GUID] = when your shout on it runs out (only mobs it reached, see markDemo)
+local function demoLeft(f)
+	local guid = f.unit and plain(UnitGUID(f.unit))
+	local t = guid and demoOn[guid]
+	return t and (t - GetTime()) or 0
+end
+local refreshAurasFor -- (updateAuras, set once it's defined below)
 
 local COLOR = {
 	hostile = { 0.78, 0.29, 0.23 }, neutral = { 0.88, 0.72, 0.27 }, friendly = { 0.55, 0.76, 0.35 },
@@ -380,8 +386,8 @@ local function build(plate)
 		self.tick = (self.tick or 0) + elapsed
 		if self.tick < 0.2 then return end
 		self.tick = 0
-		local left = demoUntil - GetTime()
-		if left <= 0 then self:Hide() return end
+		local left = demoLeft(f)
+		if left <= 0 then self:Hide() if refreshAurasFor then refreshAurasFor(f) end return end
 		if left < 10 then self.time:SetFormattedText("%.0f", math.ceil(left)) self.time:SetTextColor(1, 0.35, 0.3)
 		else self.time:SetFormattedText("%d", left) self.time:SetTextColor(1, 1, 1) end
 	end)
@@ -763,10 +769,18 @@ local function placeAuraRow(f)
 	end
 end
 
+-- The shout icon only on mobs your shout reached, and the game's own copy of the debuff is
+-- left out of the plate's aura row only while ours shows (so after our 45 s, a shout still on
+-- the mob - refreshed, or another warrior's - shows again).
 local function updateShout(f)
 	local b = f.shout
 	if not b then return end
-	if f.unit and GetTime() < demoUntil then b:Show() else b:Hide() end
+	local on = demoLeft(f) > 0
+	if on then b:Show() else b:Hide() end
+	if f.ac and (f.demoFiltered or false) ~= on then
+		local ok = pcall(f.ac.SetAuraGroupCandidateFilters, f.ac, "1", on and { excludeSpellIDs = demoSet } or {})
+		if ok then f.demoFiltered = on end
+	end
 	placeAuraRow(f)
 end
 
@@ -821,19 +835,44 @@ local function updateAuras(f)
 	for i = n + 1, AURA_MAX do f.auras[i]:Hide() end
 end
 
+refreshAurasFor = updateAuras
+
 local function spellNameOf(id)
 	local name = (C_Spell and C_Spell.GetSpellName and plain(safe(C_Spell.GetSpellName, id)))
 		or (GetSpellInfo and plain(safe(GetSpellInfo, id)))
 	return type(name) == "string" and name or nil
 end
 
+-- Which mobs did the shout reach? Its debuff on them when the game shows it; when the game
+-- hides their debuffs, an enemy within the shout's 10 yards that's fighting. Checked a moment
+-- after the cast, so the debuff is on.
+local function shoutReached(unit)
+	if plain(UnitCanAttack("player", unit)) ~= true then return false end
+	local hidden = false
+	for i = 1, 40 do
+		local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HARMFUL|PLAYER")
+		if not ok or not a then break end
+		local id, name = plain(a.spellId), plain(a.name)
+		if id == nil and name == nil then hidden = true end
+		if (id and demoSet[id]) or name == "Demoralizing Shout" then return true end
+	end
+	if not hidden then return false end
+	local near = plain(safe(CheckInteractDistance, unit, 3)) -- (about 10 yards)
+	if near ~= nil then return near == true or near == 1 end
+	return plain(UnitAffectingCombat(unit)) == true
+end
+
 local function markDemo(spellID)
 	if type(spellID) == "number" then demoSet[spellID] = true end
-	demoUntil = GetTime() + DEMO_SECONDS
-	for _, f in pairs(skinned) do
-		if f.ac then pcall(f.ac.SetAuraGroupCandidateFilters, f.ac, "1", { excludeSpellIDs = demoSet }) end
-		updateAuras(f)
-	end
+	C_Timer.After(0.2, function()
+		local now = GetTime()
+		for guid, t in pairs(demoOn) do if t <= now then demoOn[guid] = nil end end
+		for unit, f in pairs(skinned) do
+			local guid = plain(UnitGUID(unit))
+			if guid and shoutReached(unit) then demoOn[guid] = now + DEMO_SECONDS end
+			updateAuras(f)
+		end
+	end)
 end
 
 local demoEv = CreateFrame("Frame")
