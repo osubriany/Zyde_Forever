@@ -4,6 +4,7 @@
 --   Set the key in Options > Keybindings > Zyde Forever > "Radial ring (hold)".
 --   /zyde ring (or the Set up button in /zyde) opens the setup window: drag a
 --   spell, macro or item onto a slot, right-click a slot to empty it.
+--   Each character has its own ring. The key can be the same on all of them.
 --
 -- Casting has to come from a secure click, so the key is a secure action
 -- button. Its press opens the ring at the cursor; its release works out the
@@ -21,11 +22,55 @@ local DEAD = 22 -- let go closer than this to the middle: nothing happens
 local QMARK = "Interface\\Icons\\INV_Misc_QuestionMark"
 
 local function on() return ns.F("radial") end
+-- Each character has its own ring: ZydeForeverDB.radialByChar["Name-Realm"].
+-- The ring from before this was one ring for every character
+-- (ZydeForeverDB.radial). It goes to the first character that knows all of its
+-- spells, and is then removed, so a warrior never gets the hunter's ring.
+local function charKey()
+	local name = UnitName("player")
+	local realm = GetRealmName and GetRealmName()
+	if ns.isSecret(name) or type(name) ~= "string" or name == "" then return nil end
+	if ns.isSecret(realm) or type(realm) ~= "string" then realm = "" end
+	return name .. "-" .. realm
+end
+
+local function knowsSpell(id)
+	if type(id) ~= "number" then return false end
+	for _, f in ipairs({ IsPlayerSpell, IsSpellKnown, C_SpellBook and C_SpellBook.IsSpellKnown }) do
+		if f then
+			local v = ns.safe(f, id)
+			if v and not ns.isSecret(v) then return true end
+		end
+	end
+	return false
+end
+
+local fallback = { slots = {} } -- (before the character's name is known)
 local function db()
 	ZydeForeverDB = ZydeForeverDB or {}
-	ZydeForeverDB.radial = ZydeForeverDB.radial or { slots = {} }
-	ZydeForeverDB.radial.slots = ZydeForeverDB.radial.slots or {}
-	return ZydeForeverDB.radial
+	local key = charKey()
+	if not key then return fallback end
+	ZydeForeverDB.radialByChar = ZydeForeverDB.radialByChar or {}
+	local mine = ZydeForeverDB.radialByChar[key]
+	if not mine then
+		mine = { slots = {} }
+		ZydeForeverDB.radialByChar[key] = mine
+	end
+	mine.slots = mine.slots or {}
+	-- Still empty: take the old shared ring if its spells are this character's.
+	-- (Asked again later too, in case the spellbook wasn't loaded the first time.)
+	local old = ZydeForeverDB.radial
+	if #mine.slots == 0 and type(old) == "table" and type(old.slots) == "table" and #old.slots > 0 then
+		local fits = true
+		for _, s in ipairs(old.slots) do
+			if s.kind == "spell" and not knowsSpell(s.id) then fits = false break end
+		end
+		if fits then
+			mine.slots = old.slots
+			ZydeForeverDB.radial = nil
+		end
+	end
+	return mine
 end
 local function slots() return db().slots end
 
@@ -636,7 +681,7 @@ local function buildEditor()
 
 	f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	f.title:SetPoint("TOPLEFT", 12, -10)
-	f.title:SetText("Radial ring")
+	f.title:SetText("Radial ring  |cffaaaaaa" .. (UnitName("player") or "") .. " only|r")
 	f.title:SetTextColor(0.69, 0.35, 1)
 	local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
 	close:SetPoint("TOPRIGHT", 2, 2)
