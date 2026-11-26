@@ -170,10 +170,21 @@ local function setClick(f, enabled)
 	if f and f.SetMouseClickEnabled then pcall(f.SetMouseClickEnabled, f, enabled and true or false) end
 end
 
+-- (some of UIParent's children are "forbidden" to addons: touching one errors)
+local function forbidden(f)
+	if not f then return true end
+	if f.IsForbidden then
+		local ok, v = pcall(f.IsForbidden, f)
+		return not ok or v == true
+	end
+	return false
+end
+
 local function eachBarFrame(fn)
 	local function consider(f)
-		if not f then return end
-		local name = f.GetName and f:GetName()
+		if forbidden(f) then return end
+		local okName, name = pcall(f.GetName, f)
+		if not okName then return end
 		if type(name) ~= "string" or name:find("^Zyde") then return end
 		if name:find("ActionBar") or name:find("AbilityBar") then fn(f) end
 	end
@@ -188,7 +199,7 @@ local function eachBarFrame(fn)
 	if UIParent and UIParent.GetChildren then
 		for _, f in ipairs({ UIParent:GetChildren() }) do
 			consider(f)
-			if f.GetChildren then
+			if not forbidden(f) and f.GetChildren then
 				for _, c in ipairs({ f:GetChildren() }) do consider(c) end
 			end
 		end
@@ -203,7 +214,7 @@ local function aimingAtGear()
 end
 
 local function holdClick(f)
-	if not f or passSaved[f] ~= nil then return end
+	if forbidden(f) or passSaved[f] ~= nil then return end
 	passSaved[f] = clickNow(f)
 	setClick(f, false)
 end
@@ -215,6 +226,9 @@ local function holdTree(f, depth)
 end
 
 local function updatePass()
+	-- (action buttons are protected in a fight: changing their clicks then is blocked; the
+	-- saved state is put back after it, see PLAYER_REGEN_ENABLED)
+	if InCombatLockdown() then return end
 	if aimingAtGear() then
 		eachButton(holdClick)
 		eachBarFrame(function(f) holdTree(f, 0) end)
@@ -236,6 +250,13 @@ for _, e in ipairs({
 }) do
 	pcall(passEv.RegisterEvent, passEv, e)
 end
-passEv:SetScript("OnEvent", function() updatePass() end)
+-- A moment later, never inside the event: these fire in the middle of a secure cast (the ring's
+-- Feed Pet), and running there tainted it and hit frames addons may not touch.
+local passQueued = false
+passEv:SetScript("OnEvent", function()
+	if passQueued then return end
+	passQueued = true
+	C_Timer.After(0, function() passQueued = false updatePass() end)
+end)
 
 ns.OnFeatureChanged(function(key) if key == "barTidy" then updateAll() end end)
