@@ -29,6 +29,8 @@ PullLight.lua
 PetCare.lua
 Reminders.lua
 Rotation.lua
+FlightTimesData.lua
+FlightTimer.lua
 MarkerWheel.lua
 Radial.lua
 BagWindow.lua

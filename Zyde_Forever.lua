@@ -213,6 +213,7 @@ local FEATURES = {
 	{ key = "minimap", short = "zone and local time", label = "Minimap", desc = "A few looks for the minimap: Round, Gilded, or Square. Drag the map to move it. The zone name sits under it, with your local time below. Off while SexyMap is loaded", conflict = "SexyMap" },
 	{ key = "mapSkin", short = "the map in Zyde's look", label = "World map look", desc = "The world map in Zyde's look: a flat dark frame with a gold title and square buttons, flat tabs along the top (purple for the map you're on), and a dark quest list with flat headings. The map, its icons and pins are unchanged. Off until you tick it", defaultOff = true, reload = true },
 	{ key = "mapNotes", short = "alt-click to mark", label = "Map markers", desc = "Your own named markers on the world map, kept between sessions. Alt-click the map to drop one and name it, alt-click a marker to remove it, right-click to rename it" },
+	{ key = "flightTimer", short = "time left on flights", label = "Flight timer", desc = "On a flight: a panel near the middle of the screen with where you're going, the time left and a progress bar (drag it to move it). Flight map tooltips show each flight's time. Uses the published times of about 900 Classic flights, and remembers your own" },
 	{ key = "flight", short = "skip flight chat", label = "Flight master shortcut", desc = "Flight masters open the map directly (hold Shift to talk)" },
 	{ key = "tracking", short = "re-enable after death", label = "Keep tracking after death", desc = "Turns Find Minerals, Find Herbs... back on after you die" },
 	{ key = "questTracker", short = "ready first, by level", label = "Quest tracker", desc = "Replaces the game's quest tracker: quests ready to turn in, then this zone, then other zones folded away. The mark on each heading cycles that list: nearest, highest level, lowest level. Finished objective lines are hidden", reload = true },
@@ -1922,7 +1923,7 @@ local CATEGORIES = {
 			"rares",
 		} },
 		{ "Bags & vendors", { "bagWindow", "sellJunk", "scrap", "vendor", "recipes" } },
-		{ "Travel & gathering", { "mapNotes", "flight", "tracking", "fishing" } },
+		{ "Travel & gathering", { "mapNotes", "flight", "flightTimer", "tracking", "fishing" } },
 	},
 }
 
@@ -2621,6 +2622,7 @@ ns.ZydeCommands = {
 	{ cmd = "/zyde sealdebug", about = "Paladins: why the Seal of Righteousness tile is or isn't showing." },
 	{ cmd = "/zyde minimapdebug", about = "Where the minimap and its cluster are, and the saved spot." },
 	{ cmd = "/zyde tentdebug", about = "What the tent reminder sees: nearby tents, a tent in your bags, Leatherworking, rested XP." },
+	{ cmd = "/zyde flighttimer", about = "Flight timer: how many flight times it knows (add \"reset\" to put the panel back in the middle)." },
 	{ cmd = "/zyde rotationdebug", about = "Ability highlight: what it sees (enemies, time left, health) and each spell's numbers." },
 	{ cmd = "/zyde evisdebug", about = "Rogues: the damage numbers behind the Eviscerate tile for your target." },
 	{ cmd = "/zyde mapnotes", about = "How many map markers you have. Alt-click the map to add one." },
@@ -2826,6 +2828,8 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		if ns.MinimapDebug then ns.MinimapDebug() end
 	elseif msg == "tentdebug" then
 		if ns.TentDebug then ns.TentDebug() end
+	elseif msg == "flighttimer" or msg == "flighttimer reset" then
+		if ns.FlightTimerCommand then ns.FlightTimerCommand(msg:match("reset")) end
 	elseif msg == "rotationdebug" then
 		if ns.RotationDebug then ns.RotationDebug() end
 	elseif msg == "evisdebug" then
