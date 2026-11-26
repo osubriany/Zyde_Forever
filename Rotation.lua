@@ -191,7 +191,7 @@ end
 -- 2. What a spell does, from its tooltip (read out of combat, kept by spell id)
 ---------------------------------------------------------------------------
 local facts = {}
-local function num(s) return tonumber((s or ""):gsub(",", "")) end
+local function num(s) local v = (s or ""):gsub(",", "") return tonumber(v) end -- (gsub's count must not reach tonumber as a base)
 
 local function parseFacts(id)
 	local f = { direct = 0, dot = 0, dotDur = 0, cd = 0, cast = 0, cost = 0, finisher = {} }
