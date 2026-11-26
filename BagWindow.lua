@@ -658,7 +658,14 @@ local function useLayer()
 	if layer then return layer end
 	layer = CreateFrame("Frame", "ZydeForeverBagUseLayer", UIParent, "SecureHandlerStateTemplate")
 	layer:SetAllPoints()
-	layer:SetFrameStrata("HIGH")
+	-- The bag window is HIGH and toplevel, so its item buttons sit above anything
+	-- else in HIGH. This layer has to be DIALOG or the use buttons are clamped
+	-- under those slots and a right-click never reaches them. Mouse stays off
+	-- on the layer itself; only the slot-sized buttons take clicks.
+	layer:SetFrameStrata("DIALOG")
+	layer:EnableMouse(false)
+	if layer.SetMouseClickEnabled then layer:SetMouseClickEnabled(false) end
+	if layer.SetMouseMotionEnabled then layer:SetMouseMotionEnabled(false) end
 	RegisterStateDriver(layer, "visibility", "[combat] hide; show")
 	return layer
 end
@@ -710,13 +717,18 @@ function View:Button(i)
 	-- Left clicks pass through to this button, which still picks up and drops.
 	local use = CreateFrame("Button", nil, useLayer(), "SecureActionButtonTemplate")
 	use:SetSize(S, S)
-	use:SetFrameStrata("HIGH")
-	use:SetFrameLevel(40)
-	use:RegisterForClicks("RightButtonUp")
-	use:Hide()
-	use.owner = b
+	-- The bag window is HIGH and toplevel, and its item buttons sit above that.
+	-- A HIGH button under them never sees the click. DIALOG is above the window.
+	use:SetFrameStrata("DIALOG")
+	use:SetFrameLevel(100)
+	use:RegisterForClicks("RightButtonDown", "RightButtonUp")
+	use:EnableMouse(true)
+	if use.SetMouseClickEnabled then use:SetMouseClickEnabled(true) end
+	-- Motion falls through so the slot underneath still shows its tooltip.
 	if use.SetMouseMotionEnabled then use:SetMouseMotionEnabled(false) end
 	if use.SetPassThroughButtons then use:SetPassThroughButtons("LeftButton", "MiddleButton") end
+	use:Hide()
+	use.owner = b
 	b.use = use
 	local origClick = b:GetScript("OnClick")
 	if origClick then
@@ -807,9 +819,15 @@ local function placeUse(b, active)
 	local key = bag .. " " .. slot
 	if use.itemKey ~= key then
 		use.itemKey = key
-		use:SetAttribute("type", "item")
-		use:SetAttribute("item", key)
+		-- Right click only. A bare "type" would also fire if a left click landed here.
+		use:SetAttribute("type2", "item")
+		use:SetAttribute("item2", key)
+		use:SetAttribute("*type2", "item")
+		use:SetAttribute("*item2", key)
 	end
+	if use:GetFrameStrata() ~= "DIALOG" then use:SetFrameStrata("DIALOG") end
+	local lvl = (b:GetFrameLevel() or 1) + 20
+	if use:GetFrameLevel() ~= lvl then use:SetFrameLevel(lvl) end
 	use:Show()
 end
 local function refreshUses()
