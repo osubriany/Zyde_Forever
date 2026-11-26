@@ -51,6 +51,7 @@ local ICON = {
 	zeppelin = "Interface\\Icons\\INV_Misc_Map02",
 	tram = "Interface\\Icons\\INV_Misc_Map02",
 	portal = "Interface\\Icons\\INV_Misc_Map02",
+	die = "Interface\\Icons\\Spell_Holy_Resurrection",
 	pass = "Interface\\Icons\\INV_Misc_Map02",
 	border = "Interface\\Icons\\INV_Misc_Map02",
 	hearth = "Interface\\Icons\\INV_Misc_Rune_01",
@@ -476,6 +477,7 @@ local function describe(step, plan)
 		local what = { fly = "Flight", boat = "Boat", zeppelin = "Zeppelin", tram = "Deeprun Tram",
 			hearth = "Hearthstone", pass = "On the way", portal = "Portal", border = "On the way",
 			corpse = "The rest of the route starts there",
+			die = "Let the mobs here kill you, release, take the res: quicker than walking",
 			wait = "The quest is offered only while he's stopped here" }
 		detail = what[step.mode] or "Travel"
 		if step.mode == "hearth" then detail = "Hearthstone  |cff999999· click to use|r" end

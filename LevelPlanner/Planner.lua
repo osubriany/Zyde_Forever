@@ -28,6 +28,38 @@ local function travel(a, b)
 	return t
 end
 
+-- Dying on purpose below level 10: the Spirit Healer's resurrection costs nothing there (no
+-- resurrection sickness, no durability loss), and you come back at the graveyard nearest where you
+-- died - often in or by town. A leg that's quicker that way gets a "die" step (ctx.warpXp, set in
+-- P.Plan while you're under 10; Config.deathWarp). Graveyards are the Spirit Healers' spots.
+local SPIRIT_HEALERS = { 6491 }
+local gyPoints
+local gyNear = setmetatable({}, { __mode = "k" })
+local function graveyardNear(p)
+	if not p then return nil end
+	local c = gyNear[p]
+	if c ~= nil then return c or nil end
+	if not gyPoints then
+		gyPoints = {}
+		for _, id in ipairs(SPIRIT_HEALERS) do
+			local spawns = ns.QuestSource.Npc(id, "spawns")
+			for areaId, list in pairs(type(spawns) == "table" and spawns or {}) do
+				for _, xy in ipairs(type(list) == "table" and list or {}) do
+					local gp = ns.Geo.Point(areaId, xy[1], xy[2])
+					if gp then gyPoints[#gyPoints + 1] = gp end
+				end
+			end
+		end
+	end
+	local best, bestD
+	for _, g in ipairs(gyPoints) do
+		local d = ns.Geo.Distance(p, g)
+		if d and (not bestD or d < bestD) then best, bestD = g, d end
+	end
+	gyNear[p] = best or false
+	return best
+end
+
 -- XP a stop earns (its kills, plus the quest XP at a turn-in): used to see where the route levels you up.
 -- pool = rested XP left before this stop (kills give double while it lasts). Returns the XP and the
 -- pool left after the stop.
@@ -280,10 +312,19 @@ local function routeSeconds(route, ctx)
 	end
 	local h, hs, save = ctx.hearth, ctx.hearthSecs or 45, 0
 	local need, xp, speed, pool = ctx.mountSpeed and ctx.toDing, 0, nil, ctx.rested
+	local warpXp, gained = ctx.warpXp, 0
 	for _, e in ipairs(route) do
 		local w
 		w, run = addedWork(prevEntry, e, run, ctx.start, ctx.xpRate or 0, inRoute)
 		local leg = speed and prev and ns.Travel.Seconds(prev, e.point, speed) or travel(prev, e.point)
+		if warpXp and gained < warpXp then
+			local g = graveyardNear(prev)
+			if g then
+				local viaDeath = ctx.deathSecs + travel(g, e.point)
+				if leg - viaDeath > (ctx.deathMinSave or 30) then leg = viaDeath end
+			end
+			gained = gained + (e.stop.mobXp or 0) + (e.stop.kind == "turnin" and (e.stop.xp or 0) or 0)
+		end
 		if h and leg > hs and t >= h.readyIn then
 			local s = leg - hs - travel(h.point, e.point)
 			if s > save then save = s end
@@ -1295,9 +1336,29 @@ local function finalize(state, ctx)
 			work = ctx.corpseSecs, arrive = ctx.corpseSecs, mobXp = 0 }
 		t = ctx.corpseSecs
 	end
+	-- (which stops come before the route takes you to level 10: dying is free until then)
+	local warpOk = {}
+	if ctx.warpXp then
+		local gained = 0
+		for idx, e in ipairs(route) do
+			warpOk[idx] = gained < ctx.warpXp
+			gained = gained + (e.stop.mobXp or 0) + (e.stop.kind == "turnin" and (e.stop.xp or 0) or 0)
+		end
+	end
 	for idx, e in ipairs(route) do
 		local from = prev
 		local way = wayIdx[idx]
+		local gy = not hearthLegs[idx] and not way and warpOk[idx] and graveyardNear(from)
+		if gy then
+			local viaDeath = ctx.deathSecs + travel(gy, e.point)
+			if legSeconds(idx, from, e.point) - viaDeath > (ctx.deathMinSave or 30) then
+				steps[#steps + 1] = { kind = "travel", mode = "die",
+					label = "Die and take the Spirit Healer's resurrection (free under level 10)",
+					point = from, work = ctx.deathSecs, arrive = t, mobXp = 0 }
+				t = t + ctx.deathSecs
+				from = gy
+			end
+		end
 		if hearthLegs[idx] then
 			steps[#steps + 1] = { kind = "travel", mode = "hearth", label = "Use your hearthstone (" .. hearth.name .. ")",
 				point = prev, work = hearthSecs, arrive = t, mobXp = 0 }
@@ -1438,6 +1499,17 @@ function P.Plan(candidates, previous, opts)
 			ctx.corpseSecs = math.max(1, secs)
 			ctx.start, ctx.targetNpc = corpse, nil
 		end
+	end
+	-- under level 10 (and not already a ghost), dying is a way to travel: until the route's XP
+	-- takes you to 10
+	if cfg.deathWarp ~= false and (ctx.level or 99) < 10 and not ctx.corpseSecs and ctx.toDing then
+		local need = ctx.toDing
+		for l = ctx.level + 1, 9 do
+			need = need + ((ns.Estimate.XpToNext and ns.Estimate.XpToNext(l)) or 0)
+		end
+		ctx.warpXp = need
+		ctx.deathSecs = cfg.deathWarpSeconds or 60
+		ctx.deathMinSave = cfg.deathWarpMinSave or 30
 	end
 	-- the hearthstone counts in every route's time, not only in the final step list
 	if cfg.hearthInRoute ~= false then

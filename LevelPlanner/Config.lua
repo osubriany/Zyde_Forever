@@ -66,6 +66,11 @@ LevelPlannerConfig = {
 	planLevelUps = true,        -- see where the route levels you up: next-level quests, kill XP, trainer, mount
 	levelUpCandidates = 15,     -- next-level quests offered to the planner (the most promising)
 	hearthInRoute = true,       -- count the hearthstone in every route's time while choosing (not just the step list)
+	-- Under level 10 the Spirit Healer's resurrection is free (no sickness, no repairs), and you come
+	-- back at the graveyard nearest where you died: a leg that's quicker that way gets a "die" step.
+	deathWarp = true,           -- false: never plan dying on purpose
+	deathWarpSeconds = 60,      -- getting killed, releasing and taking the res
+	deathWarpMinSave = 30,      -- only when it saves at least this many seconds over walking
 	plannerRested = true,       -- rested XP (double kill XP) counts when choosing the route and placing level-ups
 	restedReplanShare = 0.2,    -- re-plan when rested XP runs out, or grows by this share of a level
 	switchThreshold = 0.10,     -- only switch to a new route if it is at least 10% better (XP per minute)
