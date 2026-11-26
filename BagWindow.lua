@@ -875,7 +875,10 @@ local function newView(o)
 	v.win = win
 	win:SetWidth(INNER_W + PAD * 2)
 	win:SetHeight(200)
-	win:SetFrameStrata("MEDIUM")
+	-- Above the reminder icons (which sit in HIGH), so a reminder by your
+	-- character never draws on top of your bags.
+	win:SetFrameStrata("HIGH")
+	win:SetFrameLevel(60)
 	win:SetToplevel(true)
 	win:SetClampedToScreen(true)
 	win:EnableMouse(true)
@@ -1465,7 +1468,10 @@ local function buildMemory()
 	memoryWin = win
 	win:SetWidth(INNER_W + PAD * 2)
 	win:SetHeight(160)
-	win:SetFrameStrata("MEDIUM")
+	-- Above the reminder icons (which sit in HIGH), so a reminder by your
+	-- character never draws on top of your bags.
+	win:SetFrameStrata("HIGH")
+	win:SetFrameLevel(60)
 	win:SetToplevel(true)
 	win:SetClampedToScreen(true)
 	win:EnableMouse(true)
