@@ -2,7 +2,7 @@
 -- innkeeper or flight master) and puts the game's yellow star marker on it.
 -- Marking is protected on Forever: addon code may not place a marker on its own (the game shows
 -- "blocked from an action only available to the Blizzard UI"). A key press on a secure button may,
--- so this is a secure macro button: /targetexact <name>, then the star if a live target was found.
+-- so this is a secure macro button: /tar <name>, then the star if a live target was found.
 -- Like every secure button, its macro can only change outside combat.
 local ADDON, zyde = ...
 -- Part of Zyde_Forever since 2026-11-14: LevelPlanner keeps its own private table (zyde.LP) so its
@@ -23,7 +23,7 @@ local btn
 local wanted = ""       -- macro for the current plan
 local pending = false   -- changed during combat; apply when it ends
 
--- The macro: target the next NPC step's NPC by its exact name (each /targetexact only works when
+-- The macro: target the next NPC step's NPC by name (each /tar only works when
 -- that NPC is near, so several names are fine), then the star, only on a live target.
 local function buildMacro(plan)
 	local names, seen = {}, {}
@@ -39,10 +39,13 @@ local function buildMacro(plan)
 	if #names == 0 then return "" end
 	-- the star, only on a live target (Config.npcStars = false: target only)
 	local tail = ns.cfg.npcStars ~= false and "/tm [exists,nodead] 1" or ""
+	-- (/targetexact targets nothing on Forever, while /tar does - seen in game 2026-11-26. Each /tar
+	-- line that finds its NPC replaces the target, so the least wanted name goes first and the
+	-- first-listed NPC last, to win when both are near.)
 	local lines = { "/cleartarget" }
-	for _, name in ipairs(names) do lines[#lines + 1] = "/targetexact " .. name end
-	-- the game cuts macros at 255 characters: drop extra names until it fits
-	while #lines > 2 and #table.concat(lines, "\n") + 1 + #tail > MAX_MACRO do table.remove(lines) end
+	for k = #names, 1, -1 do lines[#lines + 1] = "/tar " .. names[k] end
+	-- the game cuts macros at 255 characters: drop the least wanted names until it fits
+	while #lines > 2 and #table.concat(lines, "\n") + 1 + #tail > MAX_MACRO do table.remove(lines, 2) end
 	if tail ~= "" then lines[#lines + 1] = tail end
 	return table.concat(lines, "\n")
 end
