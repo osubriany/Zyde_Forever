@@ -84,13 +84,13 @@ local CLASSES = {
 		{ name = "Sinister Strike", kind = "builder" },
 	},
 	HUNTER = {
-		{ name = "Mongoose Bite", kind = "reactive", needUsable = true },
+		{ name = "Mongoose Bite", kind = "reactive", needUsable = true, melee = true },
 		{ name = "Multi-Shot", kind = "direct", aoe = { 2, 3 } },
 		{ name = "Volley", kind = "direct", aoe = { 3, 10 } },
 		{ name = "Serpent Sting", kind = "dot" },
 		{ name = "Aimed Shot", kind = "direct" },
 		{ name = "Arcane Shot", kind = "direct" },
-		{ name = "Raptor Strike", kind = "filler" },
+		{ name = "Raptor Strike", kind = "filler", melee = true },
 	},
 	PALADIN = {
 		-- Seals and Judgement are chosen by paladinPick (below), ahead of the scored list.
@@ -347,11 +347,27 @@ local function usable(entry)
 	return plain(u)
 end
 
-local function inRange(entry)
-	local r = C_Spell and C_Spell.IsSpellInRange and safe(C_Spell.IsSpellInRange, entry.id, "target")
-	if r == nil and IsSpellInRange then r = safe(IsSpellInRange, spellName(entry.id) or "", "target") end
+-- In reach of your target? Asks the action button first (the game answers that for melee
+-- moves too), then the spell. A spell marked melee = true (a hunter's Raptor Strike) that
+-- nobody answers for is only in reach within about 10 yards. Unknown otherwise: allowed.
+-- (Before: a hidden or missing answer counted as in range, so Raptor Strike glowed at 30 yards.)
+local function verdict(r)
 	r = plain(r)
 	if r == false or r == 0 then return false end
+	if r == true or r == 1 then return true end
+	return nil
+end
+local function inRange(entry, spell)
+	local v
+	local a = entry.button and actionOf(entry.button)
+	if a and IsActionInRange then v = verdict(safe(IsActionInRange, a)) end
+	if v == nil and C_Spell and C_Spell.IsSpellInRange then v = verdict(safe(C_Spell.IsSpellInRange, entry.id, "target")) end
+	if v == nil and IsSpellInRange then v = verdict(safe(IsSpellInRange, spellName(entry.id) or "", "target")) end
+	if v ~= nil then return v end
+	if spell and spell.melee then
+		local near = verdict(safe(CheckInteractDistance, "target", 3))
+		return near == true
+	end
 	return true
 end
 
@@ -361,7 +377,7 @@ end
 local function score(spell, entry, f, ctx, index)
 	if spell.form and spell.form ~= ctx.form then return nil end
 	if cooldownLeft(spell.name, f) > 0.3 then return nil end
-	if not inRange(entry) then return nil end
+	if not inRange(entry, spell) then return nil end
 	local u = usable(entry)
 	if u == false then return nil end
 	if spell.needUsable and u ~= true then return nil end
