@@ -166,6 +166,71 @@ local function frameHeight(cfg)
 end
 
 -- Size, clicks and visuals; shared by the fixed frames and raid buttons.
+-- Faction badge. The emblem sits in the top-left of the 64px file.
+local PVP_ICON = {
+	Alliance = "Interface\\TargetingFrame\\UI-PVP-Alliance",
+	Horde = "Interface\\TargetingFrame\\UI-PVP-Horde",
+	FFA = "Interface\\TargetingFrame\\UI-PVP-FFA",
+}
+
+local function placePvP(f)
+	local b = f.pvp
+	if not b then return end
+	b:ClearAllPoints()
+	local onRight = f.unit == "target"
+	if f.portrait then
+		local side = math.max(24, math.floor((f.portraitSize or 44) * 0.5))
+		b:SetSize(side, side)
+		b:SetPoint("CENTER", f.portrait, onRight and "TOPRIGHT" or "TOPLEFT", 0, 0)
+	else
+		b:SetSize(22, 22)
+		b:SetPoint("CENTER", f.hp, onRight and "TOPRIGHT" or "TOPLEFT", onRight and -2 or 2, 2)
+	end
+	if b.time then
+		b.time:SetFont(FONT, math.max(10, math.floor(b:GetWidth() * 0.4)), "OUTLINE")
+	end
+end
+
+local function updatePvP(f)
+	local b = f.pvp
+	if not b then return end
+	if not f:IsShown() or not UnitExists(f.unit) then b:Hide() return end
+	local unit = f.unit
+	local ffa = UnitIsPVPFreeForAll and plain(safe(UnitIsPVPFreeForAll, unit))
+	local flagged = plain(safe(UnitIsPVP, unit))
+	-- A hidden read must not wipe the badge you already have up.
+	if unit == "player" and ffa == nil and flagged == nil and b.known then return end
+	local kind
+	if ffa then
+		kind = "FFA"
+	elseif flagged then
+		local faction = plain(safe(UnitFactionGroup, unit))
+		kind = (faction == "Alliance" or faction == "Horde") and faction or "FFA"
+	end
+	b.known = kind
+	if not kind then
+		b.left = nil
+		if b.time then b.time:SetText("") end
+		b:Hide()
+		return
+	end
+	b.icon:SetTexture(PVP_ICON[kind])
+	b.icon:SetTexCoord(0, 0.62, 0, 0.62)
+	b:Show()
+	if not b.time then return end
+	local running = IsPVPTimerRunning and plain(safe(IsPVPTimerRunning))
+	local ms = GetPVPTimer and plain(safe(GetPVPTimer))
+	if running and type(ms) == "number" and ms > 0 then
+		b.left = ms / 1000
+	elseif b.left and (running == nil or (running and ms == nil)) then
+		-- Clock hidden: the ticker already running keeps going.
+	else
+		b.left = nil
+		b.time:SetText("")
+		b.shown = nil
+	end
+end
+
 local function decorate(f, cfg, visualOnly)
 	f.cfg = cfg
 	if not visualOnly then
@@ -197,6 +262,42 @@ local function decorate(f, cfg, visualOnly)
 		t:SetPoint("CENTER", f.hp, "TOPLEFT", 8 + (i - 1) * 13, 0)
 		t:Hide()
 		f.groupIcons[i] = t
+	end
+
+	-- PvP badge on the portrait corner. Yours also counts down while the flag is dropping.
+	local unit = f.unit
+	if unit == "player" or unit == "target" or (type(unit) == "string" and unit:match("^party%d$")) then
+		local b = CreateFrame("Frame", nil, UIParent)
+		b:SetFrameStrata("MEDIUM")
+		b:SetFrameLevel(90)
+		b:SetSize(22, 22)
+		b:EnableMouse(false)
+		b:Hide()
+		b.icon = b:CreateTexture(nil, "ARTWORK")
+		b.icon:SetAllPoints()
+		if unit == "player" then
+			b.time = makeText(b, 11)
+			b.time:SetPoint("CENTER")
+			b.time:SetTextColor(1, 0.82, 0.2)
+			b:SetScript("OnUpdate", function(self, elapsed)
+				if not self.left then return end
+				self.left = self.left - elapsed
+				if self.left <= 0 then
+					self.left = nil
+					self.time:SetText("")
+					return
+				end
+				local text = string.format("%d:%02d", math.floor(self.left / 60), math.floor(self.left % 60))
+				if text ~= self.shown then
+					self.shown = text
+					self.time:SetText(text)
+				end
+			end)
+		end
+		f.pvp = b
+		placePvP(f)
+		f:HookScript("OnShow", function() updatePvP(f) end)
+		f:HookScript("OnHide", function() b:Hide() end)
 	end
 
 	if cfg.power > 0 then
@@ -592,6 +693,7 @@ local function updateAll(f, snap)
 	updateMark(f)
 	updateGroupIcons(f)
 	updateClassEdge(f)
+	updatePvP(f)
 	if f.skinUpdate then f.skinUpdate(f) end -- (portrait, ring and level badge)
 end
 
@@ -1976,6 +2078,7 @@ local function addPortrait(f, spec, onRight)
 		f:HookScript("OnHide", function() overlay:Hide() end)
 		f.combatOverlay = overlay
 	end
+	placePvP(f)
 	-- The portrait hangs off the bar, so the bar's own click misses it.
 	-- This button is a child of the unit frame and aimed with the frame's own
 	-- points, which stays allowed once a fight starts.
@@ -2245,6 +2348,7 @@ for _, e in ipairs({
 	"UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_HEALTH_FREQUENT",
 	"UNIT_POWER_UPDATE", "UNIT_POWER_FREQUENT", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER",
 	"UNIT_CONNECTION", "UNIT_NAME_UPDATE", "UNIT_LEVEL", "UNIT_FACTION", "UNIT_FLAGS",
+	"PLAYER_FLAGS_CHANGED",
 	"UNIT_CLASSIFICATION_CHANGED", "PLAYER_UPDATE_RESTING", "PLAYER_LEVEL_UP",
 	"UNIT_PET", "UNIT_HAPPINESS", "PET_UI_UPDATE", "UNIT_AURA", "UNIT_PET_EXPERIENCE", "UNIT_TARGET",
 	"RAID_TARGET_UPDATE", "PARTY_LEADER_CHANGED", "PARTY_LOOT_METHOD_CHANGED", "PLAYER_ROLES_ASSIGNED",
@@ -2345,6 +2449,8 @@ ev:SetScript("OnEvent", function(_, event, unit)
 		-- Markers and group icons on every frame (these name no unit).
 		for _, fr in ipairs(frames) do updateMark(fr) updateGroupIcons(fr) end
 		for _, b in ipairs(raidButtons) do if b.unit then updateMark(b) updateGroupIcons(b) end end
+	elseif event == "PLAYER_FLAGS_CHANGED" then
+		updatePvP(player)
 	elseif event == "PLAYER_UPDATE_RESTING" then
 		updateResting()
 	elseif event == "PLAYER_LEVEL_UP" then
@@ -2393,6 +2499,7 @@ if C_Timer and C_Timer.NewTicker then
 		-- Pet mood can change without an event on this client: re-read it.
 		if pet:IsShown() and UnitExists("pet") and not unlocked then updateName(pet) updatePetXP() end
 		if player.combatOverlay then UF.UpdateCombat() end
+		if player.pvp and not UF.disabled then updatePvP(player) end
 	end)
 end
 

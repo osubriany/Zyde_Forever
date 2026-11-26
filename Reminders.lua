@@ -28,9 +28,24 @@ local GCD = 1.5
 
 local function plain(v) if isSecret(v) then return nil end return v end
 local function on() return ns.F("reminders") end
-local function inCombat() return UnitAffectingCombat("player") end
+-- A hidden answer keeps the last one. Treating it as "no" turned the icon off
+-- for the rest of the fight.
+local lastCombat, lastHostile = false, false
+local function inCombat()
+	local c = plain(UnitAffectingCombat("player"))
+	if c == nil then return lastCombat end
+	lastCombat = c and true or false
+	return lastCombat
+end
 local function hostileTarget()
-	return UnitExists("target") and plain(UnitCanAttack("player", "target")) and not plain(UnitIsDeadOrGhost("target"))
+	local exists = plain(UnitExists("target"))
+	if exists == nil then return lastHostile end
+	if not exists then lastHostile = false return false end
+	local attack = plain(UnitCanAttack("player", "target"))
+	local dead = plain(UnitIsDeadOrGhost("target"))
+	if attack == nil or dead == nil then return lastHostile end
+	lastHostile = (attack and true or false) and not dead
+	return lastHostile
 end
 local function icon(ids, fallback)
 	return ns.spellTexture(ids[1], "Interface\\Icons\\" .. fallback)
@@ -212,11 +227,10 @@ end
 local function bestKnown(ids)
 	for i = #ids, 1, -1 do
 		local id = ids[i]
-		if (IsPlayerSpell and safe(IsPlayerSpell, id))
-			or (IsSpellKnown and safe(IsSpellKnown, id))
-			or (C_SpellBook and C_SpellBook.IsSpellKnown and safe(C_SpellBook.IsSpellKnown, id)) then
-			return id
-		end
+		local a = IsPlayerSpell and plain(safe(IsPlayerSpell, id))
+		local b = IsSpellKnown and plain(safe(IsSpellKnown, id))
+		local c = C_SpellBook and C_SpellBook.IsSpellKnown and plain(safe(C_SpellBook.IsSpellKnown, id))
+		if a or b or c then return id end
 	end
 end
 
@@ -232,7 +246,22 @@ rankEv:RegisterEvent("SPELLS_CHANGED")
 rankEv:SetScript("OnEvent", refreshBookSpells)
 refreshBookSpells()
 local THUNDER_CLAP = { 6343, 8198, 8204, 8205, 11580, 11581, 25264 }
+-- Rank 1 is 10 seconds. Each rank adds 4, through rank 6 at 30. Rank 7 stays at 30.
+local thunderTime = { [6343] = 10, [8198] = 14, [8204] = 18, [8205] = 22, [11580] = 26, [11581] = 30, [25264] = 30 }
 local DEMO_SHOUT = { 1160, 6190, 11554, 11555, 11556, 25202, 25203, 47437 }
+-- "Rank 3" from the spell, for a Forever spell id that is not in the list above.
+local function spellRank(id)
+	if type(id) ~= "number" then return nil end
+	local sub
+	if C_Spell and C_Spell.GetSpellSubtext then sub = plain(safe(C_Spell.GetSpellSubtext, id)) end
+	if type(sub) ~= "string" and GetSpellSubtext then sub = plain(safe(GetSpellSubtext, id)) end
+	if type(sub) ~= "string" and GetSpellInfo then
+		local _, rank = safe(GetSpellInfo, id)
+		sub = plain(rank)
+	end
+	if type(sub) ~= "string" then return nil end
+	return tonumber(sub:match("(%d+)"))
+end
 local REND = { 772, 6546, 6547, 6548, 11572, 11573, 11574, 25208 } -- (an instant melee attack: its range is melee reach)
 
 if WARRIOR then
@@ -670,65 +699,101 @@ if WARRIOR then
 		return true, "Victory"
 	end)
 
-	-- Thunder Clap and Demoralizing Shout each last 30 seconds. In a fight the
-	-- game often hides the debuff, so a cast you just made keeps that icon down
-	-- until the time is up. A duration or expiry that isn't a short debuff (a
-	-- timestamp, a 0, a time already past) must not stick.
-	local DEBUFF_MAX = 60
-	local function debuffReminder(spellName, ids, fallback, label, key, frameName, iconFile)
+	-- Thunder Clap and Demoralizing Shout each have their own clock. Every cast
+	-- starts that spell's clock over. Thunder Clap is 10 seconds at rank 1 and
+	-- 4 seconds longer each rank, through 30 at rank 6. Demoralizing Shout is
+	-- 45 seconds. The debuff row must not clear or shorten that clock. Leaving
+	-- combat clears it. A hidden "do you know this spell" answer cannot turn
+	-- the icon off.
+	local resets = {}
+	local function debuffReminder(spellName, ids, fallback, label, key, frameName, iconFile, times)
 		local idSet = set(ids)
-		absorbRanks(ids, idSet, spellName)
-		local expires, forGuid, length = 0, nil, fallback
-		local function arm(seconds, guid)
-			if type(seconds) ~= "number" or seconds <= 0 or seconds > DEBUFF_MAX then seconds = fallback end
-			length = seconds
-			expires = GetTime() + seconds
-			forGuid = guid
+		local have, nextBook = false, 0
+		local deadline = 0
+		local reach, sawRange
+		local function learn()
+			if have then return true end
+			local book = absorbRanks(ids, idSet, spellName)
+			local known = bestKnown(ids)
+			if known then reach = known end
+			if not reach and book then reach = book end
+			if book or known then have = true end
+			return have
+		end
+		learn()
+		local function lengthOf(spellID)
+			if not times then return fallback end
+			if type(spellID) == "number" and times[spellID] then return times[spellID] end
+			local rank = spellRank(spellID)
+			if not rank then
+				local id = bestKnown(ids)
+				if type(id) == "number" and times[id] then return times[id] end
+				rank = spellRank(id)
+			end
+			if type(rank) ~= "number" or rank < 1 then return fallback end
+			if rank >= 6 then return fallback end
+			return 10 + (rank - 1) * 4
+		end
+		local function clear()
+			deadline = 0
+		end
+		local function arm(spellID)
+			local seconds = lengthOf(spellID)
+			if type(seconds) ~= "number" or seconds < 8 or seconds > fallback then seconds = fallback end
+			deadline = GetTime() + seconds
 		end
 		local function onCast(spellID, name)
-			if idSet[spellID] or name == spellName then arm(length, plain(UnitGUID("target"))) end
+			if (type(spellID) == "number" and idSet[spellID]) or name == spellName then arm(spellID) end
 		end
+		resets[#resets + 1] = clear
 		local tile = ns.AddReminder(key, frameName, icon(ids, iconFile), function(preview)
 			if preview then return true, label end
-			if not on() or not inCombat() or not hostileTarget() or not ready(ids) then return false end
-			local rend = knownRank(REND)
-			if rend and inRange(rend) == false then return false end -- (out of reach: it wouldn't land)
-			local guid = plain(UnitGUID("target"))
+			if not on() or not inCombat() or not hostileTarget() then return false end
 			local now = GetTime()
-			local found, hidden, a = hasAura("target", "HARMFUL", idSet)
-			if found then
-				local dur, exp = a and plain(a.duration), a and plain(a.expirationTime)
-				if type(dur) == "number" and dur > 0 and dur <= DEBUFF_MAX then length = dur end
-				if type(exp) == "number" and exp > now and (exp - now) <= DEBUFF_MAX then
-					expires, forGuid = exp, guid
-					return false
+			if not have then
+				if now >= nextBook then
+					nextBook = now + 2
+					learn()
 				end
-				if exp == nil then
-					if forGuid ~= guid or now >= expires then arm(length, guid) end
-					return false
-				end
-				expires = 0
-			elseif not hidden then
-				expires = 0
+				if not have then return false end
 			end
-			if hidden and forGuid == guid and now < expires then return false end
+			-- This spell's own reach. Rend is shorter, so it was hiding the icon
+			-- while Thunder Clap could still land. A nil answer does not hide,
+			-- and a spell id the range check doesn't understand doesn't either.
+			local r = reach and inRange(reach)
+			if r then sawRange = true end
+			if r == false and sawRange then return false end
+			-- The cast owns the clock for the rank that was just cast. The aura
+			-- row cannot clear it or shorten it.
+			if deadline > now then return false end
 			return true, label
 		end)
 		tile.prominent = true
 		return onCast
 	end
-	local onThunder = debuffReminder("Thunder Clap", THUNDER_CLAP, 30, "Thunder", "thunderClap", "ZydeForeverThunderClap", "Spell_Nature_ThunderClap")
-	local onDemo = debuffReminder("Demoralizing Shout", DEMO_SHOUT, 30, "Demo", "demoShout", "ZydeForeverDemoShout", "Ability_Warrior_WarCry")
+	local onThunder = debuffReminder("Thunder Clap", THUNDER_CLAP, 30, "Thunder", "thunderClap", "ZydeForeverThunderClap", "Spell_Nature_ThunderClap", thunderTime)
+	local onDemo = debuffReminder("Demoralizing Shout", DEMO_SHOUT, 45, "Demo", "demoShout", "ZydeForeverDemoShout", "Ability_Warrior_WarCry")
 	local debuffEv = CreateFrame("Frame")
 	debuffEv:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-	debuffEv:SetScript("OnEvent", function(_, _, _, _, spellID)
-		spellID = plain(spellID)
-		if not spellID then return end
-		local name = (C_Spell and C_Spell.GetSpellName and safe(C_Spell.GetSpellName, spellID))
-			or (GetSpellInfo and safe(GetSpellInfo, spellID))
-		name = plain(name)
-		onThunder(spellID, name)
-		onDemo(spellID, name)
+	debuffEv:RegisterEvent("PLAYER_REGEN_ENABLED")
+	debuffEv:SetScript("OnEvent", function(_, event, ...)
+		if event == "PLAYER_REGEN_ENABLED" then
+			for i = 1, #resets do resets[i]() end
+			return
+		end
+		for i = 1, select("#", ...) do
+			local v = plain(select(i, ...))
+			if type(v) == "number" then
+				local name = (C_Spell and C_Spell.GetSpellName and safe(C_Spell.GetSpellName, v))
+					or (GetSpellInfo and safe(GetSpellInfo, v))
+				name = plain(name)
+				onThunder(v, type(name) == "string" and name or nil)
+				onDemo(v, type(name) == "string" and name or nil)
+			elseif type(v) == "string" and v ~= "" and v ~= "player" and not v:find("Cast", 1, true) then
+				onThunder(nil, v)
+				onDemo(nil, v)
+			end
+		end
 	end)
 end
 
