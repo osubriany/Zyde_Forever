@@ -219,12 +219,19 @@ local function parseFacts(id)
 	local dotDmg, dotDur = text:match("(%d+) %a* ?damage over (%d+) sec")
 	if not dotDmg then dotDur, dotDmg = text:match("over (%d+) sec[^%d]-(%d+) damage") end
 	if dotDmg then f.dot, f.dotDur = num(dotDmg) or 0, num(dotDur) or 0 end
-	-- Direct: "10 to 15" first, else "for 25 damage" / "an additional 40".
+	-- Direct: "10 to 15" first, else the first "N damage" / "N Fire damage" that isn't the
+	-- damage over time (Immolate: "8 Fire damage and then an additional 20 Fire damage over 15
+	-- sec" - the school name between the number and "damage" used to hide the 8), else "an additional 40".
 	local lo, hi = text:match("(%d+) to (%d+)")
 	if lo then f.direct = (num(lo) + num(hi)) / 2
 	else
-		local d = text:match("(%d+) damage") or text:match("additional (%d+)")
-		if d and not (dotDmg and num(d) == f.dot) then f.direct = num(d) or 0 end
+		for d, rest in text:gmatch("(%d+) %a* ?damage( ?o?v?e?r?)") do
+			if rest ~= " over" then f.direct = num(d) or 0 break end
+		end
+		if f.direct == 0 then
+			local d = text:match("additional (%d+)")
+			if d and not (dotDmg and num(d) == f.dot) then f.direct = num(d) or 0 end
+		end
 	end
 	-- Weapon strikes ("weapon damage plus 40"): add your average swing.
 	if text:find("weapon damage", 1, true) then
