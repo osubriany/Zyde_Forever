@@ -2618,6 +2618,7 @@ ns.ZydeCommands = {
 	{ cmd = "/zyde lightreset", about = "Put the Pull Traffic Light back in its first place." },
 	{ cmd = "/zyde healer <name>", paste = "/zyde healer ", about = "The healer the Pull Traffic Light watches. No name: back to role, then a guess by class." },
 	{ cmd = "/zyde sealdebug", about = "Paladins: why the Seal of Righteousness tile is or isn't showing." },
+	{ cmd = "/zyde minimapdebug", about = "Where the minimap and its cluster are, and the saved spot." },
 	{ cmd = "/zyde tentdebug", about = "What the tent reminder sees: nearby tents, a tent in your bags, Leatherworking, rested XP." },
 	{ cmd = "/zyde evisdebug", about = "Rogues: the damage numbers behind the Eviscerate tile for your target." },
 	{ cmd = "/zyde mapnotes", about = "How many map markers you have. Alt-click the map to add one." },
@@ -2819,6 +2820,8 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		if ns.PullLight then ns.PullLight.SetHealer(msg:match("^healer%s+(.-)%s*$")) end
 	elseif msg == "sealdebug" then
 		if ns.SealDebug then ns.SealDebug() else print("|cff66ccffZyde_Forever|r: the seal tile is for paladins") end
+	elseif msg == "minimapdebug" then
+		if ns.MinimapDebug then ns.MinimapDebug() end
 	elseif msg == "tentdebug" then
 		if ns.TentDebug then ns.TentDebug() end
 	elseif msg == "evisdebug" then

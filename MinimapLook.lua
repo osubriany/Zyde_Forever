@@ -471,8 +471,9 @@ local function savePos()
 	db().minimapPos = nil
 end
 
+local placingMap = false
 local function applyPos()
-	if InCombatLockdown() then return end
+	if InCombatLockdown() or placingMap then return end
 	db().minimapPos = nil
 	local spot = db().minimapSpot
 	local wantR, wantT
@@ -490,9 +491,52 @@ local function applyPos()
 	-- Move the cluster by however far the map is from where it should be.
 	local s = mover:GetEffectiveScale()
 	local x, y = (boxR + wantR - mapR) / s, (boxT + wantT - mapT) / s
+	placingMap = true
 	mover:ClearAllPoints()
 	mover:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", x, y)
+	placingMap = false
 end
+
+-- The game lays the minimap out again on its own (its layout and edit-mode
+-- passes) and puts the cluster back where it was. Whenever anything else
+-- moves it, put it back in our spot on the next frame.
+do
+	local queued = false
+	local function again()
+		if queued or placingMap or not on() then return end
+		queued = true
+		C_Timer.After(0, function()
+			queued = false
+			if on() and not InCombatLockdown() then applyPos() end
+		end)
+	end
+	if hooksecurefunc and mover.SetPoint then hooksecurefunc(mover, "SetPoint", again) end
+	if hooksecurefunc and mover.ApplySystemAnchor then hooksecurefunc(mover, "ApplySystemAnchor", again) end
+	if hooksecurefunc and type(UIParent_ManageFramePositions) == "function" then
+		hooksecurefunc("UIParent_ManageFramePositions", again)
+	end
+end
+
+-- /zyde minimapdebug: where the map and its cluster are, and what's saved.
+function ns.MinimapDebug()
+	local P = "|cff66ccffZyde_Forever|r: "
+	local function show(v) if isSecret(v) then return "hidden" end return v and string.format("%.0f", v) or "nil" end
+	local mR, mT = edgePx(Minimap)
+	local cR, cT = edgePx(mover)
+	local uR, uT = edgePx(UIParent)
+	print(P .. ("minimap look %s, mover %s"):format(on() and "on" or "off", mover:GetName() or "?"))
+	print(("  map top-right %s, %s   cluster top-right %s, %s   screen %s, %s (pixels)"):format(
+		show(mR), show(mT), show(cR), show(cT), show(uR), show(uT)))
+	for i = 1, mover:GetNumPoints() do
+		local a, rel, b, x, y = mover:GetPoint(i)
+		print(("  cluster point %d: %s to %s %s %s, %s"):format(i, tostring(a),
+			rel and rel.GetName and (rel:GetName() or "?") or tostring(rel), tostring(b), show(x), show(y)))
+	end
+	local spot = db().minimapSpot
+	print("  saved spot: " .. (type(spot) == "table" and (show(spot.right) .. ", " .. show(spot.top)) or "none (top-right corner)")
+		.. (db().minimapPos and "  (old minimapPos still saved)" or ""))
+end
+
 
 local function startDrag()
 	if InCombatLockdown() or not on() then return end
