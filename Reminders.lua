@@ -1682,20 +1682,110 @@ end)
 
 -- A Camp Tent, yours or someone else's, tops rested XP up to 5% of a level.
 -- It does nothing above that, and nothing while Boosted Rest is on you.
+-- Shown only when there's a tent to use:
+--   "Use tent"   - a placed tent is close (its object nameplate is up)
+--   "Place tent" - you're a leatherworker with a tent in your bags that's
+--                  ready (not cooling down, and you're outdoors)
+-- /zyde tentdebug lists what it sees.
 local tentTile
-tentTile = ns.AddReminder("tent", "ZydeForeverTent", "Interface\\Icons\\INV_Misc_Bag_10", function(preview)
-	if preview then return true, "Use tent" end
-	if not on() or not quietTime() or atMaxLevel() then return false end
-	local share = restedShare()
-	if not share or share >= 0.05 then return false end
-	local locked, hidden = selfAura("boosted rest", BOOSTED_REST)
-	if locked or hidden then return false end
-	if not tentTile.iconSet then
-		local tex = C_Item and C_Item.GetItemIconByID and safe(C_Item.GetItemIconByID, CAMP_TENT)
-		if tex then tentTile.tex:SetTexture(tex) tentTile.iconSet = true end
+do
+	-- "Camp Tent", "Variz's Tent"... but not "Tentacle".
+	local function isTentName(name)
+		return type(name) == "string" and name:lower():find("%f[%a]tent%f[%A]") ~= nil
 	end
-	return true, "Use tent"
-end)
+
+	local function tentNearby()
+		for _, unit in ipairs(ns.Plates and ns.Plates.units() or {}) do
+			local name = plain(safe(UnitName, unit))
+			local player = plain(safe(UnitIsPlayer, unit))
+			if not player and isTentName(name) then return name end
+		end
+	end
+
+	local LEATHERWORKING = 165 -- skill line
+	local LW_SPELLS = { 2108, 3104, 3811, 10662 } -- Apprentice to Artisan
+	local function isLeatherworker()
+		if GetProfessions and GetProfessionInfo then
+			local a, b = GetProfessions()
+			for _, i in ipairs({ a, b }) do
+				if type(i) == "number" then
+					local name, _, _, _, _, _, line = safe(GetProfessionInfo, i)
+					if plain(line) == LEATHERWORKING or plain(name) == "Leatherworking" then return true end
+				end
+			end
+		end
+		for _, id in ipairs(LW_SPELLS) do
+			if IsPlayerSpell and plain(safe(IsPlayerSpell, id)) then return true end
+		end
+		return false
+	end
+
+	-- A tent item in your bags that's ready to place: its id, or nil.
+	local function tentInBags()
+		local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+		for _, info in ipairs(ns.Bags and ns.Bags.items() or {}) do
+			local link = plain(info.hyperlink)
+			local name = type(link) == "string" and link:match("%[(.-)%]")
+			if not name and info.itemID then name = plain(safe(getInfo, info.itemID)) end
+			if isTentName(name) then
+				local id = info.itemID
+				local usable = C_Item and C_Item.IsUsableItem and plain(safe(C_Item.IsUsableItem, id))
+				local cdFn = (C_Container and C_Container.GetItemCooldown) or GetItemCooldown
+				local start, dur = 0, 0
+				if cdFn then start, dur = safe(cdFn, id) end
+				start, dur = plain(start), plain(dur)
+				local cooling = type(start) == "number" and type(dur) == "number" and start > 0 and dur > 1.5
+				if usable ~= false and not cooling then return id end
+			end
+		end
+	end
+
+	local function outdoors()
+		local inside = IsIndoors and plain(safe(IsIndoors))
+		return inside ~= true
+	end
+
+	tentTile = ns.AddReminder("tent", "ZydeForeverTent", "Interface\\Icons\\INV_Misc_Bag_10", function(preview)
+		if preview then return true, "Use tent" end
+		if not on() or not quietTime() or atMaxLevel() then return false end
+		local share = restedShare()
+		if not share or share >= 0.05 then return false end
+		local locked, hidden = selfAura("boosted rest", BOOSTED_REST)
+		if locked or hidden then return false end
+		local label, iconItem
+		if tentNearby() then
+			label = "Use tent"
+		else
+			local id = isLeatherworker() and outdoors() and tentInBags()
+			if not id then return false end
+			label, iconItem = "Place tent", id
+		end
+		local wantIcon = iconItem or CAMP_TENT
+		if tentTile.iconItem ~= wantIcon then
+			local tex = C_Item and C_Item.GetItemIconByID and safe(C_Item.GetItemIconByID, wantIcon)
+			if tex and not isSecret(tex) then tentTile.tex:SetTexture(tex) tentTile.iconItem = wantIcon end
+		end
+		return true, label
+	end)
+
+	-- /zyde tentdebug: what the tent tile sees.
+	function ns.TentDebug()
+		local P = "|cff66ccffZyde_Forever|r: "
+		local units = ns.Plates and ns.Plates.units() or {}
+		print(P .. "tent check: " .. #units .. " nameplates near you")
+		for _, unit in ipairs(units) do
+			local name = safe(UnitName, unit)
+			local shown = isSecret(name) and "(hidden)" or tostring(name)
+			print(("  %s: %s%s%s"):format(unit, shown, plain(safe(UnitIsPlayer, unit)) and " (player)" or "",
+				isTentName(plain(name)) and "  <- tent" or ""))
+		end
+		local share = restedShare()
+		print(("  leatherworker: %s, tent in bags ready: %s, outdoors: %s, rested: %s, Boosted Rest: %s"):format(
+			tostring(isLeatherworker()), tostring(tentInBags() ~= nil), tostring(outdoors()),
+			share and (math.floor(share * 1000 + 0.5) / 10 .. "%") or "?",
+			tostring((selfAura("boosted rest", BOOSTED_REST)))))
+	end
+end
 
 -- /zyde auradebug: what the game says about your target's debuffs (name, spell ID,
 -- stacks, yours or not), to check the Sunder and Thunder Clap tiles against.
