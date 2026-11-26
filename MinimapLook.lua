@@ -552,6 +552,83 @@ local function placeSun()
 	placingSun = false
 end
 
+-- The tracking (magnifier) and calendar buttons come with their own square
+-- brown and orange frames. Here they become small round badges in the map's
+-- look: the frame art goes, the icon is muted a little and sits on a dark
+-- disc with a thin ring in the map's ring color, and brightens on hover.
+local BADGE_SIZE = 26
+local function ringColor()
+	if lookKey() == "gilded" then return 1, 0.78, 0.25 end
+	return 0.55, 0.55, 0.58
+end
+
+local function eachTexture(f, fn, depth)
+	depth = depth or 0
+	for _, r in ipairs({ f:GetRegions() }) do
+		if r.GetObjectType and r:GetObjectType() == "Texture" and not r.zydeBadge then fn(r) end
+	end
+	if depth < 2 and f.GetChildren then
+		for _, c in ipairs({ f:GetChildren() }) do
+			if not c.zydeBadgeFrame then eachTexture(c, fn, depth + 1) end
+		end
+	end
+end
+
+-- Frame art, not the icon: the border and background pieces by name or file.
+local function isFrameArt(t)
+	local name = t.GetName and t:GetName() or ""
+	local file = t.GetTexture and t:GetTexture()
+	local atlas = t.GetAtlas and t:GetAtlas()
+	local text = (type(name) == "string" and name or "") .. " " .. (type(file) == "string" and file or "")
+		.. " " .. (type(atlas) == "string" and atlas or "")
+	text = text:lower()
+	return text:find("border", 1, true) or text:find("background", 1, true) or text:find("ring", 1, true)
+		or text:find("shadow", 1, true)
+end
+
+local function badge(f)
+	if not canMove(f) then return end
+	if not f.zydeBadge then
+		local holder = CreateFrame("Frame", nil, f)
+		holder.zydeBadgeFrame = true
+		holder:SetPoint("CENTER")
+		holder:SetSize(BADGE_SIZE, BADGE_SIZE)
+		holder:SetFrameLevel(math.max(0, (f:GetFrameLevel() or 1) - 1))
+		holder:EnableMouse(false)
+		local ringTex = holder:CreateTexture(nil, "BACKGROUND", nil, -8)
+		ringTex.zydeBadge = true
+		ringTex:SetAllPoints()
+		local disc = holder:CreateTexture(nil, "BACKGROUND", nil, -7)
+		disc.zydeBadge = true
+		disc:SetPoint("CENTER")
+		disc:SetSize(BADGE_SIZE - 3, BADGE_SIZE - 3)
+		for _, t in ipairs({ ringTex, disc }) do
+			if not t:SetTexture(CIRCLE) then t:SetTexture(CIRCLE_FALLBACK) end
+		end
+		disc:SetVertexColor(0.05, 0.05, 0.06, 0.92)
+		f.zydeBadge = { ring = ringTex, holder = holder }
+		if f.HookScript then
+			f:HookScript("OnEnter", function(self)
+				if on() and self.zydeBadge then eachTexture(self, function(t) if not isFrameArt(t) then t:SetVertexColor(1, 1, 1) end end) end
+			end)
+			f:HookScript("OnLeave", function(self)
+				if on() and self.zydeBadge then eachTexture(self, function(t) if not isFrameArt(t) then t:SetVertexColor(0.85, 0.82, 0.76) end end) end
+			end)
+		end
+	end
+	local r, g, b = ringColor()
+	f.zydeBadge.ring:SetVertexColor(r, g, b, 0.9)
+	-- (again each layout: the game can put its art back)
+	eachTexture(f, function(t)
+		if isFrameArt(t) then
+			t:SetAlpha(0)
+		else
+			if t.SetDesaturated then t:SetDesaturated(false) end
+			t:SetVertexColor(0.85, 0.82, 0.76)
+		end
+	end)
+end
+
 local function layoutHeader()
 	if InCombatLockdown() then return end
 	hideClock()
@@ -562,6 +639,8 @@ local function layoutHeader()
 	placeMail()
 	placeHeader(headerSides(), true, 3)
 	placingHeader = false
+	badge((MinimapCluster and MinimapCluster.Tracking) or MiniMapTracking)
+	badge(GameTimeFrame)
 end
 
 local mover = MinimapCluster or Minimap
