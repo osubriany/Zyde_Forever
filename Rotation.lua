@@ -262,7 +262,16 @@ end
 ---------------------------------------------------------------------------
 local lastCast = {} -- [spell name] = GetTime() of your last cast
 local dots = {}     -- [target GUID] = { [spell name] = time it runs out }
-local fightStart, samples = nil, {} -- your target's health over time (when the game shows it)
+local samples = {}    -- your target's health over time (when the game shows it)
+local engagedAt = {}  -- [mob GUID] = when you started fighting it
+-- Your kill times: ZydeForeverDB.killTimes[character][kind] = { n, mean seconds }.
+local function killStats()
+	ZydeForeverDB = ZydeForeverDB or {}
+	ZydeForeverDB.killTimes = ZydeForeverDB.killTimes or {}
+	local me = (UnitName("player") or "?") .. "-" .. (GetRealmName and GetRealmName() or "")
+	ZydeForeverDB.killTimes[me] = ZydeForeverDB.killTimes[me] or {}
+	return ZydeForeverDB.killTimes[me]
+end
 
 local function cooldownLeft(name, f)
 	local entry = byName[name]
@@ -313,13 +322,45 @@ local function timeToKill()
 		local rate = (first[2] - share) / math.max(0.1, now - first[1])
 		if rate > 0.001 then return share / rate end
 	end
-	-- Hidden, or too early to tell: a guess from the mob's type, less the time already spent.
+	-- Hidden, or too early to tell: how long your kills of this kind of mob take (learned, below;
+	-- a guess until you've made a few), less the time already spent on THIS mob. (It used to count
+	-- from when you entered combat, so a fresh mob pulled mid-fight looked nearly dead: 3 s left,
+	-- and Serpent Sting wasn't worth casting.)
 	local class = plain(UnitClassification("target"))
-	local base = (class == "elite" or class == "rareelite") and 45 or (class == "worldboss" and 120 or 14)
+	local kind = (class == "elite" or class == "rareelite") and "elite" or (class == "worldboss" and "boss" or "normal")
+	local learned = killStats()[kind]
+	local base = (learned and learned.n >= 3) and learned.mean
+		or (kind == "elite" and 45 or (kind == "boss" and 120 or 14))
 	local helpers = plain(GetNumGroupMembers and GetNumGroupMembers()) or 0
-	if helpers > 1 then base = base / math.min(helpers, 5) * 1.5 end
-	local spent = fightStart and (now - fightStart) or 0
+	if helpers > 1 and not (learned and learned.n >= 3) then base = base / math.min(helpers, 5) * 1.5 end
+	local guid = plain(UnitGUID("target"))
+	local started = guid and engagedAt[guid]
+	local spent = started and (now - started) or 0
 	return math.max(3, base - spent)
+end
+
+-- Note when you start on a mob (it's fighting), and how long it took when it dies: a running
+-- mean per kind of mob (normal / elite / boss), kept per character.
+local recorded = {}
+local function watchTarget()
+	local guid = plain(UnitGUID("target"))
+	if not guid then return end
+	local now = GetTime()
+	if not engagedAt[guid] and plain(UnitAffectingCombat("target")) then engagedAt[guid] = now end
+	local started = engagedAt[guid]
+	if started and not recorded[guid] and plain(UnitIsDead("target")) == true then
+		recorded[guid] = true
+		local took = now - started
+		if took >= 2 and took <= 300 then
+			local class = plain(UnitClassification("target"))
+			local kind = (class == "elite" or class == "rareelite") and "elite" or (class == "worldboss" and "boss" or "normal")
+			local stats = killStats()
+			local s = stats[kind] or { n = 0, mean = took }
+			s.n = math.min(s.n + 1, 10) -- (the last ten or so: you get stronger as you level)
+			s.mean = s.mean + (took - s.mean) / s.n
+			stats[kind] = s
+		end
+	end
 end
 
 local function power()
@@ -728,12 +769,14 @@ ev:SetScript("OnEvent", function(_, event, unit, _, spellID)
 		end
 		return
 	end
-	if event == "UNIT_HEALTH" then feedGates() return end
-	if event == "PLAYER_REGEN_DISABLED" then fightStart = GetTime() return end
+	if event == "UNIT_HEALTH" then feedGates() watchTarget() return end
+	if event == "PLAYER_REGEN_DISABLED" then return end
 	if event == "PLAYER_REGEN_ENABLED" then
-		fightStart = nil
+		watchTarget() -- (the last kill, before the fight's notes are cleared)
 		wipe(dots)
 		wipe(samples)
+		wipe(engagedAt)
+		wipe(recorded)
 	end
 	if event == "PLAYER_TARGET_CHANGED" then wipe(samples) feedGates() return end
 	if event == "SPELLS_CHANGED" or event == "PLAYER_EQUIPMENT_CHANGED" then wipe(facts) end
@@ -754,6 +797,7 @@ root:SetScript("OnUpdate", function(_, dt)
 	wait = wait + dt
 	if wait < 0.1 then return end
 	wait = 0
+	if on() then watchTarget() end
 	update()
 end)
 
@@ -768,6 +812,14 @@ function ns.RotationDebug()
 		tostring(pick), gatedPick and (" / under " .. math.floor(threshold * 100) .. "%: " .. gatedPick) or "",
 		enemyCount(), timeToKill(), targetShare() and (math.floor(targetShare() * 100) .. "%") or "hidden",
 		tostring(power()), tostring(comboPoints())))
+	local ks, parts = killStats(), {}
+	for _, kind in ipairs({ "normal", "elite", "boss" }) do
+		local s = ks[kind]
+		parts[#parts + 1] = kind .. " " .. (s and ("%.0fs (%d kills)"):format(s.mean, s.n) or "not learned yet")
+	end
+	local guid = plain(UnitGUID("target"))
+	print(P .. "your kill times: " .. table.concat(parts, ", ") .. ("   on this mob for %s"):format(
+		guid and engagedAt[guid] and ("%.0fs"):format(GetTime() - engagedAt[guid]) or "-"))
 	if playerClass == "PALADIN" then
 		local seal, left = currentSeal()
 		local tg = plain(UnitGUID("target"))
