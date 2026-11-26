@@ -106,7 +106,7 @@ clockBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 local clockHl = clockBtn:CreateTexture(nil, "HIGHLIGHT")
 clockHl:SetAllPoints()
 clockHl:SetColorTexture(1, 1, 1, 0.08)
-clockBtn:SetScript("OnClick", function(_, button)
+local function openTime(button)
 	if button == "RightButton" then
 		if not TimeManager_Toggle and TimeManager_LoadUI then pcall(TimeManager_LoadUI) end
 		if TimeManager_Toggle then pcall(TimeManager_Toggle) end
@@ -119,12 +119,35 @@ clockBtn:SetScript("OnClick", function(_, button)
 	elseif ToggleCalendar then
 		pcall(ToggleCalendar)
 	end
+end
+-- The calendar and stopwatch are game windows, and the game won't let an
+-- addon open those during a fight ("Interface action failed"). A click in a
+-- fight waits and opens it as the fight ends.
+local waitingClick
+local clockWait = CreateFrame("Frame")
+clockWait:SetScript("OnEvent", function(self)
+	self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+	local button = waitingClick
+	waitingClick = nil
+	if button then openTime(button) end
+end)
+clockBtn:SetScript("OnClick", function(_, button)
+	if InCombatLockdown() then
+		waitingClick = button
+		clockWait:RegisterEvent("PLAYER_REGEN_ENABLED")
+		if UIErrorsFrame and UIErrorsFrame.AddMessage then
+			UIErrorsFrame:AddMessage((button == "RightButton" and "Stopwatch" or "Calendar") .. " opens when the fight ends", 1, 0.82, 0.2)
+		end
+		return
+	end
+	openTime(button)
 end)
 clockBtn:SetScript("OnEnter", function(self)
 	GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
 	GameTooltip:AddLine("Time")
 	GameTooltip:AddLine("Click: calendar", 1, 1, 1)
 	GameTooltip:AddLine("Right-click: stopwatch and alarm", 1, 1, 1)
+	if InCombatLockdown() then GameTooltip:AddLine("In a fight: opens when it ends", 1, 0.6, 0.2) end
 	GameTooltip:Show()
 end)
 clockBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
