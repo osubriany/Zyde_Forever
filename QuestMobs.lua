@@ -612,6 +612,8 @@ end
 
 ns.QuestMobs = {
 	Debug = debug,
+	-- The last scan's quest mobs with a nameplate ({ unit, name }...; read only). HunterTracking.lua
+	Current = function() return current end,
 	ResetPosition = function()
 		db().questMobsPos = nil
 		placeBox()

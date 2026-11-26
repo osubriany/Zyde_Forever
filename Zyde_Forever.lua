@@ -197,6 +197,7 @@ end
 local FEATURES = {
 	{ key = "reminders", short = "icons beside you", label = "Reminder icons", desc = "A bar of icons beside you. Shift-drag it to move it. Ctrl+click it to switch between a column and a row. Alt+click it to cycle the size (-60%, -30%, normal, +30%, +60%). Size is also the option under this one. Battle Shout, Thunder Clap, Demoralizing Shout, being out of melee range, Eviscerate and Seal of Righteousness pulse. Warriors: in a fight, Battle Shout, Thunder Clap, Demoralizing Shout and being out of melee range. Also Overpower / Execute / Revenge / Victory Rush ready, Shield Block flashing when ready and counting down while it recharges, wrong stance, and Sunder stacks in Defensive Stance. Hunters: no Aspect, Cheetah or Pack on in combat, Hunter's Mark missing (solo), target too far or too close to shoot, Mongoose Bite ready, Mend Pet. Shamans: weapon imbue missing or running out, Lightning Shield missing or low, Earth Shock to interrupt, a totem out of range, no Ankh. Everyone: Well-Rested low, eat when Well Fed is down, use a Camp Tent when rested XP is under 5% and Boosted Rest is off, gear needs repair, low on food or water" },
 	{ key = "ammo", class = "HUNTER", short = "count, refill, warning", label = "Hunter ammo", desc = "Arrows or bullets left and how long they last (in the XP readout), a warning when you leave town low, and a Fill quiver button at ammo vendors (hunters)" },
+	{ key = "autoTrack", class = "HUNTER", short = "tracking picks itself", label = "Auto tracking", desc = "Turns on the tracking for the kind of enemy most around you (Beasts, Humanoids, Undead, Demons, Elementals, Giants, Dragonkin), counting your target and quest mobs most. Switches out of combat only, at most every 10 seconds, and only when a new kind clearly leads. Leaves it alone for 2 minutes after you pick a tracking yourself, and while Find Herbs, Find Minerals or Find Treasure is on. /zyde trackdebug shows what it sees (hunters)" },
 	{ key = "petCare", class = "HUNTER", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast reminder: off in a group, on when solo (hunters)" },
 	{ key = "markerWheel", short = "marks on the target", label = "Target markers", desc = "Hold the marker key and two rows of four icons show just under your cursor. Top: skull, X, square, moon. Bottom: triangle, diamond, circle, star. The red button removes the mark on your target. The gold ALL button removes every mark. Clicking the icon already on your target removes that mark too. Click a different icon to change it. Letting go hides the icons. World markers stay a separate key: press it to show or hide the squares, drag the title to move them, click a square, then the ground. The last square clears those." },
 	{ key = "radial", short = "your spells in a ring", label = "Radial ring", desc = "Hold the Radial ring key (Keybindings > Zyde Forever) and a ring of your own spells, macros and items opens around the cursor. Move toward one and let go of the key to use it; let go in the middle to cancel. Works in combat. Set up puts things on it (or /zyde ring)" },
@@ -1915,7 +1916,7 @@ local CATEGORIES = {
 			"buttonBag", "gear",
 			{ "radial", children = {}, button = { label = "Set up", click = function() if ns.Radial then ns.Radial.ToggleEditor() end end } },
 		} },
-		{ "Hunter", { "ammo", "petCare" } },
+		{ "Hunter", { "ammo", "petCare", "autoTrack" } },
 		{ "Groups", { "lfg", "guildRoster", "markerWheel", "pullLight" } },
 	},
 	{
@@ -2626,6 +2627,7 @@ ns.ZydeCommands = {
 	{ cmd = "/zyde sealdebug", about = "Paladins: why the Seal of Righteousness tile is or isn't showing." },
 	{ cmd = "/zyde minimapdebug", about = "Where the minimap and its cluster are, and the saved spot." },
 	{ cmd = "/zyde tentdebug", about = "What the tent reminder sees: nearby tents, a tent in your bags, Leatherworking, rested XP." },
+	{ cmd = "/zyde trackdebug", about = "Hunters: what auto tracking sees around you and which tracking it would pick." },
 	{ cmd = "/zyde flighttimer", about = "Flight timer: how many flight times it knows (add \"reset\" to put the panel back in the middle)." },
 	{ cmd = "/zyde rotationdebug", about = "Ability highlight: what it sees (enemies, time left, health) and each spell's numbers." },
 	{ cmd = "/zyde evisdebug", about = "Rogues: the damage numbers behind the Eviscerate tile for your target." },
@@ -2832,6 +2834,8 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		if ns.MinimapDebug then ns.MinimapDebug() end
 	elseif msg == "tentdebug" then
 		if ns.TentDebug then ns.TentDebug() end
+	elseif msg == "trackdebug" then
+		if ns.TrackDebug then ns.TrackDebug() else print("|cff66ccffZyde_Forever|r: auto tracking is for hunters") end
 	elseif msg == "flighttimer" or msg == "flighttimer reset" then
 		if ns.FlightTimerCommand then ns.FlightTimerCommand(msg:match("reset")) end
 	elseif msg == "rotationdebug" then

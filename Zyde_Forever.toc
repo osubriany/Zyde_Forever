@@ -31,6 +31,7 @@ Reminders.lua
 Rotation.lua
 FlightTimesData.lua
 FlightTimer.lua
+HunterTracking.lua
 MarkerWheel.lua
 Radial.lua
 BagWindow.lua
