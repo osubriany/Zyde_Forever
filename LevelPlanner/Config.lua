@@ -10,6 +10,7 @@ LevelPlannerConfig = {
 	replanDelay = 1.0,          -- wait this long after an event before re-planning (events come in bursts)
 	replanDelayQuest = 0.3,     -- ...but only this long after quest progress, a pick-up or a turn-in
 	frameBudgetFastMs = 8,      -- planning work per frame while the frame rate is above 50
+	frameBudgetFasterMs = 14,   -- ...and above 90 (the game's own frame time, without the planning in it)
 	offTrailCheckSeconds = 5,   -- how often to check whether you've left the planned path
 	offTrailYards = 100,        -- moved this far from where the plan was made, not toward the next step = off the trail
 	offTrailSwitchThreshold = 0.02, -- off the trail, a new route only needs to be this much better (2%)
@@ -59,6 +60,8 @@ LevelPlannerConfig = {
 	graspTopK = 3,              -- ...among this many of the best
 	segmentMoves = true,        -- improvement also moves runs of 2-3 stops and reverses stretches of the route
 	twoOptMaxSpan = 10,         -- longest stretch (stops) tried reversed
+	improveTopK = 6,            -- a stop (or run of stops) being moved: fully check only the places that add
+	                            -- the least walking, this many (0 = check every place: slower)
 	endBonusMaxShare = 0.03,    -- ending near good quests not taken (a hub) adds at most this share of the route's value
 	endHubYards = 300,          -- "near" the route's last stop
 	endHubValueShare = 0.1,     -- share of those quests' value counted (before the cap)

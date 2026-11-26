@@ -28,6 +28,21 @@ local function travel(a, b)
 	return t
 end
 
+-- The same at a given speed (riding once the route levels you up to your mount: ctx.mountSpeed).
+-- One table per speed, fresh each plan with tcache.
+local scache = {}
+local function travelAt(a, b, speed)
+	if not speed then return travel(a, b) end
+	if not a or not b then return 0 end
+	local c = scache[speed]
+	if not c then c = setmetatable({}, { __mode = "k" }) scache[speed] = c end
+	local row = c[a]
+	if not row then row = setmetatable({}, { __mode = "k" }) c[a] = row end
+	local t = row[b]
+	if not t then t = ns.Travel.Seconds(a, b, speed) row[b] = t end
+	return t
+end
+
 -- Dying on purpose below level 10: the Spirit Healer's resurrection costs nothing there (no
 -- resurrection sickness, no durability loss), and you come back at the graveyard nearest where you
 -- died - often in or by town. From 10 to 19 it also costs a repair and some resurrection sickness
@@ -381,7 +396,7 @@ local function routeSeconds(route, ctx)
 	for _, e in ipairs(route) do
 		local w
 		w, run = addedWork(prevEntry, e, run, ctx.start, ctx.xpRate or 0, inRoute)
-		local leg = speed and prev and ns.Travel.Seconds(prev, e.point, speed) or travel(prev, e.point)
+		local leg = speed and prev and travelAt(prev, e.point, speed) or travel(prev, e.point)
 		if sc then
 			leg = shortcut(ctx, sc, prev, e.stop, e.point, leg, t, gained)
 			gained = gained + stopGain(e.stop)
@@ -720,6 +735,60 @@ local function reverse(r, i, j)
 	while i < j do r[i], r[j] = r[j], r[i] i, j = i + 1, j - 1 end
 end
 
+-- Where stops may go back into route r (the route without them) as far as their quests' step order
+-- and follow-ups allow: positions lo..hi (pos = goes in before r[pos]). feasible() rejects every
+-- other position anyway, so skipping them changes nothing - it only saves the checks.
+local function posRange(r, stops)
+	local lo, hi = 1, #r + 1
+	for _, s in ipairs(stops) do
+		local q = s.quest
+		local req = s.kind == "pickup" and q.requires
+		for j, e in ipairs(r) do
+			local o = e.stop
+			if o.quest == q then
+				-- (stops of the same quest keep their order: before it nothing later, after it nothing earlier)
+				if o.order < s.order then
+					if j + 1 > lo then lo = j + 1 end
+				elseif o.order > s.order then
+					if j < hi then hi = j end
+				end
+			elseif req and o.kind == "turnin" then
+				-- (a pick-up comes after the turn-ins of the quests it needs)
+				for _, id in ipairs(req) do
+					if o.quest.id == id and j + 1 > lo then lo = j + 1 end
+				end
+			elseif s.kind == "turnin" and o.kind == "pickup" and o.quest.requires then
+				-- (a turn-in comes before the pick-ups of quests that need it)
+				for _, id in ipairs(o.quest.requires) do
+					if id == q.id and j < hi then hi = j end
+				end
+			end
+		end
+		if req then
+			-- (a needed quest that isn't turned in anywhere in the route: no place works)
+			for _, id in ipairs(req) do
+				local found = false
+				for _, e in ipairs(r) do
+					if e.stop.kind == "turnin" and e.stop.quest.id == id then found = true break end
+				end
+				if not found then return 1, 0 end
+			end
+		end
+	end
+	return lo, hi
+end
+
+-- The few most promising places for a move (Config.improveTopK, by the cheap estimate d), back in
+-- their first order so ties go the same way as when every place is checked. 0 / false: all of them.
+local function topTries(list)
+	local K = ns.cfg.improveTopK
+	if not K or K <= 0 or #list <= K then return list end
+	table.sort(list, function(x, y) if x.d ~= y.d then return x.d < y.d end return x.n < y.n end)
+	for k = #list, K + 1, -1 do list[k] = nil end
+	table.sort(list, function(x, y) return x.n < y.n end)
+	return list
+end
+
 -- Local-improvement passes. Each pass tries three kinds of move and keeps any that helps.
 local function improve(state, pool, ctx)
 	for _ = 1, (ns.cfg.improvementPasses or 3) do
@@ -744,17 +813,30 @@ local function improve(state, pool, ctx)
 			local r0 = copy(state.route)
 			table.remove(r0, i)
 			local bestPos, bestP, bestT = nil, nil, state.total - 0.5
-			for pos = 1, #r0 + 1 do
-				ns.Check()
-				for _, p in ipairs(e.stop.points) do
-					-- try in place, then undo (avoids copying the route for every try)
-					table.insert(r0, pos, { stop = e.stop, point = p })
-					if feasible(r0, ctx) then
-						local t = routeSeconds(r0, ctx)
-						if t < bestT then bestPos, bestP, bestT = pos, p, t end
-					end
-					table.remove(r0, pos)
+			local lo, hi = posRange(r0, { e.stop })
+			-- every place, ranked by the walking it adds (and the area's work) as insertQuest ranks
+			-- them; only the best few get the full check (Config.improveTopK; 0 = check them all)
+			local tries = {}
+			for pos = lo, hi do
+				local prev = (pos == 1) and ctx.start or r0[pos - 1].point
+				local nxt = r0[pos] and r0[pos].point
+				local base = nxt and travel(prev, nxt) or 0
+				for k, p in ipairs(e.stop.points) do
+					local d = travel(prev, p) + (nxt and travel(p, nxt) or 0) - base
+						+ (e.stop.work or 0) * ((p.workFactor or 1) - 1)
+					tries[#tries + 1] = { pos = pos, p = p, d = d, n = #tries }
 				end
+			end
+			tries = topTries(tries)
+			for _, c in ipairs(tries) do
+				ns.Check()
+				-- try in place, then undo (avoids copying the route for every try)
+				table.insert(r0, c.pos, { stop = e.stop, point = c.p })
+				if feasible(r0, ctx) then
+					local t = routeSeconds(r0, ctx)
+					if t < bestT then bestPos, bestP, bestT = c.pos, c.p, t end
+				end
+				table.remove(r0, c.pos)
 			end
 			if bestPos then
 				table.insert(r0, bestPos, { stop = e.stop, point = bestP })
@@ -774,16 +856,29 @@ local function improve(state, pool, ctx)
 					local seg = {}
 					for k = 1, len do seg[k] = table.remove(r0, i) end
 					local bestPos, bestT = nil, state.total - 0.5
-					for pos = 1, #r0 + 1 do
+					local segStops = {}
+					for k = 1, len do segStops[k] = seg[k].stop end
+					local lo, hi = posRange(r0, segStops)
+					local tries = {}
+					local a, z = seg[1].point, seg[len].point
+					for pos = lo, hi do
 						if pos ~= i then
-							ns.Check()
-							for k = 1, len do table.insert(r0, pos + k - 1, seg[k]) end
-							if feasible(r0, ctx) then
-								local t = routeSeconds(r0, ctx)
-								if t < bestT then bestPos, bestT = pos, t end
-							end
-							for _ = 1, len do table.remove(r0, pos) end
+							local prev = (pos == 1) and ctx.start or r0[pos - 1].point
+							local nxt = r0[pos] and r0[pos].point
+							local d = travel(prev, a) + (nxt and (travel(z, nxt) - travel(prev, nxt)) or 0)
+							tries[#tries + 1] = { pos = pos, d = d, n = #tries }
 						end
+					end
+					tries = topTries(tries)
+					for _, c in ipairs(tries) do
+						ns.Check()
+						local pos = c.pos
+						for k = 1, len do table.insert(r0, pos + k - 1, seg[k]) end
+						if feasible(r0, ctx) then
+							local t = routeSeconds(r0, ctx)
+							if t < bestT then bestPos, bestT = pos, t end
+						end
+						for _ = 1, len do table.remove(r0, pos) end
 					end
 					if bestPos then
 						for k = 1, len do table.insert(r0, bestPos + k - 1, seg[k]) end
@@ -1514,6 +1609,7 @@ end
 function P.Plan(candidates, previous, opts)
 	local cfg = ns.cfg
 	tcache = setmetatable({}, { __mode = "k" }) -- (fresh travel times: you've moved, flights learned...)
+	scache = {}
 	-- opts.quick: the plain search only (the job runner asks for it when a full search took too long)
 	local quick = opts and opts.quick
 	local ctx = {
