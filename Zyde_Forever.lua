@@ -38,7 +38,11 @@ do
 	watch:SetScript("OnEvent", function(_, _, addon, func)
 		if told or addon ~= ADDON then return end
 		told = true
-		print("|cff66ccffZyde_Forever|r was blocked calling " .. tostring(func))
+		local name = (not ns.isSecret(func) and tostring(func)) or "?"
+		local msg = "|cff66ccffZyde_Forever|r was blocked calling " .. name
+		-- Outside this event. Printing here runs inside the blocked action and taints chat.
+		if C_Timer and C_Timer.After then C_Timer.After(0, function() print(msg) end)
+		else print(msg) end
 	end)
 end
 
@@ -199,7 +203,7 @@ local FEATURES = {
 	{ key = "hideBars", short = "cleaner action bars", label = "Hide Blizzard bar art", desc = "Hides the action bar art and the bag bar", reload = true },
 	{ key = "hideMicroMenu", short = "game menu buttons", label = "Hide micro menu", desc = "Hides the row of small game menu buttons (character, spellbook, talents, quest log, social, game menu...). Their keybinds still work", reload = true },
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
-	{ key = "infoBar", short = "location, gold, bags", label = "Info bar", desc = "One line you can drag: where you are, gold, bag space, ammo for a bow, gun, or throwing weapon, and gear durability. Travel opens a second line with steps (miles in parentheses), yards swum, yards mounted, and jumps. Mining, once learned, opens a count of each ore in your bags and bank. Herbs does the same for Herbalism. Both lines can be open at once. Those travel counts are kept for this character. Ctrl+click a line to paste it into chat" },
+	{ key = "infoBar", short = "location, gold, bags", label = "Info bar", desc = "One line you can drag: where you are, gold, bag space, bank space (used/total, FULL when full), ammo for a bow, gun, or throwing weapon, and gear durability. Travel opens a second line with steps (miles in parentheses), yards swum, yards mounted, and jumps. Mining, once learned, opens a count of each ore in your bags and bank. Herbs does the same for Herbalism. Both lines can be open at once. Those travel counts are kept for this character. Ctrl+click a line to paste it into chat" },
 	{ key = "threatBox", short = "tank threat table", label = "Tank threat list", desc = "While you are set to the tank role in a party or raid: a draggable table of mobs you have threat on. Columns are the mob, your threat percent, then the two people closest behind you and their percent. Only mobs with a nameplate, bosses, and your target can be listed. Drag the title to move it" },
 	{ key = "unitFrames", short = "flat health boxes", label = "Unit frames", desc = "Flat player, target, party and raid frames with buffs and debuffs, mana / rage / energy on party frames. In combat your portrait flashes red and the combat swords show. Shift-drag a frame to move it", reload = true },
 	{ key = "targetTarget", short = "small frame by target", label = "Target of target", desc = "A small frame beside the target frame showing who your target is targeting (with the Zyde unit frames on). Shift-drag it to move it" },
@@ -225,7 +229,7 @@ local FEATURES = {
 	{ key = "nodeGlow", short = "herbs, ore, chests", label = "Herb, ore and chest glow", desc = "A colored glow and icon on herbs (green) and ore (copper) you can gather with your professions, and on chests (gold), within 30 yards. Brighter on the one you face" },
 	{ key = "guildRoster", short = "class colors, levels, zones", label = "Guild member list", desc = "In the Guild & Communities window: online members' names in class colors, each member's level at the right (colored by how near your level), and their zone when you hover them" },
 	{ key = "lfg", short = "groups that fit you", label = "Group finder helper", desc = "Beside Looking For Group: groups with room for your role first, one-click whisper to the leader" },
-	{ key = "bagWindow", short = "one bag, sorted for you", label = "One bag window", desc = "All your bags in one window, sorted into sections by itself: Perma (never delete: Hearthstone, Philosopher's Stone, profession tools), Quest, Junk, Keys (your keyring), gear, food and potions, profession goods, and your empty slots. Items work as in the normal bags (right-click to use or sell, drag, shift-click to link). Alt-click an item to put it in Perma or take it out. Click a heading to fold it. The Bank button, or /zyde bank, opens your bank from the last visit and leaves your bags open. At a banker that is the real bank. Off while Baganator is loaded", conflict = "Baganator", reload = true },
+	{ key = "bagWindow", short = "one bag, sorted for you", label = "One bag window", desc = "All your bags in one window, sorted into sections by itself: Perma (never delete: Hearthstone, Philosopher's Stone, profession tools), Quest, Junk, Keys (your keyring), gear, food and potions, profession goods, and your empty slots. Items work as in the normal bags (right-click to use or sell, drag, shift-click to link). Alt-click an item to put it in Perma or take it out. Click a heading to fold it. The Bank button shows how full the bank is (90/90 FULL when it is full), or /zyde bank opens it from the last visit and leaves your bags open. At a banker that is the real bank, with a row to buy the next bank slot and swap bank bags. Off while Baganator is loaded", conflict = "Baganator", reload = true },
 	{ key = "sellJunk", short = "grays sold for you", label = "Sell junk at vendors", desc = "When you talk to a vendor, every gray item, and anything you marked as junk (drop it on the Junk bar that shows at the top of your bags while you hold an item), that's worth something is sold for you (never Perma items), and chat says how much you got. The last 12 can be bought back from the vendor" },
 	{ key = "scrap", short ="what to delete", label = "Scrap list (bags full)", desc = "The 3 cheapest items to throw away when your bags are full" },
 	{ key = "vendor", short = "sell or auction tips", label = "Vendor / auction advice", desc = "Vendor it / Auction it / Keep in tooltips, merchant and AH panels", needs = "AHledger" },
