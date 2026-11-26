@@ -4,14 +4,16 @@
 --   Gear: weapons, armor, bags, ammo. Consumables: food & drink, potions,
 --   bandages, scrolls, other. Profession: trade goods by type, reagents, recipes.
 --   Items are real bag slots: right-click uses or sells, drag moves, shift-click
---   links. The title counts free slots (reagent bag, quiver... apart, in gray).
+--   links. One empty slot stays at the top whenever a real bag slot is free, so
+--   a drop or a split stack has somewhere to land. Folding a section does not
+--   hide it. The title counts free slots (reagent bag, quiver... apart, in gray).
 --   Alt-click an item to put it in Perma (or take it out). Click a heading to fold it.
---   The title shows your free slots (orange at 5 or fewer, red when full).
+--   The title shows used/total (orange at 5 or fewer free, red and FULL when full).
 --   Buttons: Restack (joins part stacks in the
 --   real bags), Sell junk (at a vendor; junk also sells by itself there, see
 --   "Sell junk at vendors" in /zyde).
---   At a banker the bank gets the same sorted window, where the game's bank
---   window was ("Game bank" brings that back, to buy slots).
+--   At a banker the bank gets the same sorted window. A row of bank bags lets
+--   you buy the next slot and swap bags ("Game bank" brings the game's window back).
 --   Away from a banker, Bank (or /zyde bank) opens that window from the last
 --   visit. You can look, not move things. Your bags stay open.
 -- Off while Baganator is loaded.
@@ -441,8 +443,78 @@ local function merge(list)
 	return out
 end
 
--- Every filled slot of these bags, sorted into section -> group -> list;
--- plus the empty tiles. Also returns the free slots in ordinary bags.
+-- One real empty slot, for a drop or a stack split. The window does not list
+-- every empty slot; this one stays. An ordinary bag comes first (anything can
+-- go there). A reagent bag, quiver, or other special bag is used only when
+-- those are full. The keyring is never it: an empty key slot only holds keys.
+local function isOrdinaryBag(bag, fam)
+	if isKeyring(bag) then return false end
+	if bag == REAGENT_BAG and HAS_REAGENT then return false end
+	return (tonumber(fam) or 0) == 0
+end
+
+local function emptyTexture(bag, ordinary)
+	local tex = "Interface\\PaperDoll\\UI-Backpack-EmptySlot"
+	if ordinary then return tex end
+	local inv = invSlot(bag)
+	if inv then return GetInventoryItemTexture("player", inv) or tex end
+	return tex
+end
+
+local function plainNum(v)
+	if ns.isSecret(v) then return 0 end
+	if v == nil then return 0 end
+	return tonumber(v) or 0
+end
+
+-- A secret item id counts as taken, so the drop slot is never a slot we cannot read.
+local function slotTaken(bag, slot)
+	local ok, info = pcall(C_Container.GetContainerItemInfo, bag, slot)
+	if not ok or ns.isSecret(info) then return true end
+	if info == nil then return false end
+	local id = info.itemID
+	if ns.isSecret(id) then return true end
+	return id ~= nil
+end
+
+local function firstEmpty(bags, ordinaryOnly)
+	local pick
+	for _, bag in ipairs(bags) do
+		if not isKeyring(bag) then
+			local free, fam = C_Container.GetContainerNumFreeSlots(bag)
+			free, fam = plainNum(free), plainNum(fam)
+			local ordinary = isOrdinaryBag(bag, fam)
+			if free > 0 and numSlots(bag) > 0 and (ordinary or not ordinaryOnly) then
+				for slot = 1, numSlots(bag) do
+					if not slotTaken(bag, slot) then
+						pick = {
+							empty = true, bag = bag, slot = slot, ordinary = ordinary,
+							tex = emptyTexture(bag, ordinary),
+						}
+						break
+					end
+				end
+				if pick then break end
+			end
+		end
+	end
+	if not pick then return nil end
+	-- The number on the slot is how many free slots of this kind are left.
+	local n = 0
+	for _, bag in ipairs(bags) do
+		if not isKeyring(bag) then
+			local free, fam = C_Container.GetContainerNumFreeSlots(bag)
+			free, fam = plainNum(free), plainNum(fam)
+			if isOrdinaryBag(bag, fam) == pick.ordinary then n = n + free end
+		end
+	end
+	pick.count = n
+	return pick
+end
+
+-- Every filled slot of these bags, sorted into section -> group -> list.
+-- Also returns the free slots in ordinary bags, special-bag free counts, and
+-- one real empty slot when any shown bag still has room.
 local function gather(bags)
 	local out = {}
 	for _, sec in ipairs(SECTIONS) do out[sec] = {} end
@@ -477,12 +549,12 @@ local function gather(bags)
 	end
 	-- Free slots: ordinary bags for the title, and the bags that only take one
 	-- kind of thing (reagent bag, quiver, ammo pouch, soul bag) counted apart.
-	local ordinaryFree, extra = 0, {}
+	local ordinaryFree, ordinarySlots, extra = 0, 0, {}
 	for _, bag in ipairs(bags) do
 		-- Empty key slots only hold keys. They are not free bag space.
 		if not isKeyring(bag) then
 			local free, fam = C_Container.GetContainerNumFreeSlots(bag)
-			free, fam = tonumber(free) or 0, tonumber(fam) or 0
+			free, fam = plainNum(free), plainNum(fam)
 			local kind
 			if bag == REAGENT_BAG and HAS_REAGENT then kind = "reagent"
 			elseif fam == 0 then kind = nil
@@ -493,6 +565,7 @@ local function gather(bags)
 				if numSlots(bag) > 0 then extra[kind] = (extra[kind] or 0) + free end
 			else
 				ordinaryFree = ordinaryFree + free
+				ordinarySlots = ordinarySlots + numSlots(bag)
 			end
 		end
 	end
@@ -511,7 +584,10 @@ local function gather(bags)
 			end
 		end
 	end
-	return out, ordinaryFree, extra, restackSavings(tally)
+	-- Ordinary room first, so a split or a new item has a slot that can take it.
+	-- If those bags are full, the first free special-bag slot still shows.
+	local reserve = firstEmpty(bags, true) or firstEmpty(bags, false)
+	return out, ordinaryFree, extra, reserve, ordinarySlots, restackSavings(tally)
 end
 
 local function groupOrder(sec, groups)
@@ -537,6 +613,20 @@ local function freeColor(n)
 	if n <= 0 then return 1, 0.25, 0.2 end
 	if n <= 5 then return 1, 0.6, 0.15 end
 	return 0.85, 0.85, 0.85
+end
+
+-- "48/60", or "60/60 FULL" when nothing is free. Older saves that never
+-- recorded a size still say "12 free" or "full".
+local function usageLabel(free, slots)
+	free = type(free) == "number" and free or 0
+	slots = type(slots) == "number" and slots or 0
+	if slots > 0 then
+		local used = math.max(0, slots - free)
+		if used >= slots then return used .. "/" .. slots .. " FULL" end
+		return used .. "/" .. slots
+	end
+	if free <= 0 then return "full" end
+	return free .. " free"
 end
 
 ---------------------------------------------------------------------------
@@ -569,21 +659,63 @@ function View:Button(i)
 	b:SetSize(S, S)
 	b.cd = b.Cooldown or _G[name .. "Cooldown"]
 	b.countText = b.Count or _G[name .. "Count"]
+	b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	b:RegisterForDrag("LeftButton")
 	local view = self
-	b:HookScript("OnClick", function(btn, mouse)
-		if btn.empty or mouse ~= "LeftButton" or not IsAltKeyDown() then return end
+	-- The game's slot click places a cursor item. If that click does nothing
+	-- (this button is not inside a Blizzard bag frame), place it ourselves.
+	-- Only while the cursor still holds the item, so a click that already
+	-- landed does not pick the item straight back up.
+	local function placeIfHolding(btn)
+		if not btn.empty or InCombatLockdown() then return end
+		local holding = false
+		if CursorHasItem then
+			local ok, has = pcall(CursorHasItem)
+			holding = ok and not ns.isSecret(has) and has
+		end
+		if not holding and GetCursorInfo then
+			local ok, kind = pcall(GetCursorInfo)
+			holding = ok and not ns.isSecret(kind) and kind == "item"
+		end
+		if not holding then return end
+		local bag = btn.bagID or btn:GetParent():GetID()
+		local slot = btn:GetID()
+		if ns.isSecret(bag) or ns.isSecret(slot) then return end
+		if C_Container and C_Container.PickupContainerItem then
+			C_Container.PickupContainerItem(bag, slot)
+		elseif PickupContainerItem then
+			PickupContainerItem(bag, slot)
+		end
+	end
+	local origClick = b:GetScript("OnClick")
+	local origDrag = b:GetScript("OnReceiveDrag")
+	b:SetScript("OnClick", function(btn, mouse)
+		if origClick then pcall(origClick, btn, mouse) end
+		if btn.empty then
+			if mouse == "LeftButton" then placeIfHolding(btn) end
+			return
+		end
+		if mouse ~= "LeftButton" or not IsAltKeyDown() then return end
 		local info = C_Container.GetContainerItemInfo(btn:GetParent():GetID(), btn:GetID())
-		if info and info.itemID then
+		if info and not ns.isSecret(info) and not ns.isSecret(info.itemID) and info.itemID then
 			togglePerma(info.itemID)
 			for _, v in pairs(views) do v.dirty = true end
 			if not InCombatLockdown() then view:Layout() end
 		end
 	end)
+	b:SetScript("OnReceiveDrag", function(btn)
+		if origDrag then pcall(origDrag, btn) end
+		placeIfHolding(btn)
+	end)
 	b:HookScript("OnEnter", function(btn)
 		if btn.empty then
 			GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
-			GameTooltip:AddLine(btn.emptyCount .. " empty slots")
-			GameTooltip:AddLine("Drop an item here to move it to a free slot.", 1, 1, 1, true)
+			local n = tonumber(btn.emptyCount) or 0
+			GameTooltip:AddLine(n == 1 and "Empty slot" or (n .. " empty slots"))
+			GameTooltip:AddLine("Drop an item here, or split a stack into it.", 1, 1, 1, true)
+			if not btn.emptyOrdinary then
+				GameTooltip:AddLine("Only what this bag holds can go here.", 0.8, 0.8, 0.8, true)
+			end
 			GameTooltip:Show()
 			return
 		end
@@ -708,7 +840,7 @@ end
 
 function View:SetTitle()
 	local r, g, bl = freeColor(self.free or 0)
-	local free = (self.free or 0) <= 0 and "full" or ((self.free or 0) .. " free")
+	local free = usageLabel(self.free or 0, self.slots or 0)
 	-- "30 free  ·  12 reagent": special bags after the ordinary count, in gray.
 	local more = {}
 	for _, kind in ipairs({ "reagent", "ammo", "soul", "special" }) do
@@ -725,9 +857,9 @@ function View:ContentTop() return 34 + (self.bagRowShown and self.bagRowShown() 
 function View:Layout()
 	if InCombatLockdown() then self.dirty = true return end
 	self.dirty = false
-	local data, free, extra, saved = gather(self.bags())
+	local data, free, extra, reserve, slots, saved = gather(self.bags())
 	if self.omitKeys and self.omitKeys() and data.General then data.General.Keys = nil end
-	self.free, self.extraFree = free, extra
+	self.free, self.extraFree, self.slots = free, extra, slots
 	self:SetTitle()
 	-- Restack only shows when it would free something: "Restack +3".
 	local rb = self.win.restackBtn
@@ -739,6 +871,33 @@ function View:Layout()
 	local used, labelUsed, headUsed = 0, 0, 0
 	local y = 0
 	local content = self.win.content
+	-- Above the sections, and still there when a section is folded: one real
+	-- free slot, so a drop or a split has a place when the rest are hidden.
+	if reserve then
+		labelUsed = labelUsed + 1
+		local l = self:Label(labelUsed)
+		l:ClearAllPoints()
+		l:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
+		l:SetWidth(INNER_W)
+		l:SetText("Empty")
+		l:Show()
+		used = used + 1
+		local b = self:Button(used)
+		b:SetParent(self:Holder(reserve.bag))
+		b:SetFrameLevel((self.win:GetFrameLevel() or 1) + 4)
+		b:SetID(reserve.slot)
+		b.bagID = reserve.bag
+		if b.SetBagID then pcall(b.SetBagID, b, reserve.bag) end
+		b.empty = true
+		b.emptyTex, b.emptyCount, b.emptyOrdinary = reserve.tex, reserve.count, reserve.ordinary
+		b.slots = nil
+		b.perma = false
+		b:ClearAllPoints()
+		b:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(y + LABEL_H))
+		b:Show()
+		self:Paint(b)
+		y = y + LABEL_H + S + 10
+	end
 	for _, sec in ipairs(SECTIONS) do
 		local groups = data[sec]
 		local order = groupOrder(sec, groups)
@@ -781,6 +940,8 @@ function View:Layout()
 						-- or it draws under the window's background, faded and unclickable)
 						b:SetFrameLevel((self.win:GetFrameLevel() or 1) + 4)
 						b:SetID(e.slot)
+						b.bagID = e.bag
+						if b.SetBagID then pcall(b.SetBagID, b, e.bag) end
 						b.empty = e.empty
 						b.emptyTex, b.emptyCount, b.emptyOrdinary = e.tex, e.count, e.ordinary
 						b.slots = e.slots
@@ -1049,6 +1210,7 @@ end
 -- Your bags
 ---------------------------------------------------------------------------
 local bagsView, bankView
+local paintBankButton
 
 local function bagRowShown() return db().bagSlotsShown and true or false end
 -- Keys start visible. The key button by the search box hides the keyring
@@ -1100,24 +1262,32 @@ local function bagSlot(v, bag, x)
 	local hl = b:CreateTexture(nil, "HIGHLIGHT")
 	hl:SetAllPoints()
 	hl:SetColorTexture(1, 1, 1, 0.15)
-	local function inv() return invSlot(bag) end
-	local function put()
-		if InCombatLockdown() or not inv() then return end
-		if CursorHasItem() then PutItemInBag(inv()) else PickupBagFromSlot(inv()) end
+	local function put(self)
+		local slot = invSlot(self.bag)
+		if InCombatLockdown() or not slot then return end
+		if CursorHasItem() then PutItemInBag(slot) else PickupBagFromSlot(slot) end
 	end
 	b:SetScript("OnClick", put)
 	b:SetScript("OnReceiveDrag", put)
-	b:SetScript("OnDragStart", function()
-		if not InCombatLockdown() and inv() then PickupBagFromSlot(inv()) end
+	b:SetScript("OnDragStart", function(self)
+		local slot = invSlot(self.bag)
+		if not InCombatLockdown() and slot then PickupBagFromSlot(slot) end
 	end)
 	b:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-		if not (inv() and GameTooltip:SetInventoryItem("player", inv())) then
+		local slot = invSlot(self.bag)
+		if not (slot and GameTooltip:SetInventoryItem("player", slot)) then
 			GameTooltip:AddLine("Empty bag slot")
 		end
 		GameTooltip:AddLine("Drop a bag here to put it on. Click or drag to take it off (it must be empty).", 0.6, 0.8, 1, true)
+		local n = numSlots(self.bag)
+		if n > 0 then
+			local free = plainNum(C_Container.GetContainerNumFreeSlots(self.bag))
+			local used = math.max(0, n - free)
+			GameTooltip:AddLine(used .. "/" .. n .. (used >= n and " FULL" or ""))
+		end
 		GameTooltip:Show()
-		v.hoverBag = bag
+		v.hoverBag = self.bag
 		v:Repaint()
 	end)
 	b:SetScript("OnLeave", function()
@@ -1267,8 +1437,8 @@ local function buildBags()
 		end
 	end
 	win.sellJunk:Hide()
-	win.AddButton("Bank", 56, "Your bank",
-		"Opens the bank from the last time you visited a banker. Your bags stay open. At a banker this opens the real bank.",
+	win.bankBtn = win.AddButton("Bank", 110, "Your bank",
+		"Opens the bank from the last time you visited a banker. Your bags stay open. At a banker this opens the real bank. The label is how full the bank is.",
 		function() ns.OpenBankWindow() end)
 
 	win:SetScript("OnShow", function()
@@ -1276,6 +1446,7 @@ local function buildBags()
 		v:Place()
 		paintKeys()
 		paintBagSlots()
+		if paintBankButton then paintBankButton() end
 		win.money:SetText(moneyText())
 		win.sellJunk:SetShown(MerchantFrame and MerchantFrame:IsShown() or false)
 		win.Flow()
@@ -1296,8 +1467,9 @@ end
 
 ---------------------------------------------------------------------------
 -- The bank: the same window, while you're at a banker. The game's bank window
--- is shrunk out of the way (closing it would end the visit); "Game bank"
--- brings it back, for buying bank slots or bags.
+-- is shrunk out of the way (closing it would end the visit). The bag row on
+-- this window is where you buy the next bank slot and swap bank bags.
+-- "Game bank" still brings the game's window back.
 ---------------------------------------------------------------------------
 local gameBankShown = false
 local function bankFrame() return _G.BankFrame end
@@ -1314,13 +1486,167 @@ local function tuckGameBank(tuck)
 	end
 end
 
+-- Purchased bank bag slots, including empty ones, in the game's own order.
+-- Unpurchased slots stay off the row; the buy button covers the next one.
+local function bankBagContainers()
+	local list, maxn = {}, NUM_BANKBAGSLOTS or 7
+	if type(maxn) ~= "number" or maxn < 1 then maxn = 7 end
+	local function bagForButton(btn, i)
+		if btn and btn.GetBagID then
+			local ok, id = pcall(btn.GetBagID, btn)
+			if ok and type(id) == "number" and not ns.isSecret(id) then return id end
+		end
+		if BankButtonIDToInvSlotID then
+			local ok, inv = pcall(BankButtonIDToInvSlotID, (btn and btn.GetID and btn:GetID()) or i, true)
+			if ok and type(inv) == "number" and not ns.isSecret(inv) then
+				local key = keyringId()
+				for bag = -4, LAST_BAG + 28 do
+					if bag ~= key and bag ~= BANK_MAIN and not (HAS_REAGENT and bag == REAGENT_BAG) and invSlot(bag) == inv then
+						return bag
+					end
+				end
+			end
+		end
+	end
+	for i = 1, maxn do
+		local btn = _G["BankFrameBag" .. i] or _G["BankSlotsFrameBag" .. i]
+		if btn and btn:IsShown() then
+			local bag = bagForButton(btn, i)
+			if bag then list[#list + 1] = bag end
+		end
+	end
+	if #list > 0 then return list end
+	local purchased = 0
+	if GetNumBankSlots then
+		local n = GetNumBankSlots()
+		if not ns.isSecret(n) then purchased = tonumber(n) or 0 end
+	end
+	if purchased <= 0 then return list end
+	local startAt = LAST_BAG + 1
+	if HAS_REAGENT and REAGENT_BAG >= startAt then startAt = REAGENT_BAG + 1 end
+	local key = keyringId()
+	for bag = startAt, startAt + maxn - 1 do
+		if #list >= purchased then break end
+		if bag ~= key and not (HAS_REAGENT and bag == REAGENT_BAG) and invSlot(bag) then
+			list[#list + 1] = bag
+		end
+	end
+	return list
+end
+
+local function bankSlotCost()
+	if not GetBankSlotCost then return nil end
+	local cost = GetBankSlotCost()
+	if ns.isSecret(cost) or type(cost) ~= "number" or cost <= 0 then return nil end
+	return cost
+end
+
+local function canBuyBankSlot()
+	local purchase = _G.BankFramePurchaseButton
+	if purchase then return purchase:IsShown() end
+	local maxn = NUM_BANKBAGSLOTS or 7
+	if type(maxn) ~= "number" then maxn = 7 end
+	local purchased = 0
+	if GetNumBankSlots then
+		local n = GetNumBankSlots()
+		if not ns.isSecret(n) then purchased = tonumber(n) or 0 end
+	end
+	return purchased < maxn and bankSlotCost() ~= nil
+end
+
+local function buyBankSlot()
+	if InCombatLockdown() then return end
+	if StaticPopupDialogs and StaticPopupDialogs.CONFIRM_BUY_BANK_SLOT and StaticPopup_Show then
+		StaticPopup_Show("CONFIRM_BUY_BANK_SLOT")
+		return
+	end
+	if PurchaseSlot then PurchaseSlot() end
+end
+
+local function syncBankRow()
+	if not bankView or not bankView.win.bagRow then return end
+	local win = bankView.win
+	local ids = bankBagContainers()
+	for i, bag in ipairs(ids) do
+		local b = win.bagSlots[i]
+		if not b then
+			b = bagSlot(bankView, bag, 0)
+			win.bagSlots[i] = b
+		end
+		b.bag = bag
+		b:ClearAllPoints()
+		b:SetPoint("LEFT", (i - 1) * (S + GAP), 0)
+		local slot = invSlot(bag)
+		b.icon:SetTexture((slot and GetInventoryItemTexture("player", slot)) or EMPTY_BAG_TEX)
+		local n = numSlots(bag)
+		if n > 0 then
+			local free = plainNum(C_Container.GetContainerNumFreeSlots(bag))
+			local used = math.max(0, n - free)
+			b.count:SetText(used .. "/" .. n)
+			if used >= n then b.count:SetTextColor(1, 0.25, 0.2) else b.count:SetTextColor(1, 1, 1) end
+		else
+			b.count:SetText("")
+		end
+		b:Show()
+	end
+	for i = #ids + 1, #win.bagSlots do win.bagSlots[i]:Hide() end
+	local buy = win.buySlot
+	if buy then
+		if canBuyBankSlot() then
+			local cost = bankSlotCost()
+			local money = GetMoney()
+			local afford = cost and not ns.isSecret(money) and type(money) == "number" and money >= cost
+			buy:ClearAllPoints()
+			buy:SetPoint("LEFT", #ids * (S + GAP), 0)
+			buy.cost = cost
+			if buy.icon.SetDesaturated then buy.icon:SetDesaturated(not afford) end
+			buy:Show()
+		else
+			buy:Hide()
+		end
+	end
+end
+
 local function buildBank()
 	local v = newView({
 		frameName = "ZydeForeverBank", bags = bankBags, posKey = "bankPos",
 		titleText = "Bank",
 		defaultPoint = { "TOPLEFT", UIParent, "TOPLEFT", 20, -110 },
+		bagRowShown = function() return true end,
 	})
 	local win = v.win
+	win.bagRow = CreateFrame("Frame", nil, win)
+	win.bagRow:SetPoint("TOPLEFT", PAD, -32)
+	win.bagRow:SetSize(INNER_W, S)
+	win.bagSlots = {}
+	win.buySlot = CreateFrame("Button", nil, win.bagRow)
+	win.buySlot:SetSize(S, S)
+	win.buySlot:RegisterForClicks("LeftButtonUp")
+	win.buySlot.bg = win.buySlot:CreateTexture(nil, "BACKGROUND")
+	win.buySlot.bg:SetPoint("TOPLEFT", -1, 1)
+	win.buySlot.bg:SetPoint("BOTTOMRIGHT", 1, -1)
+	win.buySlot.bg:SetColorTexture(0, 0, 0, 1)
+	win.buySlot.icon = win.buySlot:CreateTexture(nil, "ARTWORK")
+	win.buySlot.icon:SetAllPoints()
+	win.buySlot.icon:SetTexture(EMPTY_BAG_TEX)
+	win.buySlot.plus = win.buySlot:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+	win.buySlot.plus:SetPoint("CENTER", 0, 0)
+	win.buySlot.plus:SetText("+")
+	local buyHl = win.buySlot:CreateTexture(nil, "HIGHLIGHT")
+	buyHl:SetAllPoints()
+	buyHl:SetColorTexture(1, 1, 1, 0.15)
+	win.buySlot:SetScript("OnClick", buyBankSlot)
+	win.buySlot:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+		GameTooltip:AddLine("Buy a bank bag slot")
+		if self.cost then
+			GameTooltip:AddLine("Costs " .. moneyText(self.cost), 1, 1, 1)
+		end
+		GameTooltip:AddLine("The new slot starts empty. Drop a bag on it.", 0.6, 0.8, 1, true)
+		GameTooltip:Show()
+	end)
+	win.buySlot:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	win.buySlot:Hide()
 	v:PlaceContent()
 	win.restackBtn = win.AddButton("Restack", 80, "Join part stacks",
 		"Puts part stacks of the same item together in the bank. The number is how many slots that frees.",
@@ -1334,6 +1660,7 @@ local function buildBank()
 		end)
 	win:SetScript("OnShow", function()
 		v:Place()
+		syncBankRow()
 		if v.dirty and not InCombatLockdown() then v:Layout() else v:Repaint() end
 	end)
 	-- Closing this window ends the bank visit, like closing the game's.
@@ -1420,7 +1747,7 @@ local function rememberBank(force)
 	if #bags == 0 then return end
 	local key = charKey()
 	if not key then return end
-	local data, free, extra = gather(bags)
+	local data, free, extra, _, slots = gather(bags)
 	local items = {}
 	for _, sec in ipairs(SECTIONS) do
 		for group, list in pairs(data[sec] or {}) do
@@ -1465,8 +1792,44 @@ local function rememberBank(force)
 		if type(k) == "string" and type(v) == "number" and v > 0 then savedExtra[k] = v end
 	end
 	db().bankSeen = db().bankSeen or {}
-	db().bankSeen[key] = { free = free or 0, extra = savedExtra, items = items, at = time() }
+	db().bankSeen[key] = { free = free or 0, slots = slots or 0, extra = savedExtra, items = items, at = time() }
 	if ns.RefreshBankMemory then ns.RefreshBankMemory() end
+	if paintBankButton then paintBankButton() end
+	if bankView and bankView.win:IsShown() then syncBankRow() end
+	if ns.RefreshInfoBar then ns.RefreshInfoBar() end
+end
+
+-- Used slots and size of the bank. Live while the bank is open, otherwise the last visit.
+function ns.BankUsage()
+	local f = bankFrame()
+	if f and f:IsShown() then
+		local _, free, _, _, slots = gather(bankBags())
+		if type(slots) == "number" and slots > 0 then
+			local freeN = type(free) == "number" and free or 0
+			return math.max(0, slots - freeN), slots
+		end
+	end
+	local saved = savedBank()
+	if saved and type(saved.slots) == "number" and saved.slots > 0 then
+		local freeN = type(saved.free) == "number" and saved.free or 0
+		return math.max(0, saved.slots - freeN), saved.slots
+	end
+end
+
+paintBankButton = function()
+	local btn = bagsView and bagsView.win and bagsView.win.bankBtn
+	if not btn then return end
+	local used, slots = ns.BankUsage()
+	local text = "Bank"
+	if used and slots and slots > 0 then
+		text = "Bank " .. usageLabel(slots - used, slots)
+	end
+	btn:SetText(text)
+	local fs = btn.GetFontString and btn:GetFontString()
+	local w = fs and fs.GetStringWidth and fs:GetStringWidth() or (#text * 6)
+	if ns.isSecret(w) or type(w) ~= "number" then w = #text * 6 end
+	btn:SetWidth(math.max(56, w + 24))
+	if bagsView.win.Flow then bagsView.win.Flow() end
 end
 
 local function buildMemory()
@@ -1661,7 +2024,7 @@ local function buildMemory()
 		laying = true
 		local saved = savedBank()
 		local r, g, bl = freeColor(saved and saved.free or 0)
-		local free = saved and ((saved.free or 0) <= 0 and "full" or ((saved.free or 0) .. " free")) or ""
+		local free = saved and usageLabel(saved.free or 0, saved.slots or 0) or ""
 		local when, tail = "", ""
 		if saved and type(saved.at) == "number" then
 			when = "  |cff888888" .. date("%m/%d %I:%M%p", saved.at) .. "|r"
@@ -1861,6 +2224,8 @@ local loginQuietUntil = 0
 local function clearNew() if C_NewItems and C_NewItems.ClearAll then pcall(C_NewItems.ClearAll) end end
 
 local function allChanged()
+	if bankView and bankView.win:IsShown() then syncBankRow() end
+	if paintBankButton then paintBankButton() end
 	for _, v in pairs(views) do v:Changed() end
 end
 
@@ -1898,7 +2263,11 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 		tuckGameBank(true)
 		bankView.dirty = true
 		bankView.win:Show()
-		C_Timer.After(0.25, rememberBank)
+		syncBankRow()
+		C_Timer.After(0.25, function()
+			rememberBank()
+			syncBankRow()
+		end)
 		return
 	end
 	if event == "BANKFRAME_CLOSED" then
@@ -1919,6 +2288,7 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 	end
 	if event == "PLAYER_MONEY" then
 		bagsView.win.money:SetText(moneyText())
+		if bankView and bankView.win:IsShown() then syncBankRow() end
 		return
 	end
 	if event == "BAG_CONTAINER_UPDATE" or event == "BAG_UPDATE_DELAYED" then paintBagSlots() end

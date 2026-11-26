@@ -1,5 +1,5 @@
 -- Zyde_Forever: a small draggable bar.
--- One line: where you are, gold, bag space, the reagent bag, thrown durability or ammo, then gear durability.
+-- One line: where you are, gold, bag space, bank space, the reagent bag, thrown durability or ammo, then gear durability.
 -- Travel opens a second line: steps, yards swum, yards ridden, and jumps.
 -- Mining, once that profession is learned, opens a line for each ore.
 -- Herbalism does the same for herbs. Both can be open at once, so the bar
@@ -68,6 +68,7 @@ end
 local loc = piece("Interface\\Icons\\INV_Misc_Map_01")
 local gold = piece("Interface\\MoneyFrame\\UI-GoldIcon", false)
 local bags = piece("Interface\\Icons\\INV_Misc_Bag_08")
+local bank = piece("Interface\\Icons\\INV_Misc_Bag_07")
 local reagents = piece("Interface\\Icons\\INV_Misc_Bag_10")
 local ranged = piece("Interface\\Icons\\INV_ThrowingKnife_02")
 local durability = piece("Interface\\Icons\\INV_Hammer_20")
@@ -135,7 +136,7 @@ local herbs = stackPieces(HERB_ITEMS, "Interface\\Icons\\Trade_Herbalism")
 local ROW_H = 22
 -- Row 1 is always on. Travel, Mining and Herbs each open their own row.
 local rows = {
-	{ loc, gold, bags, reagents, ranged, durability },
+	{ loc, gold, bags, bank, reagents, ranged, durability },
 	{ steps, swum, ridden, jumps },
 	ores,
 	herbs,
@@ -255,7 +256,7 @@ end
 bar:SetScript("OnEnter", function(self)
 	GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
 	GameTooltip:AddLine("Info bar", 1, 0.84, 0.35)
-	GameTooltip:AddLine("Where you are, gold, bag space, the reagent bag, ammo for a bow, gun, or throwing weapon, and gear durability.", 1, 1, 1, true)
+	GameTooltip:AddLine("Where you are, gold, bag space, bank space, the reagent bag, ammo for a bow, gun, or throwing weapon, and gear durability.", 1, 1, 1, true)
 	GameTooltip:AddLine("Travel opens steps, yards swum, yards mounted, and jumps.", 1, 1, 1, true)
 	GameTooltip:AddLine("Mining, once learned, opens a count of each ore in your bags and bank.", 1, 1, 1, true)
 	GameTooltip:AddLine("Herbs, once Herbalism is learned, does the same for herbs. Both can be open together.", 1, 1, 1, true)
@@ -400,7 +401,8 @@ local function fillText(label, used, slots)
 	local r, g, b = 1, 0.84, 0.35
 	if used >= slots then r, g, b = 1, 0.25, 0.2
 	elseif used / slots >= 0.9 then r, g, b = 1, 0.82, 0 end
-	return ("%s: %d/%d"):format(label, used, slots), r, g, b
+	local full = used >= slots and " FULL" or ""
+	return ("%s: %d/%d%s"):format(label, used, slots, full), r, g, b
 end
 
 local function bagText()
@@ -419,6 +421,24 @@ local function bagText()
 	end
 	if slots <= 0 then return nil end
 	return fillText("Bags", math.max(0, slots - free), slots)
+end
+
+-- Last bank visit, or the open bank. Hidden until a banker has been visited
+-- once this install (older saves did not keep the size).
+local function bankText()
+	local used, slots
+	if ns.BankUsage then used, slots = ns.BankUsage() end
+	if (type(slots) ~= "number" or slots <= 0) and ZydeForeverDB and ZydeForeverDB.bankSeen then
+		local name = plain(UnitName("player"))
+		local row = name and ZydeForeverDB.bankSeen[name]
+		if type(row) == "table" and type(row.slots) == "number" and row.slots > 0 then
+			local free = type(row.free) == "number" and row.free or 0
+			used, slots = math.max(0, row.slots - free), row.slots
+		end
+	end
+	if type(used) ~= "number" or type(slots) ~= "number" or slots <= 0 then return nil end
+	if isSecret(used) or isSecret(slots) then return nil end
+	return fillText("Bank", used, slots)
 end
 
 local function reagentText()
@@ -775,6 +795,8 @@ local function update(full)
 		local r, g, b
 		text, r, g, b = bagText()
 		if text then show(bags, text, r, g, b) end
+		text, r, g, b = bankText()
+		if text then show(bank, text, r, g, b) else bank.on = false end
 		text, r, g, b = reagentText()
 		if text then show(reagents, text, r, g, b) end
 		text, r, g, b = rangedText()
@@ -800,7 +822,7 @@ for _, e in ipairs({
 	"ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA",
 	"PLAYER_MONEY", "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP",
 	"UPDATE_INVENTORY_DURABILITY", "PLAYER_EQUIPMENT_CHANGED",
-	"BAG_UPDATE_DELAYED", "BANKFRAME_OPENED", "PLAYERBANKSLOTS_CHANGED",
+	"BAG_UPDATE_DELAYED", "BANKFRAME_OPENED", "BANKFRAME_CLOSED", "PLAYERBANKSLOTS_CHANGED",
 	"GET_ITEM_INFO_RECEIVED",
 	"SKILL_LINES_CHANGED", "LEARNED_SPELL_IN_TAB", "SPELLS_CHANGED",
 }) do
@@ -827,6 +849,7 @@ bar:SetScript("OnUpdate", function(_, dt)
 end)
 
 ns.OnFeatureChanged(function(key) if key == "infoBar" then update(true) end end)
+function ns.RefreshInfoBar() update(true) end
 
 toggle:SetScript("OnClick", function()
 	ZydeForeverDB = ZydeForeverDB or {}

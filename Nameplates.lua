@@ -29,6 +29,12 @@ local FONT = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
 local W, H = 120, 10          -- bar size
 local CAST_H = 8
 local AURA, AURA_MAX = 16, 5  -- debuff icon size, how many
+-- Demoralizing Shout is 45 seconds. Dungeon plates do not keep it on the game's
+-- debuff row, so the cast itself puts the icon up. One row stays, so the cast
+-- bar under the debuffs does not get covered.
+local DEMO_SECONDS = 45
+local demoSet = { [1160] = true, [6190] = true, [11554] = true, [11555] = true, [11556] = true, [25202] = true, [25203] = true, [47437] = true }
+local demoUntil = 0
 
 local COLOR = {
 	hostile = { 0.78, 0.29, 0.23 }, neutral = { 0.88, 0.72, 0.27 }, friendly = { 0.55, 0.76, 0.35 },
@@ -353,6 +359,34 @@ local function build(plate)
 		f.auras[i] = a
 	end
 	f.ac = makeAuraContainer(f)
+	local s = CreateFrame("Frame", nil, f)
+	s:SetSize(AURA, AURA)
+	s:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -7)
+	s:SetFrameLevel(f:GetFrameLevel() + 40)
+	s.border = s:CreateTexture(nil, "BACKGROUND")
+	s.border:SetPoint("TOPLEFT", -1, 1)
+	s.border:SetPoint("BOTTOMRIGHT", 1, -1)
+	s.border:SetColorTexture(0, 0, 0, 1)
+	s.icon = s:CreateTexture(nil, "ARTWORK")
+	s.icon:SetAllPoints()
+	s.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	s.icon:SetTexture("Interface\\Icons\\Ability_Warrior_WarCry")
+	local top = CreateFrame("Frame", nil, s)
+	top:SetAllPoints()
+	top:SetFrameLevel(s:GetFrameLevel() + 2)
+	s.time = text(top, 8)
+	s.time:SetPoint("BOTTOM", s, "BOTTOM", 1, 0)
+	s:SetScript("OnUpdate", function(self, elapsed)
+		self.tick = (self.tick or 0) + elapsed
+		if self.tick < 0.2 then return end
+		self.tick = 0
+		local left = demoUntil - GetTime()
+		if left <= 0 then self:Hide() return end
+		if left < 10 then self.time:SetFormattedText("%.0f", math.ceil(left)) self.time:SetTextColor(1, 0.35, 0.3)
+		else self.time:SetFormattedText("%d", left) self.time:SetTextColor(1, 1, 1) end
+	end)
+	s:Hide()
+	f.shout = s
 
 	-- Quest corner: icon, count, drop chance (right of the bar)
 	f.quest = CreateFrame("Frame", nil, f)
@@ -717,7 +751,27 @@ local function stackText(unit, a)
 	return ""
 end
 
+local function placeAuraRow(f)
+	local shift = (f.shout and f.shout:IsShown()) and (AURA + 2) or 0
+	if f.ac then
+		f.ac:ClearAllPoints()
+		f.ac:SetPoint("TOPLEFT", f, "BOTTOMLEFT", shift, -7)
+	end
+	for i = 1, AURA_MAX do
+		local a = f.auras[i]
+		if a then a:SetPoint("TOPLEFT", f, "BOTTOMLEFT", shift + (i - 1) * (AURA + 2), -7) end
+	end
+end
+
+local function updateShout(f)
+	local b = f.shout
+	if not b then return end
+	if f.unit and GetTime() < demoUntil then b:Show() else b:Hide() end
+	placeAuraRow(f)
+end
+
 local function updateAuras(f)
+	updateShout(f)
 	if f.useAC then -- (the game's container draws them, see makeAuraContainer)
 		for i = 1, AURA_MAX do f.auras[i]:Hide() end
 		showBlizzAuras(f, false)
@@ -737,6 +791,9 @@ local function updateAuras(f)
 			if n >= AURA_MAX then break end
 			local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HARMFUL|PLAYER")
 			if not ok or not a then break end
+			local spellId, name = plain(a.spellId), plain(a.name)
+			if f.shout:IsShown() and ((spellId and demoSet[spellId]) or name == "Demoralizing Shout") then
+			else
 			n = n + 1
 			local b = f.auras[n]
 			if not pcall(b.icon.SetTexture, b.icon, a.icon) then b.icon:SetTexture(134400) end
@@ -758,10 +815,41 @@ local function updateAuras(f)
 				end
 			end
 			b:Show()
+			end
 		end
 	end
 	for i = n + 1, AURA_MAX do f.auras[i]:Hide() end
 end
+
+local function spellNameOf(id)
+	local name = (C_Spell and C_Spell.GetSpellName and plain(safe(C_Spell.GetSpellName, id)))
+		or (GetSpellInfo and plain(safe(GetSpellInfo, id)))
+	return type(name) == "string" and name or nil
+end
+
+local function markDemo(spellID)
+	if type(spellID) == "number" then demoSet[spellID] = true end
+	demoUntil = GetTime() + DEMO_SECONDS
+	for _, f in pairs(skinned) do
+		if f.ac then pcall(f.ac.SetAuraGroupCandidateFilters, f.ac, "1", { excludeSpellIDs = demoSet }) end
+		updateAuras(f)
+	end
+end
+
+local demoEv = CreateFrame("Frame")
+demoEv:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+demoEv:SetScript("OnEvent", function(_, _, ...)
+	local hitId
+	for i = 1, select("#", ...) do
+		local v = plain(select(i, ...))
+		if type(v) == "number" and (demoSet[v] or spellNameOf(v) == "Demoralizing Shout") then
+			hitId = v
+		elseif v == "Demoralizing Shout" then
+			hitId = hitId or true
+		end
+	end
+	if hitId then markDemo(type(hitId) == "number" and hitId or nil) end
+end)
 
 -- You're the tank: the group's tank role, or a warrior in Defensive Stance.
 local function tanking()
