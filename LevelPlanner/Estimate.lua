@@ -18,6 +18,8 @@ local function greyLevel(L)
 	return L - 9
 end
 
+E.GreyLevel = greyLevel -- (also roughly where a quest goes grey: Planner's early pick-ups)
+
 -- "Zero difference" value used to scale XP for mobs below your level.
 local function zeroDiff(L)
 	if L < 8 then return 5 end

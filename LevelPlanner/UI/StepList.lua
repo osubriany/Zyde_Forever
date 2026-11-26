@@ -411,6 +411,7 @@ local function groupSteps(plan)
 				dropFrom = s.dropFrom, mobs = s.mobs,
 				-- "..." > Travel steps (UI/TravelTo.lua): right-click stops the trip
 				travelTo = s.travelTo, destKind = s.destKind, travelSecs = s.travelSecs, guessed = s.guessed,
+				early = s.early, -- (an early pick-up "for later", Planner.lua)
 				-- right-click > "Skip quest" (UI/Skip.lua)
 				skips = { t },
 			}
@@ -456,8 +457,13 @@ local function describe(step, plan)
 			detail = table.concat(step.names, ", ")
 		else
 			titleText = step.label
-			detail = "worth " .. ns.short(questXpFor(step.names[1], plan)) .. " XP at turn-in"
-				.. (step.chain and " - opens follow-ups" or "")
+			if step.early then
+				-- (its turn-in isn't in this hour's route: say why it's taken now)
+				detail = string.format("|cff66ccfffor later|r - saves ~%s coming back to this giver", ns.shortTime(step.early.saved))
+			else
+				detail = "worth " .. ns.short(questXpFor(step.names[1], plan)) .. " XP at turn-in"
+					.. (step.chain and " - opens follow-ups" or "")
+			end
 		end
 	elseif k == "turnin" then
 		titleText = step.n > 1 and string.format("Turn in %d quests", step.n) or step.label

@@ -60,6 +60,18 @@ LevelPlannerConfig = {
 	graspTopK = 3,              -- ...among this many of the best
 	segmentMoves = true,        -- improvement also moves runs of 2-3 stops and reverses stretches of the route
 	twoOptMaxSpan = 10,         -- longest stretch (stops) tried reversed
+	-- Early pick-ups: a quest this hour's route doesn't use, from a giver right by the route, taken now
+	-- "for later" so you don't walk back to that giver in the hours after
+	earlyPickups = true,
+	earlyPickupHours = 3.5,          -- look this far ahead: skip quests grey by your level then
+	earlyPickupLogFree = 5,          -- keep at least this many quest-log slots free all along the route
+	earlyPickupMaxDetourSeconds = 40, -- "right by the route": adds at most this much
+	earlyPickupSearchYards = 300,    -- givers this close to a stop of the route (or you) are considered
+	earlyPickupMinSaveSeconds = 45,  -- the trip back it saves: at least this...
+	earlyPickupMaxSaveSeconds = 300, -- ...at most this (giver to the quest's nearest objective)...
+	earlyPickupSaveShare = 0.75,     -- ...counted at this share (it's later, and may not happen)
+	earlyPickupMinRateShare = 0.5,   -- the quest's own XP per minute: at least this share of the plan's
+	earlyPickupMax = 3,              -- at most this many per plan
 	improveTopK = 6,            -- a stop (or run of stops) being moved: fully check only the places that add
 	                            -- the least walking, this many (0 = check every place: slower)
 	endBonusMaxShare = 0.03,    -- ending near good quests not taken (a hub) adds at most this share of the route's value

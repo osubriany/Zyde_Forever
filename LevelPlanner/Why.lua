@@ -114,6 +114,9 @@ local function explainOne(id)
 	if idx then
 		if dungeon then
 			say(string.format("  Planned as part of %s (step %d).", dungeon.name, idx))
+		elseif s.early then
+			say(string.format("  In the plan: step %d - picked up early, for later. This hour's route doesn't do it, but its giver is right by the route: taking it now costs ~%ds and saves a trip back worth ~%ds. Still worth doing at level %d (about %s h from now).",
+				idx, math.floor(s.early.detour + 0.5), math.floor(s.early.saved + 0.5), s.early.future or 0, tostring(ns.cfg.earlyPickupHours or 3.5)))
 		else
 			say(string.format("  In the plan: step %d - %s.", idx, KIND_WORDS[s.kind] or s.kind))
 			-- not first: how far its objective is from you, and what doing it now would cost

@@ -1323,6 +1323,117 @@ standingAt = function(state, ctx)
 	return state
 end
 
+-- Early pick-ups (Config.earlyPickups): a quest this hour's route doesn't use, from a giver right by
+-- the route, picked up now "for later" - it saves walking back to that giver in the hours after.
+-- Only when the quest log keeps room to spare (Config.earlyPickupLogFree slots all along the route),
+-- the detour is small (Config.earlyPickupMaxDetourSeconds) and less than the trip it saves; never a
+-- quest that will be grey by the time you'd likely do it (your level Config.earlyPickupHours from
+-- now, at the plan's XP rate), nor escorts, quests offered only now and then, item-started ones,
+-- dungeon quests or ones still waiting on another quest or a level-up.
+-- The trip saved: going to the giver before its objectives, at least Config.earlyPickupMinSaveSeconds
+-- and at most Config.earlyPickupMaxSaveSeconds, counted at Config.earlyPickupSaveShare (it's later,
+-- and may never happen).
+local function earlyPickups(state, ctx, perSecond)
+	local cfg = ns.cfg
+	if cfg.earlyPickups == false or not ctx.pool or #state.route == 0 or perSecond <= 0 then return state end
+	local cap, reserve = ctx.logCap or 20, cfg.earlyPickupLogFree or 5
+	local function peakLog(route)
+		local n = ctx.logCount or 0
+		local peak = n
+		for _, e in ipairs(route) do
+			n = n + (e.stop.logDelta or 0)
+			if n > peak then peak = n end
+		end
+		return peak
+	end
+	if peakLog(state.route) + 1 > cap - reserve then return state end
+
+	-- your level a few hours from now, and the quest level that's grey for it
+	local E = ns.Estimate or {}
+	local L = ctx.level or 1
+	local future = L
+	local rate = (ctx.xpRate or 0) > 0 and ctx.xpRate or perSecond
+	if ctx.toDing then
+		local xp = rate * (cfg.earlyPickupHours or 3.5) * 3600 - ctx.toDing
+		while xp >= 0 and future < 60 do
+			future = future + 1
+			local need = E.XpToNext and E.XpToNext(future)
+			if not need or need <= 0 then break end
+			xp = xp - need
+		end
+	end
+	local greyAt = E.GreyLevel and E.GreyLevel(future) or (future - 6)
+
+	-- candidates: quests you can take now, from a giver near the route (or near you)
+	local inRoute = {}
+	for _, e in ipairs(state.route) do inRoute[e.stop.quest] = true end
+	local search = cfg.earlyPickupSearchYards or 300
+	local minShare = cfg.earlyPickupMinRateShare or 0.5
+	local list = {}
+	for _, q in ipairs(ctx.pool) do
+		ns.Check()
+		local s = q.stops and q.stops[1]
+		if s and s.kind == "pickup" and not inRoute[q] and not state.used[q] and not q.inLog and not q.isExtra
+			and not q.escort and not q.timedFrom and not q.sourceItemId and not q.isDungeon and not q.unlockLevel
+			and not q.requires and not q.grey and (q.level or 0) > greyAt and s.points and s.points[1]
+			and value(q) / math.max(60, q.workSeconds or 600) >= perSecond * minShare then
+			-- the giver: near a stop of the route (or where you are)?
+			local giver, close
+			for _, p in ipairs(s.points) do
+				local d0 = ctx.start and ns.Geo.Distance(ctx.start, p)
+				if d0 and d0 <= search then giver, close = p, true end
+				for _, e in ipairs(close and {} or state.route) do
+					local d = ns.Geo.Distance(e.point, p)
+					if d and d <= search then giver, close = p, true break end
+				end
+				if close then break end
+			end
+			if close then
+				-- the trip it saves later: from the giver on to its nearest objective
+				local saved
+				for k = 2, #q.stops do
+					for _, p in ipairs(q.stops[k].points or {}) do
+						local t = travel(giver, p)
+						if not saved or t < saved then saved = t end
+					end
+				end
+				saved = math.min(cfg.earlyPickupMaxSaveSeconds or 300, math.max(cfg.earlyPickupMinSaveSeconds or 45, saved or 0))
+				list[#list + 1] = { q = q, saved = saved * (cfg.earlyPickupSaveShare or 0.75) }
+			end
+		end
+	end
+
+	-- best first (most saved for the least detour), a few at most; each checked on the route as it is then
+	local maxDetour = cfg.earlyPickupMaxDetourSeconds or 40
+	for _ = 1, cfg.earlyPickupMax or 3 do
+		local best
+		for _, c in ipairs(list) do
+			if not c.taken then
+				local q, s = c.q, c.q.stops[1]
+				c.eq = c.eq or { id = "early:" .. q.id, name = q.name, xp = 0, isExtra = true, early = q, stops = {} }
+				c.eq.stops[1] = c.eq.stops[1] or { kind = "pickup", questId = q.id, questName = q.name .. " (for later)",
+					key = "early:" .. q.id, points = s.points, work = s.work or 20, npcIds = s.npcIds, npcName = s.npcName,
+					mobXp = 0, logDelta = 1, bagDelta = s.bagDelta or 0, order = 1, quest = c.eq,
+					label = "Pick up " .. q.name .. " - for later" }
+				local r, t = insertQuest(state.route, c.eq, ctx)
+				local detour = r and t - state.total
+				if detour and detour <= maxDetour and detour < c.saved and peakLog(r) <= cap - reserve then
+					local net = c.saved - detour
+					if not best or net > best.net then best = { c = c, r = r, t = t, net = net, detour = detour } end
+				end
+			end
+		end
+		if not best then break end
+		local c = best.c
+		c.taken = true
+		local worth = c.saved * perSecond
+		c.eq.value = worth
+		c.eq.stops[1].early = { saved = c.saved, detour = best.detour, future = future }
+		state.route, state.total, state.value = best.r, best.t, (state.value or 0) + worth
+	end
+	return state
+end
+
 function addExtrasInner(state, ctx)
 	if not ctx.start or #state.route == 0 then return state end
 	-- a level-up on the way: a trainer visit that falls due then can go right after it (Extras.lua)
@@ -1346,7 +1457,7 @@ function addExtrasInner(state, ctx)
 			end
 		end
 	end
-	return state
+	return earlyPickups(state, ctx, perSecond)
 end
 
 ----------------------------------------------------------------------------------------
