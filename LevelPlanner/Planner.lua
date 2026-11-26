@@ -30,8 +30,9 @@ end
 
 -- Dying on purpose below level 10: the Spirit Healer's resurrection costs nothing there (no
 -- resurrection sickness, no durability loss), and you come back at the graveyard nearest where you
--- died - often in or by town. A leg that's quicker that way gets a "die" step (ctx.warpXp, set in
--- P.Plan while you're under 10; Config.deathWarp). Graveyards are the Spirit Healers' spots.
+-- died - often in or by town. From 10 to 19 it also costs a repair and some resurrection sickness
+-- (deathCost). A leg that's quicker that way gets a "die" step (shortcut(), set up in P.Plan;
+-- Config.deathWarp). Graveyards are the Spirit Healers' spots.
 local SPIRIT_HEALERS = { 6491 }
 local gyPoints
 local gyNear = setmetatable({}, { __mode = "k" })
@@ -58,6 +59,70 @@ local function graveyardNear(p)
 	end
 	gyNear[p] = best or false
 	return best
+end
+
+-- Your level partway through the route: ctx.levelCum[k] = XP to reach ctx.level + k.
+local function levelAt(ctx, gained)
+	local L = ctx.level or 1
+	for k, need in ipairs(ctx.levelCum or {}) do
+		if gained >= need then L = ctx.level + k else break end
+	end
+	return L
+end
+
+-- What dying costs at level L on the way to this stop, in seconds; nil when it isn't planned.
+--   under 10: the death itself (getting killed, releasing, the res)
+--   10-19: also a 25% repair bill (counted as the time to earn it) and (L - 10) minutes of
+--   resurrection sickness - counted in full before a fight, a third of it before a pick-up or
+--   turn-in (you can run and talk while weakened)
+local function deathCost(ctx, L, stop)
+	if not ctx.deathSecs or L > (ctx.deathUpTo or 9) then return nil end
+	if L < 10 then return ctx.deathSecs end
+	local cfg = ns.cfg
+	local repairGold = (cfg.deathRepairCopperPerLevel or 25) * L / 10000
+	local sick = math.max(0, L - 10) * 60
+	local weak = (stop.kind == "objective") and sick or sick * (cfg.deathSicknessTravelShare or 0.3)
+	return ctx.deathSecs + repairGold * (ctx.secsPerGold or 600) + weak
+end
+
+-- The quickest shortcut for a leg, if it beats walking by Config.deathWarpMinSave: dying (back at
+-- the nearest graveyard), Astral Recall (15-minute cooldown) or a mage teleport (one rune each).
+-- sc: what's been used so far on this route ({recallReady, runes}); updated when one is chosen.
+-- Returns the leg's new seconds and the shortcut {mode, point, secs, name, level} (nil: walk).
+local function shortcut(ctx, sc, from, stop, dest, leg, t, gained)
+	local best, bestSecs = nil, leg - (ctx.shortcutMinSave or 30)
+	if ctx.deathSecs and from then
+		local L = levelAt(ctx, gained)
+		local cost = deathCost(ctx, L, stop)
+		local gy = cost and graveyardNear(from)
+		if gy then
+			local secs = cost + travel(gy, dest)
+			if secs < bestSecs then best, bestSecs = { mode = "die", point = gy, secs = cost, level = L }, secs end
+		end
+	end
+	local r = ctx.recall
+	if r and t >= sc.recallReady then
+		local secs = r.secs + travel(r.point, dest)
+		if secs < bestSecs then best, bestSecs = { mode = "recall", point = r.point, secs = r.secs, name = r.name }, secs end
+	end
+	if ctx.teleports and sc.runes > 0 then
+		for _, tp in ipairs(ctx.teleports) do
+			local secs = tp.secs + travel(tp.point, dest)
+			if secs < bestSecs then best, bestSecs = { mode = "teleport", point = tp.point, secs = tp.secs, name = tp.name }, secs end
+		end
+	end
+	if not best then return leg, nil end
+	if best.mode == "recall" then sc.recallReady = t + (r.cooldown or 900) end
+	if best.mode == "teleport" then sc.runes = sc.runes - 1 end
+	return bestSecs, best
+end
+
+local function newShortcuts(ctx)
+	return { recallReady = ctx.recall and ctx.recall.readyIn or 0, runes = ctx.runes or 0 }
+end
+
+local function stopGain(stop)
+	return (stop.mobXp or 0) + (stop.kind == "turnin" and (stop.xp or 0) or 0)
 end
 
 -- XP a stop earns (its kills, plus the quest XP at a turn-in): used to see where the route levels you up.
@@ -312,18 +377,14 @@ local function routeSeconds(route, ctx)
 	end
 	local h, hs, save = ctx.hearth, ctx.hearthSecs or 45, 0
 	local need, xp, speed, pool = ctx.mountSpeed and ctx.toDing, 0, nil, ctx.rested
-	local warpXp, gained = ctx.warpXp, 0
+	local sc, gained = ctx.anyShortcut and newShortcuts(ctx), 0
 	for _, e in ipairs(route) do
 		local w
 		w, run = addedWork(prevEntry, e, run, ctx.start, ctx.xpRate or 0, inRoute)
 		local leg = speed and prev and ns.Travel.Seconds(prev, e.point, speed) or travel(prev, e.point)
-		if warpXp and gained < warpXp then
-			local g = graveyardNear(prev)
-			if g then
-				local viaDeath = ctx.deathSecs + travel(g, e.point)
-				if leg - viaDeath > (ctx.deathMinSave or 30) then leg = viaDeath end
-			end
-			gained = gained + (e.stop.mobXp or 0) + (e.stop.kind == "turnin" and (e.stop.xp or 0) or 0)
+		if sc then
+			leg = shortcut(ctx, sc, prev, e.stop, e.point, leg, t, gained)
+			gained = gained + stopGain(e.stop)
 		end
 		if h and leg > hs and t >= h.readyIn then
 			local s = leg - hs - travel(h.point, e.point)
@@ -1337,27 +1398,30 @@ local function finalize(state, ctx)
 		t = ctx.corpseSecs
 	end
 	-- (which stops come before the route takes you to level 10: dying is free until then)
-	local warpOk = {}
-	if ctx.warpXp then
-		local gained = 0
-		for idx, e in ipairs(route) do
-			warpOk[idx] = gained < ctx.warpXp
-			gained = gained + (e.stop.mobXp or 0) + (e.stop.kind == "turnin" and (e.stop.xp or 0) or 0)
-		end
-	end
+	local sc, gained = ctx.anyShortcut and newShortcuts(ctx), 0
 	for idx, e in ipairs(route) do
 		local from = prev
 		local way = wayIdx[idx]
-		local gy = not hearthLegs[idx] and not way and warpOk[idx] and graveyardNear(from)
-		if gy then
-			local viaDeath = ctx.deathSecs + travel(gy, e.point)
-			if legSeconds(idx, from, e.point) - viaDeath > (ctx.deathMinSave or 30) then
-				steps[#steps + 1] = { kind = "travel", mode = "die",
-					label = "Die and take the Spirit Healer's resurrection (free under level 10)",
-					point = from, work = ctx.deathSecs, arrive = t, mobXp = 0 }
-				t = t + ctx.deathSecs
-				from = gy
+		local cut
+		if sc and not hearthLegs[idx] and not way then
+			local _
+			_, cut = shortcut(ctx, sc, from, e.stop, e.point, legSeconds(idx, from, e.point), t, gained)
+		end
+		if sc then gained = gained + stopGain(e.stop) end
+		if cut then
+			local label
+			if cut.mode == "die" then
+				label = cut.level < 10 and "Die and take the Spirit Healer's resurrection (free under level 10)"
+					or string.format("Die and take the Spirit Healer's resurrection (a repair and %d min weakened)", math.max(0, cut.level - 10))
+			elseif cut.mode == "recall" then
+				label = "Cast Astral Recall (" .. (cut.name or "home") .. ")"
+			else
+				label = "Teleport: " .. (cut.name or "city")
 			end
+			steps[#steps + 1] = { kind = "travel", mode = cut.mode, label = label,
+				point = from, work = cut.secs, arrive = t, mobXp = 0 }
+			t = t + cut.secs
+			from = cut.point
 		end
 		if hearthLegs[idx] then
 			steps[#steps + 1] = { kind = "travel", mode = "hearth", label = "Use your hearthstone (" .. hearth.name .. ")",
@@ -1502,15 +1566,26 @@ function P.Plan(candidates, previous, opts)
 	end
 	-- under level 10 (and not already a ghost), dying is a way to travel: until the route's XP
 	-- takes you to 10
-	if cfg.deathWarp ~= false and (ctx.level or 99) < 10 and not ctx.corpseSecs and ctx.toDing then
+	-- (from 10 to 19 it costs a repair and some resurrection sickness: deathCost)
+	ctx.shortcutMinSave = cfg.deathWarpMinSave or 30
+	ctx.deathUpTo = cfg.deathWarpUpTo19 == false and 9 or 19
+	if cfg.deathWarp ~= false and (ctx.level or 99) <= ctx.deathUpTo and not ctx.corpseSecs and ctx.toDing then
+		ctx.levelCum = {}
 		local need = ctx.toDing
-		for l = ctx.level + 1, 9 do
+		for l = ctx.level + 1, ctx.deathUpTo + 1 do
+			ctx.levelCum[#ctx.levelCum + 1] = need
 			need = need + ((ns.Estimate.XpToNext and ns.Estimate.XpToNext(l)) or 0)
 		end
-		ctx.warpXp = need
 		ctx.deathSecs = cfg.deathWarpSeconds or 60
-		ctx.deathMinSave = cfg.deathWarpMinSave or 30
+		local okGold, spg = pcall(ns.Stops.SecondsPerGold)
+		ctx.secsPerGold = okGold and spg or 600
 	end
+	-- Astral Recall (shamans) and mage teleports: like the hearthstone, used where they save time
+	local okR, recall = pcall(ns.Travel.AstralRecall)
+	ctx.recall = okR and recall or nil
+	local okT, teleports, runes = pcall(ns.Travel.MageTeleports)
+	if okT and teleports then ctx.teleports, ctx.runes = teleports, runes end
+	ctx.anyShortcut = (ctx.deathSecs or ctx.recall or ctx.teleports) and true or nil
 	-- the hearthstone counts in every route's time, not only in the final step list
 	if cfg.hearthInRoute ~= false then
 		local ok, h = pcall(ns.Travel.Hearth)

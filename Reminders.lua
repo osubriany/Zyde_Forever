@@ -1858,6 +1858,53 @@ do
 	end
 end
 
+-- Travel speed: hunters (Aspect of the Cheetah), shamans (Ghost Wolf) and druids (Travel Form)
+-- who know it, out of combat, on foot outdoors, running for 6 seconds without it on. LevelPlanner
+-- times its walks at that speed, so this is the nudge to really use it.
+do
+	local SPEED = {
+		HUNTER = { ids = { 5118 }, buffs = { "aspect of the cheetah", "aspect of the pack" }, label = "Cheetah" },
+		SHAMAN = { ids = { 2645 }, buffs = { "ghost wolf" }, label = "Ghost Wolf" },
+		DRUID = { ids = { 783 }, buffs = { "travel form", "aquatic form", "cat form" }, label = "Travel Form" },
+	}
+	local spec = SPEED[playerClass]
+	if spec then
+		local movingSince
+		local watch = CreateFrame("Frame")
+		local tick = 0
+		watch:SetScript("OnUpdate", function(_, dt)
+			tick = tick + dt
+			if tick < 0.25 then return end
+			tick = 0
+			local speed = GetUnitSpeed and plain(GetUnitSpeed("player"))
+			if type(speed) == "number" and speed > 0 then
+				movingSince = movingSince or GetTime()
+			else
+				movingSince = nil
+			end
+		end)
+		local function known()
+			for _, id in ipairs(spec.ids) do
+				if IsPlayerSpell and plain(safe(IsPlayerSpell, id)) then return id end
+			end
+		end
+		local speedTile
+		speedTile = ns.AddReminder("travelSpeed", "ZydeForeverTravelSpeed", ns.spellTexture(spec.ids[1], "Interface\\Icons\\Ability_Mount_JungleTiger"), function(preview)
+			if preview then return true, spec.label end
+			if not on() or not quietTime() then return false end
+			if not movingSince or GetTime() - movingSince < 6 then return false end
+			if not known() then return false end
+			if plain(IsMounted and IsMounted()) or plain(IsSwimming and IsSwimming()) or plain(UnitOnTaxi("player")) then return false end
+			if IsIndoors and plain(IsIndoors()) then return false end
+			for _, name in ipairs(spec.buffs) do
+				local found, hidden = selfAura(name)
+				if found or hidden then return false end
+			end
+			return true, spec.label
+		end)
+	end
+end
+
 -- /zyde auradebug: what the game says about your target's debuffs (name, spell ID,
 -- stacks, yours or not), to check the Sunder and Thunder Clap tiles against.
 ns.AuraDebug = function()

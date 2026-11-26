@@ -117,10 +117,31 @@ function Geo.Distance(a, b)
 	return math.sqrt(dx * dx + dy * dy)
 end
 
+-- Class speed while travelling: Aspect of the Cheetah (+30%), Ghost Wolf (+40%), Travel Form (+40%),
+-- once you know the spell (any rank). Walking legs are timed at that speed (Config.classSpeed).
+local CLASS_SPEED = {
+	HUNTER = { ids = { 5118 }, mult = 1.3 },  -- Aspect of the Cheetah
+	SHAMAN = { ids = { 2645 }, mult = 1.4 },  -- Ghost Wolf
+	DRUID = { ids = { 783 }, mult = 1.4 },    -- Travel Form
+}
+function Geo.ClassSpeedMult()
+	if ns.cfg.classSpeed == false then return 1 end
+	local _, class = UnitClass("player")
+	local c = class and not ns.isSecret(class) and CLASS_SPEED[class]
+	if not c then return 1 end
+	for _, id in ipairs(c.ids) do
+		local known = IsPlayerSpell and ns.safe(IsPlayerSpell, id)
+		if known and not ns.isSecret(known) then return c.mult end
+	end
+	return 1
+end
+
 function Geo.Speed()
 	local cfg = ns.cfg
-	if ns.playerLevel() >= (cfg.mountLevel or 40) then return cfg.mountSpeed or 11.2 end
-	return cfg.runSpeed or 7
+	local base = cfg.runSpeed or 7
+	local run = base * Geo.ClassSpeedMult()
+	if ns.playerLevel() >= (cfg.mountLevel or 40) then return math.max(cfg.mountSpeed or 11.2, run) end
+	return run
 end
 
 -- Phase 1 travel estimate: straight line x detour factor, plus a fixed cost for changing zone or continent.

@@ -70,7 +70,15 @@ LevelPlannerConfig = {
 	-- back at the graveyard nearest where you died: a leg that's quicker that way gets a "die" step.
 	deathWarp = true,           -- false: never plan dying on purpose
 	deathWarpSeconds = 60,      -- getting killed, releasing and taking the res
-	deathWarpMinSave = 30,      -- only when it saves at least this many seconds over walking
+	deathWarpMinSave = 30,      -- only when it saves at least this many seconds over walking (also Astral Recall, teleports)
+	deathWarpUpTo19 = true,     -- also from 10 to 19, counting the repair and the resurrection sickness (L - 10 minutes)
+	deathRepairCopperPerLevel = 25, -- the 25% repair bill, roughly: this much copper per level
+	deathSicknessTravelShare = 0.3, -- sickness before a pick-up or turn-in counts this share (you can still run and talk)
+	classSpeed = true,          -- walk times use Aspect of the Cheetah / Ghost Wolf / Travel Form once you know it
+	useAstralRecall = true,     -- shamans: Astral Recall (15-minute cooldown) as a second hearthstone
+	useTeleports = true,        -- mages: teleports to the capitals while you carry Runes of Teleportation
+	teleportSeconds = 30,       -- casting a teleport and the loading screen
+	bindBetterBySeconds = 120,  -- a new inn is suggested when its hearthstone saves this much more than your home's
 	plannerRested = true,       -- rested XP (double kill XP) counts when choosing the route and placing level-ups
 	restedReplanShare = 0.2,    -- re-plan when rested XP runs out, or grows by this share of a level
 	switchThreshold = 0.10,     -- only switch to a new route if it is at least 10% better (XP per minute)

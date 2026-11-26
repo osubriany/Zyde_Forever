@@ -431,6 +431,64 @@ end
 -- Hearthstone
 ----------------------------------------------------------------------------------------
 
+local function spellReadyIn(id)
+	local start, dur
+	if C_Spell and C_Spell.GetSpellCooldown then
+		local cd = ns.safe(C_Spell.GetSpellCooldown, id)
+		if type(cd) == "table" then start, dur = cd.startTime, cd.duration end
+	elseif GetSpellCooldown then
+		start, dur = ns.safe(GetSpellCooldown, id)
+	end
+	if ns.isSecret(start) or ns.isSecret(dur) or type(start) ~= "number" or type(dur) ~= "number" then return 0 end
+	if start <= 0 or dur <= 1.5 then return 0 end
+	return math.max(0, start + dur - GetTime())
+end
+
+local function knows(id)
+	local v = IsPlayerSpell and ns.safe(IsPlayerSpell, id)
+	return v and not ns.isSecret(v) and true or false
+end
+
+-- Shaman's Astral Recall: to your hearth spot like the hearthstone, on its own 15-minute cooldown.
+-- Returns {point, readyIn, secs, cooldown, name} or nil.
+function T.AstralRecall()
+	local cfg = ns.cfg
+	if cfg.useAstralRecall == false or not knows(556) then return nil end
+	local bind = ns.TravelLearn.Bind()
+	if not bind or not GetBindLocation or bind.name ~= GetBindLocation() then return nil end
+	local p = ns.Geo.PointOnMap(bind.map, bind.x, bind.y)
+	if not p then return nil end
+	return { point = p, readyIn = spellReadyIn(556), secs = cfg.hearthSeconds or 45, cooldown = 900, name = bind.name }
+end
+
+-- Mage teleports (from 20): to a capital, no cooldown, one Rune of Teleportation each.
+-- Returns a list of {point, secs, name} you know, and how many runes you have.
+local RUNE_OF_TELEPORTATION = 17031
+local TELEPORTS = {
+	{ id = 3567, name = "Orgrimmar", map = 1454 }, { id = 3563, name = "Undercity", map = 1458 },
+	{ id = 3566, name = "Thunder Bluff", map = 1456 }, { id = 3561, name = "Stormwind", map = 1453 },
+	{ id = 3562, name = "Ironforge", map = 1455 }, { id = 3565, name = "Darnassus", map = 1457 },
+}
+function T.MageTeleports()
+	local cfg = ns.cfg
+	if cfg.useTeleports == false then return nil, 0 end
+	local _, class = UnitClass("player")
+	if class ~= "MAGE" then return nil, 0 end
+	local count = (C_Item and C_Item.GetItemCount and C_Item.GetItemCount(RUNE_OF_TELEPORTATION))
+		or (GetItemCount and GetItemCount(RUNE_OF_TELEPORTATION)) or 0
+	if ns.isSecret(count) or count < 1 then return nil, 0 end
+	local list = {}
+	for _, tp in ipairs(TELEPORTS) do
+		if knows(tp.id) then
+			-- (the city's middle: close enough to where the teleport lands)
+			local p = ns.Geo.PointOnMap(tp.map, 50, 50)
+			if p then list[#list + 1] = { point = p, secs = cfg.teleportSeconds or 30, name = tp.name } end
+		end
+	end
+	if #list == 0 then return nil, 0 end
+	return list, count
+end
+
 -- Returns {point, readyIn (seconds), name} when the hearthstone can be planned, else nil.
 function T.Hearth()
 	local cfg = ns.cfg

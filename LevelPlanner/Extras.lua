@@ -121,6 +121,23 @@ local function routeStops(route)
 	return out
 end
 
+-- What a hearthstone set at this point would save on the route ahead, in seconds: the leg it
+-- shortens most (one use per hour, about the route's length). nil without a route to try it on.
+local function hearthSaving(point, route)
+	local legs, best, prev = 0, 0, nil
+	local hs = ns.cfg.hearthSeconds or 45
+	for _, e in ipairs(route or {}) do
+		if prev and e.point then
+			legs = legs + 1
+			local save = ns.Travel.Seconds(prev, e.point) - hs - ns.Travel.Seconds(point, e.point)
+			if save > best then best = save end
+		end
+		prev = e.point or prev
+	end
+	if legs < 2 then return nil end
+	return best
+end
+
 local function hubInn(route)
 	local cfg = ns.cfg
 	local radius = cfg.hubRadiusYards or 250
@@ -129,12 +146,24 @@ local function hubInn(route)
 	if #stops == 0 then X.bindWhy = "no quest stops ahead" return nil end
 	-- inns near any upcoming pick-up or turn-in (same lookup the route uses)
 	local inns = ns.Places.NearRoute("Innkeeper", stops, radius, 12)
-	local best, bestScore, bestCount = nil, 0, 0
+	-- With a route ahead, the inn whose hearthstone would save the most time on it wins (its quest
+	-- stops nearby break a tie); without one, the inn with the most quest stops around it.
+	local best, bestScore, bestCount, bestSave = nil, 0, 0, nil
 	for _, inn in ipairs(inns) do
 		ns.Check()
 		local score, count = hubScore(inn.point, stops, radius)
-		if score > bestScore then best, bestScore, bestCount = inn, score, count end
+		local save = hearthSaving(inn.point, route)
+		local better
+		if save and bestSave then
+			better = save > bestSave + 1 or (math.abs(save - bestSave) <= 1 and score > bestScore)
+		elseif save then
+			better = true
+		else
+			better = not bestSave and score > bestScore
+		end
+		if better then best, bestScore, bestCount, bestSave = inn, score, count, save end
 	end
+	X.bindSaving = bestSave
 	if not best then X.bindWhy = string.format("no innkeeper known near the quests ahead (%d inns found)", #inns) return nil end
 	if bestCount < (cfg.hubMinStops or 3) then
 		X.bindWhy = string.format("%s has only %d quest stops nearby", best.name or "the nearest inn", bestCount)
@@ -145,9 +174,15 @@ local function hubInn(route)
 	if bp then
 		local d = ns.Geo.Distance(bp, best.point)
 		if d and d < 400 then X.bindWhy = "already set at " .. (bind.name or "that inn") return nil end
-		-- only worth a stop when the new hub clearly beats where you're bound
-		local here = hubScore(bp, stops, radius)
-		if bestScore < here * (cfg.hubBetterBy or 1.5) then
+		-- only worth a stop when the new hub clearly beats where you're bound: by the hearthstone's
+		-- saving on the route ahead when there is one (Config.bindBetterBySeconds), else by quest stops
+		local homeSave = bestSave and hearthSaving(bp, route)
+		if bestSave and homeSave then
+			if bestSave < homeSave + (cfg.bindBetterBySeconds or 120) then
+				X.bindWhy = string.format("%s doesn't save clearly more than %s", best.name or "the hub inn", bind.name or "your home")
+				return nil
+			end
+		elseif bestScore < hubScore(bp, stops, radius) * (cfg.hubBetterBy or 1.5) then
 			X.bindWhy = string.format("%s isn't clearly better than %s", best.name or "the hub inn", bind.name or "your home")
 			return nil
 		end
@@ -215,7 +250,9 @@ function X.OptionalStops(route, ctx)
 			local q = oneStopQuest("bind", "bind", "Hearthstone",
 				string.format("Set your hearthstone with %s (%s) - %d upcoming quest stops nearby", inn.name, zoneName(inn.point), count),
 				{ inn.point }, 20, { npcIds = { inn.id } })
-			out[#out + 1] = { quest = q, worth = cfg.bindValueMinutes or 6, maxDetour = cfg.bindMaxDetourMinutes or 2 }
+			local worth = cfg.bindValueMinutes or 6
+			if X.bindSaving and X.bindSaving / 60 > worth then worth = X.bindSaving / 60 end
+			out[#out + 1] = { quest = q, worth = worth, maxDetour = cfg.bindMaxDetourMinutes or 2 }
 		end
 	end
 

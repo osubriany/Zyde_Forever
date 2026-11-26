@@ -21,7 +21,8 @@ function A.Destination()
 		local s = stops[i]
 		if s.kind ~= "travel" then return nil end
 		if s.mode == "fly" then return s.to end
-		if s.mode == "hearth" then return nil end
+		-- (a hearth, a death, Astral Recall or a teleport comes first: no flight to point at yet)
+		if s.mode == "hearth" or s.mode == "die" or s.mode == "recall" or s.mode == "teleport" then return nil end
 	end
 	return nil
 end
