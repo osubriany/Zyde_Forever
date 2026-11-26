@@ -85,12 +85,12 @@ local CLASSES = {
 	},
 	HUNTER = {
 		{ name = "Mongoose Bite", kind = "reactive", needUsable = true, melee = true },
-		{ name = "Multi-Shot", kind = "direct", aoe = { 2, 3 } },
+		{ name = "Multi-Shot", kind = "direct", aoe = { 1, 3 }, rangedWeapon = true }, -- (worth it on one target too)
 		{ name = "Volley", kind = "direct", aoe = { 3, 10 } },
 		{ name = "Serpent Sting", kind = "dot" },
-		{ name = "Aimed Shot", kind = "direct" },
+		{ name = "Aimed Shot", kind = "direct", rangedWeapon = true },
 		{ name = "Arcane Shot", kind = "direct" },
-		{ name = "Raptor Strike", kind = "filler", melee = true },
+		{ name = "Raptor Strike", kind = "filler", melee = true, meleeWeapon = true },
 	},
 	PALADIN = {
 		-- Seals and Judgement are chosen by paladinPick (below), ahead of the scored list.
@@ -233,12 +233,14 @@ local function parseFacts(id)
 			if rest ~= " over" then f.direct = num(d) or 0 break end
 		end
 		if f.direct == 0 then
-			local d = text:match("additional (%d+)")
+			-- "an additional 120", "increases ranged damage by 70" (Aimed Shot), "damage by 45"
+			local d = text:match("additional (%d+)") or text:match("damage by (%d+)")
 			if d and not (dotDmg and num(d) == f.dot) then f.direct = num(d) or 0 end
 		end
 	end
 	-- Weapon strikes ("weapon damage plus 40"): add your average swing.
 	if text:find("weapon damage", 1, true) then
+		f.weapon = true
 		local mn, mx = UnitDamage("player")
 		mn, mx = plain(mn), plain(mx)
 		if mn and mx then f.direct = f.direct + (mn + mx) / 2 end
@@ -429,6 +431,19 @@ local function score(spell, entry, f, ctx, index)
 			end
 			dmg = v
 		end
+	end
+	-- Shots that fire your bow or gun (Multi-Shot, Aimed Shot): their bonus plus an average shot.
+	if spell.rangedWeapon and UnitRangedDamage then
+		local _, lo, hi = UnitRangedDamage("player")
+		lo, hi = plain(lo), plain(hi)
+		if lo and hi then dmg = dmg + (lo + hi) / 2 end
+	end
+	-- ...and a melee strike's (Raptor Strike: "increases melee damage by 45"), unless the
+	-- tooltip's "weapon damage" already added it
+	if spell.meleeWeapon and f and not f.weapon then
+		local lo, hi = UnitDamage("player")
+		lo, hi = plain(lo), plain(hi)
+		if lo and hi then dmg = dmg + (lo + hi) / 2 end
 	end
 	if dmg <= 0 then dmg = fallback end
 	if spell.aoe then
