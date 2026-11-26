@@ -28,6 +28,7 @@ ThreatBox.lua
 PullLight.lua
 PetCare.lua
 Reminders.lua
+Rotation.lua
 MarkerWheel.lua
 Radial.lua
 BagWindow.lua
