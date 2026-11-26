@@ -458,28 +458,34 @@ local function macroFor(mobs, namesOnly)
 		text = text .. "\n" .. chunk
 		return true
 	end
+	-- Room kept for one try at each of the first names: with mobs on screen the nameplate
+	-- lines used to fill the whole macro, so when they missed (a nameplate number that had
+	-- just moved on) nothing was left to find the mob in front of you by name.
+	local reserve = 0
+	for i = 1, math.min(2, #names) do reserve = reserve + #("\n/tar [noexists] " .. names[i] .. "\n/cleartarget [dead]") end
 	if not namesOnly then
 		-- Each of these lines replaces the last one's target, so the one that should
 		-- win goes last: quest mobs farthest to nearest, then rares on nameplates.
+		-- ("harm" already means it exists; with @unit and no name, /tar targets that unit.)
 		local lines = {}
 		for _, u in ipairs(ns.Rares and ns.Rares.units() or {}) do
-			lines[#lines + 1] = ("/target [@%s,exists,nodead,harm] %s"):format(u, u)
+			lines[#lines + 1] = ("/tar [@%s,harm,nodead]"):format(u)
 		end
 		for i = 1, math.min(MAX_UNITS, #mobs) do
-			local u = mobs[i].unit
-			lines[#lines + 1] = ("/target [@%s,exists,nodead,harm] %s"):format(u, u)
+			lines[#lines + 1] = ("/tar [@%s,harm,nodead]"):format(mobs[i].unit)
 		end
 		-- (built best first so the length limit keeps the best ones; added in reverse)
-		local keep = {}
+		local keep, used = {}, #text + reserve
 		for _, l in ipairs(lines) do
-			if #text + 1 + #l + #table.concat(keep, "\n") > MACRO_LIMIT then break end
+			if used + 1 + #l > MACRO_LIMIT then break end
 			keep[#keep + 1] = l
+			used = used + 1 + #l
 		end
 		for i = #keep, 1, -1 do add(keep[i]) end
 	end
 	for _ = 1, 2 do
 		for _, name in ipairs(names) do
-			add("/target [noexists] " .. name, "/cleartarget [dead]")
+			add("/tar [noexists] " .. name, "/cleartarget [dead]")
 		end
 	end
 	return text
