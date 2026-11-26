@@ -2107,3 +2107,100 @@ ns.AuraDebug = function()
 		print(P .. "  target has no nameplate in view")
 	end
 end
+
+---------------------------------------------------------------------------
+-- Warlock. Each tile only once you know the spell it's about (so a level 1
+-- warlock sees only Demon Skin and the Imp; Voidwalker and healthstones come
+-- at 10, Demon Armor at 20...). Out of combat unless said.
+--   Armor     - neither Demon Skin nor Demon Armor on you (the best you know)
+--   Demon     - no pet out (the best demon you can summon: Felhunter, Succubus,
+--               Voidwalker, then Imp; one that needs a shard only with a shard)
+--   Shards 0  - no Soul Shards while you know a spell that needs one (Drain Soul a mob)
+--   Healthstone - you can make one, have a shard, and carry none
+--   Life Tap  - mana under half and health over 80%, out of combat: free mana
+---------------------------------------------------------------------------
+if playerClass == "WARLOCK" then
+	local DEMON_SKIN = { 687, 696 }
+	local DEMON_ARMOR = { 706, 1086, 11733, 11734, 11735 }
+	local LIFE_TAP = { 1454, 1455, 1456, 11687, 11688, 11689 }
+	local CREATE_HS = { 6201, 6202, 5699, 11729, 11730 }
+	local DEMONS = { -- best first: {spell, name, needs a shard}
+		{ 691, "Felhunter", true }, { 712, "Succubus", true }, { 697, "Voidwalker", true }, { 688, "Imp", false },
+	}
+	local SOUL_SHARD = 6265
+	local HEALTHSTONES = { 5512, 19004, 19005, 5511, 19006, 19007, 5509, 19008, 19009, 5510, 19010, 19011, 9421, 19012, 19013 }
+	local function items(id)
+		local f = (C_Item and C_Item.GetItemCount) or GetItemCount
+		return f and plain(safe(f, id)) or 0
+	end
+	local function knows(id) return IsPlayerSpell and plain(safe(IsPlayerSpell, id)) and true or false end
+	local function anyHealthstone()
+		for _, id in ipairs(HEALTHSTONES) do if items(id) > 0 then return true end end
+		return false
+	end
+	local function share(cur, max)
+		cur, max = plain(cur), plain(max)
+		if type(cur) ~= "number" or type(max) ~= "number" or max <= 0 then return nil end
+		return cur / max
+	end
+
+	local armorTile
+	armorTile = ns.AddReminder("lockArmor", "ZydeForeverLockArmor", icon(DEMON_SKIN, "Spell_Shadow_RagingScream"), function(preview)
+		if preview then return true, "Armor" end
+		if not on() or UnitIsDeadOrGhost("player") then return false end
+		local id = knownRank(DEMON_ARMOR) or knownRank(DEMON_SKIN)
+		if not id then return false end
+		local skin, h1 = selfAura("demon skin")
+		local armor, h2 = selfAura("demon armor")
+		if skin or armor or h1 or h2 then return false end
+		if armorTile.iconId ~= id then
+			armorTile.tex:SetTexture(ns.spellTexture(id, "Interface\\Icons\\Spell_Shadow_RagingScream"))
+			armorTile.iconId = id
+		end
+		return true, knownRank(DEMON_ARMOR) and "Demon Armor" or "Demon Skin"
+	end)
+
+	local demonTile
+	demonTile = ns.AddReminder("lockDemon", "ZydeForeverLockDemon", ns.spellTexture(688, "Interface\\Icons\\Spell_Shadow_SummonImp"), function(preview)
+		if preview then return true, "Demon" end
+		if not on() or not quietTime() then return false end
+		if plain(UnitExists("pet")) and not plain(UnitIsDead("pet")) then return false end
+		if plain(IsMounted and IsMounted()) then return false end
+		local shards = items(SOUL_SHARD)
+		for _, d in ipairs(DEMONS) do
+			if knows(d[1]) and (not d[3] or shards > 0) then
+				if demonTile.iconId ~= d[1] then
+					demonTile.tex:SetTexture(ns.spellTexture(d[1], "Interface\\Icons\\Spell_Shadow_SummonImp"))
+					demonTile.iconId = d[1]
+				end
+				return true, d[2]
+			end
+		end
+		return false
+	end)
+
+	ns.AddReminder("lockShards", "ZydeForeverLockShards", "Interface\\Icons\\INV_Misc_Gem_Amethyst_02", function(preview)
+		if preview then return true, "Shards 0" end
+		if not on() or not quietTime() then return false end
+		if not (knows(697) or knownRank(CREATE_HS)) then return false end
+		if items(SOUL_SHARD) > 0 then return false end
+		return true, "Shards 0"
+	end)
+
+	local hsTile
+	hsTile = ns.AddReminder("lockHealthstone", "ZydeForeverLockHealthstone", "Interface\\Icons\\INV_Stone_04", function(preview)
+		if preview then return true, "Healthstone" end
+		if not on() or not quietTime() then return false end
+		if not knownRank(CREATE_HS) or items(SOUL_SHARD) < 1 or anyHealthstone() then return false end
+		return true, "Healthstone"
+	end)
+
+	ns.AddReminder("lockLifeTap", "ZydeForeverLockLifeTap", icon(LIFE_TAP, "Spell_Shadow_BurningSpirit"), function(preview)
+		if preview then return true, "Life Tap" end
+		if not on() or not quietTime() or not knownRank(LIFE_TAP) then return false end
+		local mana = share(UnitPower("player", 0), UnitPowerMax("player", 0))
+		local life = share(UnitHealth("player"), UnitHealthMax("player"))
+		if not mana or not life or mana >= 0.5 or life <= 0.8 then return false end
+		return true, "Life Tap"
+	end)
+end
