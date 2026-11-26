@@ -658,7 +658,14 @@ local function useLayer()
 	if layer then return layer end
 	layer = CreateFrame("Frame", "ZydeForeverBagUseLayer", UIParent, "SecureHandlerStateTemplate")
 	layer:SetAllPoints()
-	layer:SetFrameStrata("HIGH")
+	-- The bag window is HIGH and toplevel, so its item buttons sit above anything
+	-- else in HIGH. This layer has to be DIALOG or the use buttons are clamped
+	-- under those slots and a right-click never reaches them. Mouse stays off
+	-- on the layer itself; only the slot-sized buttons take clicks.
+	layer:SetFrameStrata("DIALOG")
+	layer:EnableMouse(false)
+	if layer.SetMouseClickEnabled then layer:SetMouseClickEnabled(false) end
+	if layer.SetMouseMotionEnabled then layer:SetMouseMotionEnabled(false) end
 	RegisterStateDriver(layer, "visibility", "[combat] hide; show")
 	return layer
 end
@@ -812,15 +819,15 @@ local function placeUse(b, active)
 	local key = bag .. " " .. slot
 	if use.itemKey ~= key then
 		use.itemKey = key
-		-- Right click reads type2 / item2. The bare names cover an unmodified click.
-		use:SetAttribute("type", "item")
-		use:SetAttribute("item", key)
+		-- Right click only. A bare "type" would also fire if a left click landed here.
 		use:SetAttribute("type2", "item")
 		use:SetAttribute("item2", key)
 		use:SetAttribute("*type2", "item")
 		use:SetAttribute("*item2", key)
 	end
 	if use:GetFrameStrata() ~= "DIALOG" then use:SetFrameStrata("DIALOG") end
+	local lvl = (b:GetFrameLevel() or 1) + 20
+	if use:GetFrameLevel() ~= lvl then use:SetFrameLevel(lvl) end
 	use:Show()
 end
 local function refreshUses()
