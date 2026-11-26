@@ -210,7 +210,7 @@ local FEATURES = {
 	{ key = "gear", short = "borders, item levels", label = "Character screen gear", desc = "Rarity borders and item levels; a green arrow when your bags hold an upgrade for a slot (scored by GearAdvisor if loaded), empty slots quiet gray unless your bags can fill them, and your average item level in the header", reload = true },
 	{ key = "fishing", short = "one-key fishing", label = "One Button Fishing", desc = "Same key casts and reels in (set the key in Keybindings)" },
 	{ key = "buttonBag", short = "one button, a key for the rest", label = "Minimap button bag", desc = "Gathers the other addon buttons on the minimap onto one button. Click that button to spread them out. Drag it around the minimap to move it. Hold Buttons at cursor (Options > Keybindings > Zyde Forever) to open tradeskills, the game menu, and those buttons at the mouse" },
-	{ key = "minimap", short = "zone, local and server time", label = "Minimap", desc = "A few looks for the minimap: Round, Gilded, or Square. Drag the map to move it. The zone name sits under it, with your local time and the server time side by side. Off while SexyMap is loaded", conflict = "SexyMap" },
+	{ key = "minimap", short = "zone and local time", label = "Minimap", desc = "A few looks for the minimap: Round, Gilded, or Square. Drag the map to move it. The zone name sits under it, with your local time below. Off while SexyMap is loaded", conflict = "SexyMap" },
 	{ key = "mapNotes", short = "alt-click to mark", label = "Map markers", desc = "Your own named markers on the world map, kept between sessions. Alt-click the map to drop one and name it, alt-click a marker to remove it, right-click to rename it" },
 	{ key = "flight", short = "skip flight chat", label = "Flight master shortcut", desc = "Flight masters open the map directly (hold Shift to talk)" },
 	{ key = "tracking", short = "re-enable after death", label = "Keep tracking after death", desc = "Turns Find Minerals, Find Herbs... back on after you die" },
@@ -1984,7 +1984,7 @@ local function buildOptions()
 		},
 		minimapLook = {
 			label = "Look", parent = "minimap", width = 120,
-			desc = "Round, Gilded, or Square. The zone name, local time, and server time stay under the map.",
+			desc = "Round, Gilded, or Square. The zone name and your local time stay under the map.",
 			options = function() return ns.MinimapLook and ns.MinimapLook.LOOKS or {} end,
 			get = function() return ns.MinimapLook and ns.MinimapLook.Get() or "round" end,
 			set = function(k) if ns.MinimapLook then ns.MinimapLook.Set(k) end end,

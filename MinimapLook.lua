@@ -1,14 +1,14 @@
--- Zyde_Forever: a few looks for the minimap. Zone name, local time, and
--- server time sit under it. Round and Gilded are circles; Square is a square.
+-- Zyde_Forever: a few looks for the minimap. The zone name and your local
+-- time (your clock, not the server's) sit under it. Round and Gilded are circles; Square is a square.
 -- Off while SexyMap is loaded.
 
 local _, ns = ...
 local isSecret = ns.isSecret
 
 local LOOKS = {
-	{ key = "round", label = "Round", desc = "A circle with a thin ring. The zone name, local time, and server time sit under the map." },
-	{ key = "gilded", label = "Gilded", desc = "A circle with a gold ring. The zone name, local time, and server time sit under the map." },
-	{ key = "square", label = "Square", desc = "A square with a thin edge. Drag the map to move it. The zone name, local time, and server time sit under it." },
+	{ key = "round", label = "Round", desc = "A circle with a thin ring. The zone name and your local time sit under the map." },
+	{ key = "gilded", label = "Gilded", desc = "A circle with a gold ring. The zone name and your local time sit under the map." },
+	{ key = "square", label = "Square", desc = "A square with a thin edge. Drag the map to move it. The zone name and your local time sit under it." },
 }
 local BY_KEY = {}
 for _, look in ipairs(LOOKS) do BY_KEY[look.key] = look end
@@ -63,14 +63,10 @@ zone:SetJustifyH("CENTER")
 zone:SetWordWrap(false)
 local localTime = panel:CreateFontString(nil, "OVERLAY")
 font(localTime, 11)
-localTime:SetPoint("TOPRIGHT", panel, "TOP", -8, -18)
-localTime:SetJustifyH("RIGHT")
+-- Just your own clock, centered under the zone (no server time).
+localTime:SetPoint("TOP", panel, "TOP", 0, -18)
+localTime:SetJustifyH("CENTER")
 localTime:SetWordWrap(false)
-local serverTime = panel:CreateFontString(nil, "OVERLAY")
-font(serverTime, 11)
-serverTime:SetPoint("TOPLEFT", panel, "TOP", 8, -18)
-serverTime:SetJustifyH("LEFT")
-serverTime:SetWordWrap(false)
 
 local concealed = {}
 local function conceal(f)
@@ -240,11 +236,7 @@ end
 local function paintTimes()
 	local stamp = date("*t")
 	local localText = stamp and hour12(stamp.hour, stamp.min)
-	local sh, sm = GetGameTime()
-	if isSecret(sh) or isSecret(sm) then sh, sm = nil, nil end
-	local serverText = hour12(sh, sm)
-	if localText then localTime:SetText("|cffccccccLocal|r  " .. localText) end
-	if serverText then serverTime:SetText("|cffccccccServer|r  " .. serverText) end
+	if localText then localTime:SetText(localText) end
 end
 
 -- The square used to fill the whole minimap, so its corner covered the ZF button.
