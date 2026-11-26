@@ -1787,13 +1787,38 @@ do
 		return inside ~= true
 	end
 
+	-- The "facing it" check needs the game's object targeting on, which is
+	-- usually off. While a tent would help (out of combat, rested under 5%, no
+	-- Boosted Rest) it's switched on, all around you, without the icons; it
+	-- goes back the moment it isn't needed. Something else that turned it on
+	-- itself (the quest object icons, fishing) is left alone.
+	local softSaved
+	local function cvar(name) return GetCVar and tonumber(GetCVar(name)) end
+	local function setCV(name, value) if C_CVar and C_CVar.SetCVar then pcall(C_CVar.SetCVar, name, value) end end
+	local function wantSoft(want)
+		if InCombatLockdown() then return end
+		if want then
+			if softSaved then return end
+			local cur, arc = cvar("SoftTargetInteract"), cvar("SoftTargetInteractArc")
+			if cur and cur >= 3 then return end
+			softSaved = { interact = cur, arc = arc }
+			setCV("SoftTargetInteract", 3)
+			setCV("SoftTargetInteractArc", 2)
+		elseif softSaved then
+			if cvar("SoftTargetInteract") == 3 and softSaved.interact then setCV("SoftTargetInteract", softSaved.interact) end
+			if softSaved.arc and cvar("SoftTargetInteractArc") == 2 then setCV("SoftTargetInteractArc", softSaved.arc) end
+			softSaved = nil
+		end
+	end
+
 	tentTile = ns.AddReminder("tent", "ZydeForeverTent", "Interface\\Icons\\INV_Misc_Bag_10", function(preview)
 		if preview then return true, "Use tent" end
-		if not on() or not quietTime() or atMaxLevel() then return false end
+		if not on() or not quietTime() or atMaxLevel() then wantSoft(false) return false end
 		local share = restedShare()
-		if not share or share >= 0.05 then return false end
+		if not share or share >= 0.05 then wantSoft(false) return false end
 		local locked, hidden = selfAura("boosted rest", BOOSTED_REST)
-		if locked or hidden then return false end
+		if locked or hidden then wantSoft(false) return false end
+		wantSoft(true)
 		local label, iconItem
 		if tentNearby() then
 			label = "Use tent"
