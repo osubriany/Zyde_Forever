@@ -32,6 +32,7 @@ Rotation.lua
 FlightTimesData.lua
 FlightTimer.lua
 HunterTracking.lua
+NpcKeys.lua
 MarkerWheel.lua
 Radial.lua
 BagWindow.lua

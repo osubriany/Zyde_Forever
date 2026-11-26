@@ -236,6 +236,7 @@ local FEATURES = {
 	{ key = "vendor", short = "sell or auction tips", label = "Vendor / auction advice", desc = "Vendor it / Auction it / Keep in tooltips, merchant and AH panels", needs = "AHledger" },
 	{ key = "recipes", short = "what to learn, where, price", label = "Unlearned recipes", desc = "Beside a profession window: the recipes you haven't learned yet, where to get each (vendor, quest or drop) and, with AHledger, its auction price. Click one for a waypoint to its vendor. The Unlearned button on the window shows or hides it", needs = "Questie" },
 	{ key = "restedWatch", short = "full rested alerts", label = "Rested XP watch", desc = "Remembers each character's rested XP and whether it logged out resting (inn or city). At login: a note when this character's rested XP is full, and which of your other characters should be full by now. /zyde rested lists them all with time until full" },
+	{ key = "npcKeys", short = "press 1-9 to choose", label = "Number keys for NPC options", desc = "In an NPC's dialog, each choice (quests to take or hand in, gossip lines) gets a small gold number, top to bottom. Press 1-9 or the number pad to pick it, like a click. Other keys, and numbers with no choice, work as usual. Not in a fight" },
 	{ key = "autoQuests", short = "planned quests only", label = "Auto complete quests", desc = "While the level planner is on, it accepts and turns in the quests on its plan when you talk to the NPC. A turn-in with more than one reward waits for you to choose. Hold Shift while opening the NPC to skip it once. Uncheck this to accept and turn in quests yourself." },
 	{ key = "levelPlanner", short = "best XP route, arrow", label = "Level planner", desc = "Plans the next hour of levelling for the most XP per minute from Questie's quests: a step list with the reason for each step, an arrow and map pins to the next step, the star marker on the next NPC, a quest item button, and travel by flight paths, boats and your hearthstone. Auto complete quests is its own checkbox. /lp shows the list, /lp help for more", needs = "Questie", reload = true },
 	{ key = "questieDrops", short = "drop % on nameplates", label = "Questie drop chances", desc = "Drop % and your odds under Questie's nameplate bag", needs = "Questie" },
@@ -1922,7 +1923,7 @@ local CATEGORIES = {
 	{
 		{ "Questing & leveling", {
 			{ "questTracker", children = { "questFont" } },
-			"autoQuests", "restedWatch",
+			"autoQuests", "npcKeys", "restedWatch",
 			{ group = "Objects nearby", children = { "questAlert", "nodeGlow", "questIcons" } },
 			{ group = "Questie", children = { "questMobs", "questieDrops" } },
 			"rares",
