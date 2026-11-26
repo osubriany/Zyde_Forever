@@ -77,7 +77,9 @@ end
 -- The quest log as Questie sees it: [questId] = entry (title, isComplete, objectives{numFulfilled, numRequired, finished}).
 function QS.LogEntries()
 	local out = {}
-	local all = ns.safe(Q.ActiveQuests.GetAll) or {}
+	-- (empty until Questie has loaded: the item button can ask on an early quest-log event)
+	local active = Q.ActiveQuests
+	local all = active and ns.safe(active.GetAll) or {}
 	local cache = Q.QuestLogCache
 	for questId in pairs(all) do
 		local entry = cache and cache.TryGetQuest and ns.safe(cache.TryGetQuest, questId)
@@ -98,7 +100,7 @@ function QS.LogCount()
 	local n = cache and cache.GetQuestCount and ns.safe(cache.GetQuestCount)
 	if n then return n end
 	local c = 0
-	for _ in pairs(ns.safe(Q.ActiveQuests.GetAll) or {}) do c = c + 1 end
+	for _ in pairs(Q.ActiveQuests and ns.safe(Q.ActiveQuests.GetAll) or {}) do c = c + 1 end
 	return c
 end
 
