@@ -450,34 +450,48 @@ end
 local mover = MinimapCluster or Minimap
 local layoutText
 
-local function savePos()
-	local right, bottom = mover:GetRight(), mover:GetBottom()
-	if isSecret(right) or isSecret(bottom) or type(right) ~= "number" or type(bottom) ~= "number" then return end
-	db().minimapPos = { x = right, y = bottom }
+-- Where the map is kept: the top-right corner of the map itself (not the
+-- cluster around it, which keeps empty room above the map for the game's
+-- header), in screen pixels. Nothing saved: the top-right of the screen.
+-- (minimapPos, the old cluster spot, left a gap above the map and is dropped.)
+local CORNER = 16 -- room for the ring and the icons on its rim
+
+local function edgePx(frame)
+	local r, t, s = frame:GetRight(), frame:GetTop(), frame:GetEffectiveScale()
+	for _, v in ipairs({ r, t, s }) do
+		if isSecret(v) or type(v) ~= "number" then return nil end
+	end
+	return r * s, t * s
 end
 
-local CORNER = 16 -- room for the ring and the icons on its rim
+local function savePos()
+	local r, t = edgePx(Minimap)
+	if not r then return end
+	db().minimapSpot = { right = r, top = t }
+	db().minimapPos = nil
+end
+
 local function applyPos()
 	if InCombatLockdown() then return end
-	local pos = db().minimapPos
-	if type(pos) == "table" and type(pos.x) == "number" and type(pos.y) == "number" then
-		mover:ClearAllPoints()
-		mover:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", pos.x, pos.y)
-		return
+	db().minimapPos = nil
+	local spot = db().minimapSpot
+	local wantR, wantT
+	if type(spot) == "table" and type(spot.right) == "number" and type(spot.top) == "number" then
+		wantR, wantT = spot.right, spot.top
+	else
+		local uiR, uiT = edgePx(UIParent)
+		if not uiR then return end
+		local px = CORNER * UIParent:GetEffectiveScale()
+		wantR, wantT = uiR - px, uiT - px
 	end
-	if mover == Minimap then
-		mover:ClearAllPoints()
-		mover:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -CORNER, -CORNER)
-		return
-	end
-	local cTop, cRight = mover:GetTop(), mover:GetRight()
-	local mTop, mRight = Minimap:GetTop(), Minimap:GetRight()
-	for _, v in ipairs({ cTop, cRight, mTop, mRight }) do
-		if isSecret(v) or type(v) ~= "number" then return end
-	end
-	local above, beside = cTop - mTop, cRight - mRight
+	local mapR, mapT = edgePx(Minimap)
+	local boxR, boxT = edgePx(mover)
+	if not (mapR and boxR) then return end
+	-- Move the cluster by however far the map is from where it should be.
+	local s = mover:GetEffectiveScale()
+	local x, y = (boxR + wantR - mapR) / s, (boxT + wantT - mapT) / s
 	mover:ClearAllPoints()
-	mover:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", beside - CORNER, above - CORNER)
+	mover:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", x, y)
 end
 
 local function startDrag()
