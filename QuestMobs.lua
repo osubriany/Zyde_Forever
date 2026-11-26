@@ -432,21 +432,12 @@ end
 -- away ([dead]) so the search goes on. Each name is tried twice, in case
 -- the first hit was the corpse of the one you just killed.
 --
--- Someone else's tag: a macro can't test for that, so out of combat the
--- macro first targets specific nameplate units (nameplate3...) that this
--- addon checked are alive and not tagged by anyone else. The macro is
--- rebuilt every half second and whenever a nameplate comes or goes, so
--- those stay current, nearest first. Only if none of them is there do the name
--- lines run (those can still hit a tagged mob out of view, so a name whose mobs in
--- view are all tagged is left out). When combat starts the macro can't
--- be rebuilt any more, so it switches to names only (namesOnly) and a
--- stale nameplate number can't pick some other mob mid-fight.
+-- Someone else's tag: a macro can't test for that, so a name whose mobs in view
+-- are all tagged is left out.
 --
 -- The game runs at most 255 characters of a macro and cuts the rest off,
 -- mid-word ("Unknown macro option: exis"), so lines are only added while
--- they fit, most important first: the checked nameplates, one try per name,
--- then the second tries.
-local MAX_UNITS = 4
+-- they fit, most important first: one try per name, then the second tries.
 local MACRO_LIMIT = 255
 local function macroFor(mobs, namesOnly)
 	local names = macroNames(mobs)
@@ -458,31 +449,10 @@ local function macroFor(mobs, namesOnly)
 		text = text .. "\n" .. chunk
 		return true
 	end
-	-- Room kept for one try at each of the first names: with mobs on screen the nameplate
-	-- lines used to fill the whole macro, so when they missed (a nameplate number that had
-	-- just moved on) nothing was left to find the mob in front of you by name.
-	local reserve = 0
-	for i = 1, math.min(2, #names) do reserve = reserve + #("\n/tar [noexists] " .. names[i] .. "\n/cleartarget [dead]") end
-	if not namesOnly then
-		-- Each of these lines replaces the last one's target, so the one that should
-		-- win goes last: quest mobs farthest to nearest, then rares on nameplates.
-		-- ("harm" already means it exists; with @unit and no name, /tar targets that unit.)
-		local lines = {}
-		for _, u in ipairs(ns.Rares and ns.Rares.units() or {}) do
-			lines[#lines + 1] = ("/tar [@%s,harm,nodead]"):format(u)
-		end
-		for i = 1, math.min(MAX_UNITS, #mobs) do
-			lines[#lines + 1] = ("/tar [@%s,harm,nodead]"):format(mobs[i].unit)
-		end
-		-- (built best first so the length limit keeps the best ones; added in reverse)
-		local keep, used = {}, #text + reserve
-		for _, l in ipairs(lines) do
-			if used + 1 + #l > MACRO_LIMIT then break end
-			keep[#keep + 1] = l
-			used = used + 1 + #l
-		end
-		for i = #keep, 1, -1 do add(keep[i]) end
-	end
+	-- (No "/tar [@nameplateN]" lines any more: on Forever a macro line that targets a nameplate
+	-- unit stops the whole macro - /zyde mobsdebug showed every press ending on nothing whenever
+	-- one was in it, while names-only macros worked. Names only, so someone else's tag can't be
+	-- skipped except by leaving out names whose mobs in view are all tagged; see macroNames.)
 	for _ = 1, 2 do
 		for _, name in ipairs(names) do
 			add("/tar [noexists] " .. name, "/cleartarget [dead]")
@@ -578,49 +548,16 @@ local function cvarText(name)
 	local v = GetCVar and ns.safe(GetCVar, name)
 	return name .. "=" .. tostring(plain(v))
 end
--- Action Targeting (SoftTargetForce=1) ties your target to the enemy in front of you and
--- undoes the key's /target straight away (/zyde mobsdebug showed every press ending on nothing).
--- So a press switches SoftTargetForce off just before the macro runs, and it's put back once the
--- quest mob you got is dead or you've moved off it. (Also put back after a reload or log-in.)
-local heldGUID
-local function setForce(v)
-	if C_CVar and C_CVar.SetCVar then return pcall(C_CVar.SetCVar, "SoftTargetForce", tostring(v)) end
-end
-local function releaseForce()
+-- (A version from 2026-11-26 switched Action Targeting's SoftTargetForce off while the key held a
+-- quest mob. It wasn't the cause and is gone; put back any value it left saved.)
+local cleanup = CreateFrame("Frame")
+cleanup:RegisterEvent("PLAYER_ENTERING_WORLD")
+cleanup:SetScript("OnEvent", function(self)
+	self:UnregisterAllEvents()
 	local saved = db().softForceSaved
-	if saved ~= nil then setForce(saved) end
+	if saved ~= nil and C_CVar and C_CVar.SetCVar then pcall(C_CVar.SetCVar, "SoftTargetForce", tostring(saved)) end
 	db().softForceSaved = nil
-	heldGUID = nil
-end
-local function holdCheck()
-	if db().softForceSaved == nil then return end
-	local alive = plain(UnitExists("target")) and plain(UnitIsDead("target")) ~= true
-	local guid = plain(UnitGUID("target"))
-	if not alive or (heldGUID and guid and guid ~= heldGUID) then releaseForce() end
-end
-targetButton:HookScript("PreClick", function()
-	local force = GetCVar and tonumber(plain(ns.safe(GetCVar, "SoftTargetForce")))
-	if force and force ~= 0 and db().softForceSaved == nil then
-		db().softForceSaved = force
-		setForce(0)
-	end
 end)
-targetButton:HookScript("PostClick", function()
-	if db().softForceSaved == nil then return end
-	heldGUID = plain(UnitGUID("target"))
-	if not heldGUID then releaseForce() end -- (nothing found: Action Targeting back on)
-end)
-local holdEv = CreateFrame("Frame")
-holdEv:RegisterEvent("PLAYER_TARGET_CHANGED")
-holdEv:RegisterEvent("PLAYER_ENTERING_WORLD")
-holdEv:SetScript("OnEvent", function(_, event)
-	if event == "PLAYER_ENTERING_WORLD" then
-		if not heldGUID and db().softForceSaved ~= nil then releaseForce() end
-		return
-	end
-	C_Timer.After(0, holdCheck)
-end)
-C_Timer.NewTicker(1, holdCheck) -- (the quest mob dying doesn't change your target)
 
 targetButton:HookScript("PreClick", function()
 	presses[#presses + 1] = { at = GetTime(), before = describeTarget(), combat = InCombatLockdown(),
