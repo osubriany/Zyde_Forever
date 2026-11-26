@@ -68,6 +68,67 @@ localTime:SetPoint("TOP", panel, "TOP", 0, -18)
 localTime:SetJustifyH("CENTER")
 localTime:SetWordWrap(false)
 
+-- A soft dark strip behind the zone and time, so they read over snow or sand.
+-- Solid in the middle, fading out at both ends.
+local backMid = panel:CreateTexture(nil, "BACKGROUND", nil, -6)
+backMid:SetColorTexture(0, 0, 0, 0.42)
+local backL = panel:CreateTexture(nil, "BACKGROUND", nil, -6)
+local backR = panel:CreateTexture(nil, "BACKGROUND", nil, -6)
+for _, t in ipairs({ backL, backR }) do t:SetWidth(18) t:SetColorTexture(1, 1, 1, 1) end
+if backL.SetGradient and CreateColor then
+	pcall(backL.SetGradient, backL, "HORIZONTAL", CreateColor(0, 0, 0, 0), CreateColor(0, 0, 0, 0.42))
+	pcall(backR.SetGradient, backR, "HORIZONTAL", CreateColor(0, 0, 0, 0.42), CreateColor(0, 0, 0, 0))
+else
+	backL:SetColorTexture(0, 0, 0, 0.21)
+	backR:SetColorTexture(0, 0, 0, 0.21)
+end
+backL:SetPoint("TOPRIGHT", backMid, "TOPLEFT")
+backL:SetPoint("BOTTOMRIGHT", backMid, "BOTTOMLEFT")
+backR:SetPoint("TOPLEFT", backMid, "TOPRIGHT")
+backR:SetPoint("BOTTOMLEFT", backMid, "BOTTOMRIGHT")
+
+local function sizeBacking()
+	local a = zone:GetStringWidth() or 0
+	local b = localTime:GetStringWidth() or 0
+	if isSecret(a) then a = 120 end
+	if isSecret(b) then b = 120 end
+	backMid:ClearAllPoints()
+	backMid:SetPoint("TOP", panel, "TOP", 0, 3)
+	backMid:SetSize(math.max(a, b, 40) + 12, 36)
+end
+
+-- Click the time: left for the calendar, right for the stopwatch and alarm
+-- (the game clock that this look hides had both).
+local clockBtn = CreateFrame("Button", nil, panel)
+clockBtn:SetPoint("TOPLEFT", localTime, "TOPLEFT", -4, 3)
+clockBtn:SetPoint("BOTTOMRIGHT", localTime, "BOTTOMRIGHT", 4, -3)
+clockBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+local clockHl = clockBtn:CreateTexture(nil, "HIGHLIGHT")
+clockHl:SetAllPoints()
+clockHl:SetColorTexture(1, 1, 1, 0.08)
+clockBtn:SetScript("OnClick", function(_, button)
+	if button == "RightButton" then
+		if not TimeManager_Toggle and TimeManager_LoadUI then pcall(TimeManager_LoadUI) end
+		if TimeManager_Toggle then pcall(TimeManager_Toggle) end
+		return
+	end
+	if Calendar_Toggle then
+		pcall(Calendar_Toggle)
+	elseif GameTimeFrame and GameTimeFrame.Click then
+		pcall(GameTimeFrame.Click, GameTimeFrame)
+	elseif ToggleCalendar then
+		pcall(ToggleCalendar)
+	end
+end)
+clockBtn:SetScript("OnEnter", function(self)
+	GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+	GameTooltip:AddLine("Time")
+	GameTooltip:AddLine("Click: calendar", 1, 1, 1)
+	GameTooltip:AddLine("Right-click: stopwatch and alarm", 1, 1, 1)
+	GameTooltip:Show()
+end)
+clockBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
 local concealed = {}
 local function conceal(f)
 	if not f or concealed[f] then return end
@@ -156,6 +217,36 @@ local function restoreMask()
 	end
 end
 
+-- Two soft dark rings (or frames, for Square) just outside the map's edge.
+local shadeIn = host:CreateTexture(nil, "BACKGROUND", nil, -8)
+local shadeOut = host:CreateTexture(nil, "BACKGROUND", nil, -8)
+local squareShade = {}
+local function placeShadow(square, w)
+	for _, t in ipairs(squareShade) do t:Hide() end
+	if square then
+		shadeIn:Hide()
+		shadeOut:Hide()
+		if #squareShade == 0 then
+			for _, spec in ipairs({ { -3, 3, 0.35 }, { -8, 5, 0.15 } }) do
+				local e = ns.newEdges(host, "BACKGROUND", -8)
+				ns.placeEdges(e, host, spec[1], spec[2])
+				for _, t in ipairs(e) do t:SetColorTexture(0, 0, 0, spec[3]) squareShade[#squareShade + 1] = t end
+			end
+		end
+		for _, t in ipairs(squareShade) do t:Show() end
+		return
+	end
+	for _, spec in ipairs({ { shadeIn, 8, 0.35 }, { shadeOut, 18, 0.15 } }) do
+		local t, grow, a = spec[1], spec[2], spec[3]
+		if not t:SetTexture(CIRCLE) then t:SetTexture(CIRCLE_FALLBACK) end
+		t:SetVertexColor(0, 0, 0, a)
+		t:ClearAllPoints()
+		t:SetPoint("CENTER", host, "CENTER", 0, -1)
+		t:SetSize(w + grow, w + grow)
+		t:Show()
+	end
+end
+
 local function placeBorder(key)
 	local square = key == "square"
 	ring:ClearAllPoints()
@@ -183,6 +274,7 @@ local function placeBorder(key)
 		edges[4]:SetPoint("TOPRIGHT")
 		edges[4]:SetPoint("BOTTOMRIGHT")
 		edges[4]:SetWidth(2)
+		placeShadow(true)
 	else
 		-- A disc a few pixels larger than the map, drawn behind it. The map
 		-- covers the middle, so what shows is a ring the size of the circle.
@@ -200,6 +292,7 @@ local function placeBorder(key)
 		if key == "gilded" then r, g, b = 1, 0.78, 0.25 end
 		ring:SetVertexColor(r, g, b, 1)
 		ring:Show()
+		placeShadow(false, w + thick * 2)
 	end
 end
 
@@ -258,6 +351,7 @@ local function paintTimes()
 	elseif clock then
 		localTime:SetText(clock)
 	end
+	sizeBacking()
 end
 
 -- The square used to fill the whole minimap, so its corner covered the ZF button.
@@ -729,6 +823,48 @@ end
 ns.OnFeatureChanged(function(key)
 	if key == "minimap" then apply() end
 end)
+
+do
+	local glow = CreateFrame("Frame", nil, UIParent)
+	glow:SetSize(44, 44)
+	glow:EnableMouse(false)
+	glow:Hide()
+	local tex = glow:CreateTexture(nil, "OVERLAY")
+	tex:SetAllPoints()
+	tex:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+	tex:SetBlendMode("ADD")
+	tex:SetVertexColor(1, 0.82, 0.3)
+	local pulse = glow:CreateAnimationGroup()
+	pulse:SetLooping("BOUNCE")
+	local fade = pulse:CreateAnimation("Alpha")
+	fade:SetFromAlpha(0.25)
+	fade:SetToAlpha(1)
+	fade:SetDuration(0.9)
+	local function update()
+		local mail = on() and mailFrame()
+		local new = HasNewMail and HasNewMail()
+		if mail and new and not isSecret(new) then
+			glow:ClearAllPoints()
+			glow:SetPoint("CENTER", mail, "CENTER")
+			glow:SetFrameStrata(mail:GetFrameStrata() or "MEDIUM")
+			glow:SetFrameLevel((mail:GetFrameLevel() or 1) + 2)
+			local w = mail:GetWidth()
+			if not isSecret(w) and type(w) == "number" and w > 4 then glow:SetSize(w * 1.9, w * 1.9) end
+			glow:Show()
+			if not pulse:IsPlaying() then pulse:Play() end
+		else
+			pulse:Stop()
+			glow:Hide()
+		end
+	end
+	local mev = CreateFrame("Frame")
+	for _, e in ipairs({ "UPDATE_PENDING_MAIL", "MAIL_INBOX_UPDATE", "MAIL_CLOSED", "PLAYER_ENTERING_WORLD" }) do
+		pcall(mev.RegisterEvent, mev, e)
+	end
+	-- (a moment later: the mail icon shows or hides on the same event)
+	mev:SetScript("OnEvent", function() C_Timer.After(0.2, update) end)
+	ns.OnFeatureChanged(function(key) if key == "minimap" then update() end end)
+end
 
 ns.MinimapLook = {
 	LOOKS = LOOKS,
