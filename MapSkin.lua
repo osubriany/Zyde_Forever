@@ -120,12 +120,37 @@ local function skinFrame()
 	title:SetPoint("TOPLEFT", 1, -1)
 	title:SetPoint("TOPRIGHT", -1, -1)
 	title:SetHeight(22)
-	title:SetColorTexture(BAR[1], BAR[2], BAR[3], BAR[4])
+	title:SetColorTexture(1, 1, 1, 1)
+	-- Top a touch lighter than the bottom: reads as a bar, not a flat block.
+	if title.SetGradient and CreateColor then
+		pcall(title.SetGradient, title, "VERTICAL", CreateColor(0.07, 0.065, 0.085, 0.98), CreateColor(0.14, 0.12, 0.17, 0.98))
+	else
+		title:SetColorTexture(BAR[1], BAR[2], BAR[3], BAR[4])
+	end
+	-- A faint inner edge just inside the black one.
+	local inner = ns.newEdges(f, "BORDER", 5)
+	ns.placeEdges(inner, f, 1, 1)
+	for _, t in ipairs(inner) do own(t) t:SetColorTexture(1, 1, 1, 0.06) end
+	-- The map canvas in a thin frame: black, then a faint gold line.
+	local canvas = f.ScrollContainer
+	if canvas then
+		local edge = CreateFrame("Frame", nil, f)
+		edge:SetPoint("TOPLEFT", canvas, "TOPLEFT", -2, 2)
+		edge:SetPoint("BOTTOMRIGHT", canvas, "BOTTOMRIGHT", 2, -2)
+		edge:SetFrameLevel((canvas:GetFrameLevel() or 1) + 6)
+		edge:EnableMouse(false)
+		local dark = ns.newEdges(edge, "OVERLAY", 6)
+		ns.placeEdges(dark, edge, 1, 1)
+		for _, t in ipairs(dark) do own(t) t:SetColorTexture(0, 0, 0, 1) end
+		local glow = ns.newEdges(edge, "OVERLAY", 5)
+		ns.placeEdges(glow, edge, 0, 1)
+		for _, t in ipairs(glow) do own(t) t:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.22) end
+	end
 	local rule = own(f:CreateTexture(nil, "BORDER", nil, 6))
 	rule:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, 0)
 	rule:SetPoint("TOPRIGHT", title, "BOTTOMRIGHT", 0, 0)
 	rule:SetHeight(1)
-	rule:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.35)
+	rule:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.25)
 	skinBorder(f.BorderFrame)
 	skinBorder(f.MiniBorderFrame)
 	skinButton(_G.WorldMapFrameCloseButton)
@@ -138,44 +163,67 @@ local function skinFrame()
 end
 
 ---------------------------------------------------------------------------
--- 2. The bar along the top
+-- 2. The bar along the top: a breadcrumb, not boxes. The game's tabs overlap
+-- each other (their arrow art interlocks), so square backs drawn on them
+-- overlapped too. Here each is plain text: gray, white on hover, and the map
+-- you're on in gold with a purple underline. A small chevron sits between.
 ---------------------------------------------------------------------------
-local function skinNavButton(b, current)
+local function navText(b)
+	return b.text or b.Text or (b.GetFontString and b:GetFontString())
+end
+
+local function paintNav(b)
+	local text = navText(b)
+	if not (text and text.SetTextColor) then return end
+	if b.zydeCurrent then
+		text:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+	elseif b.zydeHover then
+		text:SetTextColor(1, 1, 1)
+	else
+		text:SetTextColor(0.62, 0.62, 0.66)
+	end
+	if b.zydeLine then b.zydeLine:SetShown(b.zydeCurrent and true or false) end
+end
+
+local function skinNavButton(b, current, first)
 	if not b then return end
+	local text = navText(b)
 	if not b.zydeNav then
 		b.zydeNav = true
-		hideArt(b)
-		local bg = own(b:CreateTexture(nil, "BACKGROUND", nil, -8))
-		bg:SetPoint("TOPLEFT", 1, -1)
-		bg:SetPoint("BOTTOMRIGHT", -1, 1)
-		b.zydeBg = bg
-		local e = ns.newEdges(b, "BORDER", 6)
-		ns.placeEdges(e, b, 0, 1)
-		for _, t in ipairs(e) do own(t) end
-		b.zydeEdges = e
+		if text then
+			local line = own(b:CreateTexture(nil, "OVERLAY", nil, 6))
+			line:SetPoint("TOPLEFT", text, "BOTTOMLEFT", -1, -3)
+			line:SetPoint("TOPRIGHT", text, "BOTTOMRIGHT", 1, -3)
+			line:SetHeight(2)
+			line:SetColorTexture(PURPLE[1], PURPLE[2], PURPLE[3], 1)
+			b.zydeLine = line
+			local sep = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+			sep:SetPoint("RIGHT", text, "LEFT", -7, 0)
+			sep:SetText(">")
+			sep:SetTextColor(0.45, 0.45, 0.5)
+			b.zydeSep = sep
+		end
+		b:HookScript("OnEnter", function(self) self.zydeHover = true paintNav(self) end)
+		b:HookScript("OnLeave", function(self) self.zydeHover = false paintNav(self) end)
 		if b.MenuArrowButton then
-			hideArt(b.MenuArrowButton, nil)
+			hideArt(b.MenuArrowButton)
 			local arrow = b.MenuArrowButton:GetNormalTexture()
 			if arrow then
-				arrow:SetAlpha(1)
+				arrow:SetAlpha(0.85)
 				if arrow.SetDesaturated then arrow:SetDesaturated(true) end
 				arrow:SetVertexColor(GOLD[1], GOLD[2], GOLD[3])
 			end
 		end
 	end
-	-- Blizzard's art can come back when the bar is rebuilt.
+	-- Blizzard's tab art comes back when the bar is rebuilt: hide it again.
 	hideArt(b)
-	if current then
-		b.zydeBg:SetColorTexture(PURPLE[1], PURPLE[2], PURPLE[3], 0.45)
-		for _, t in ipairs(b.zydeEdges) do t:SetColorTexture(PURPLE[1], PURPLE[2], PURPLE[3], 1) end
-	else
-		b.zydeBg:SetColorTexture(0, 0, 0, 0.55)
-		for _, t in ipairs(b.zydeEdges) do t:SetColorTexture(PURPLE[1], PURPLE[2], PURPLE[3], 0.35) end
+	for _, get in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture", "GetDisabledTexture" }) do
+		local t = b[get] and b[get](b)
+		if t and not t.zydeOwn then t:SetAlpha(0) end
 	end
-	local text = b.text or b.Text or (b.GetFontString and b:GetFontString())
-	if text and text.SetTextColor then
-		if current then text:SetTextColor(GOLD[1], GOLD[2], GOLD[3]) else text:SetTextColor(0.85, 0.85, 0.85) end
-	end
+	if b.zydeSep then b.zydeSep:SetShown(not first) end
+	b.zydeCurrent = current and true or false
+	paintNav(b)
 end
 
 local function skinNav()
@@ -183,7 +231,14 @@ local function skinNav()
 	if not nav then return end
 	if not nav.zydeNavBar then
 		nav.zydeNavBar = true
-		panel(nav, { 0.03, 0.03, 0.04, 0.9 }, { 0, 0, 0, 1 })
+		local bg = own(nav:CreateTexture(nil, "BACKGROUND", nil, -8))
+		bg:SetAllPoints()
+		bg:SetColorTexture(0, 0, 0, 0.35)
+		local line = own(nav:CreateTexture(nil, "BORDER", nil, 6))
+		line:SetPoint("BOTTOMLEFT")
+		line:SetPoint("BOTTOMRIGHT")
+		line:SetHeight(1)
+		line:SetColorTexture(1, 1, 1, 0.08)
 	end
 	hideArt(nav)
 	for _, key in ipairs({ "overlay", "InsetBorderBottomLeft", "InsetBorderBottomRight", "InsetBorderBottom", "InsetBorderLeft", "InsetBorderRight" }) do
@@ -193,8 +248,8 @@ local function skinNav()
 		end
 	end
 	local list = nav.navList or {}
-	for i, b in ipairs(list) do skinNavButton(b, i == #list) end
-	if nav.homeButton and #list == 0 then skinNavButton(nav.homeButton, true) end
+	for i, b in ipairs(list) do skinNavButton(b, i == #list, i == 1) end
+	if nav.homeButton and #list == 0 then skinNavButton(nav.homeButton, true, true) end
 end
 
 ---------------------------------------------------------------------------
@@ -227,12 +282,12 @@ local function skinHeader(h)
 	local bg = own(h:CreateTexture(nil, "BACKGROUND", nil, -8))
 	bg:SetPoint("TOPLEFT", 2, -1)
 	bg:SetPoint("BOTTOMRIGHT", -2, 1)
-	bg:SetColorTexture(BAR[1], BAR[2], BAR[3], 0.9)
-	local line = own(h:CreateTexture(nil, "BORDER", nil, 6))
-	line:SetPoint("BOTTOMLEFT", bg, "BOTTOMLEFT", 0, 0)
-	line:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
-	line:SetHeight(1)
-	line:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.45)
+	bg:SetColorTexture(1, 1, 1, 0.05)
+	local accent = own(h:CreateTexture(nil, "BORDER", nil, 6))
+	accent:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, 0)
+	accent:SetPoint("BOTTOMLEFT", bg, "BOTTOMLEFT", 0, 0)
+	accent:SetWidth(3)
+	accent:SetColorTexture(PURPLE[1], PURPLE[2], PURPLE[3], 0.9)
 	local text = h.ButtonText or h.Text
 	if text and text.SetTextColor then text:SetTextColor(GOLD[1], GOLD[2], GOLD[3]) end
 end
