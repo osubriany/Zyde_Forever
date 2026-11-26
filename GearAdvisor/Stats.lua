@@ -50,17 +50,28 @@ Stats.KEY_MAP = {
 	ITEM_MOD_PARRY_RATING_SHORT = "Parry",            -- confirmed
 	ITEM_MOD_BLOCK_RATING_SHORT = "Block",            -- confirmed
 	ITEM_MOD_BLOCK_VALUE_SHORT = "BlockValue",        -- confirmed
-	-- Known, but worth nothing to Arms or BM: kept so they don't show as "unknown".
+	-- Forever stats seen in MythicSim's Forever sims (2026-11); the key names are the modern
+	-- client's, unconfirmed on Forever. /ga probe lists any key that isn't here.
+	ITEM_MOD_HASTE_RATING_SHORT = "HasteRating",
+	ITEM_MOD_HASTE_MELEE_RATING_SHORT = "HasteRating",
+	ITEM_MOD_HASTE_RANGED_RATING_SHORT = "HasteRating",
+	ITEM_MOD_HASTE_SPELL_RATING_SHORT = "HasteRating",
+	ITEM_MOD_ARMOR_PENETRATION_RATING_SHORT = "ArmorPen",
+	ITEM_MOD_SPELL_PENETRATION_SHORT = "SpellPen",
+	ITEM_MOD_FERAL_ATTACK_POWER_SHORT = "FeralAttackPower",
+	ITEM_MOD_HIT_SPELL_RATING_SHORT = "HitSpellRating",
+	ITEM_MOD_CRIT_SPELL_RATING_SHORT = "CritSpellRating",
+	-- Caster stats.
 	ITEM_MOD_SPELL_POWER_SHORT = "SpellPower",
 	ITEM_MOD_SPELL_POWER = "SpellPower",
 	ITEM_MOD_SPELL_DAMAGE_DONE_SHORT = "SpellPower",
 	ITEM_MOD_SPELL_HEALING_DONE_SHORT = "HealingPower",
-	ITEM_MOD_HOLY_DAMAGE_DONE_SHORT = "SchoolPower",
-	ITEM_MOD_SHADOW_DAMAGE_DONE_SHORT = "SchoolPower",
-	ITEM_MOD_FIRE_DAMAGE_DONE_SHORT = "SchoolPower",
-	ITEM_MOD_FROST_DAMAGE_DONE_SHORT = "SchoolPower",
-	ITEM_MOD_ARCANE_DAMAGE_DONE_SHORT = "SchoolPower",
-	ITEM_MOD_NATURE_DAMAGE_DONE_SHORT = "SchoolPower",
+	ITEM_MOD_HOLY_DAMAGE_DONE_SHORT = "HolyPower",
+	ITEM_MOD_SHADOW_DAMAGE_DONE_SHORT = "ShadowPower",
+	ITEM_MOD_FIRE_DAMAGE_DONE_SHORT = "FirePower",
+	ITEM_MOD_FROST_DAMAGE_DONE_SHORT = "FrostPower",
+	ITEM_MOD_ARCANE_DAMAGE_DONE_SHORT = "ArcanePower",
+	ITEM_MOD_NATURE_DAMAGE_DONE_SHORT = "NaturePower",
 	ITEM_MOD_MANA_REGENERATION_SHORT = "ManaRegen",
 	ITEM_MOD_HEALTH_REGEN_SHORT = "HealthRegen",
 	RESISTANCE1_NAME = "Resistance", RESISTANCE2_NAME = "Resistance", RESISTANCE3_NAME = "Resistance",
@@ -113,6 +124,10 @@ function Stats.isWeaponSkillName(name)
 	return false
 end
 
+local SCHOOL_KEY = { holy = "HolyPower", shadow = "ShadowPower", fire = "FirePower", frost = "FrostPower",
+	arcane = "ArcanePower", nature = "NaturePower" }
+local SCHOOLS = { "HolyPower", "ShadowPower", "FirePower", "FrostPower", "ArcanePower", "NaturePower" }
+
 -- Reads extras from tooltip text into info: speed, DPS fallback, and "Equip:" lines that
 -- GetItemStats may not list (old-style "+1% hit", expertise, weapon skill).
 local function readTooltip(info, lines)
@@ -120,6 +135,9 @@ local function readTooltip(info, lines)
 	local speedLabel = escapePattern(type(SPEED) == "string" and SPEED or "Speed")
 	local equipPrefix = type(ITEM_SPELL_TRIGGER_ONEQUIP) == "string" and ITEM_SPELL_TRIGGER_ONEQUIP or "Equip:"
 	local hadExpertise, hadSkill = s.ExpertiseRating ~= nil, s.WeaponSkill ~= nil
+	-- Caster stats the stat list already gave: don't count their "Equip:" line twice.
+	local had = { SpellPower = s.SpellPower ~= nil, HealingPower = s.HealingPower ~= nil, ManaRegen = s.ManaRegen ~= nil }
+	for _, k in ipairs(SCHOOLS) do had[k] = s[k] ~= nil end
 	for _, line in ipairs(lines) do
 		local l, r = line.left, line.right
 		if r and not info.speed then
@@ -139,6 +157,20 @@ local function readTooltip(info, lines)
 				if hit then s.HitPercent = (s.HitPercent or 0) + hit end
 				local crit = tonumber(text:match("Improves your chance to get a critical strike by (%d+)%%"))
 				if crit then s.CritPercent = (s.CritPercent or 0) + crit end
+				-- Old-style caster lines (Classic wording).
+				local shit = tonumber(text:match("Improves your chance to hit with spells by (%d+)%%"))
+				if shit then s.SpellHitPercent = (s.SpellHitPercent or 0) + shit end
+				local scrit = tonumber(text:match("critical strike with spells by (%d+)%%"))
+				if scrit then s.SpellCritPercent = (s.SpellCritPercent or 0) + scrit end
+				local function addIf(key, v)
+					v = tonumber(v)
+					if v and not had[key] then s[key] = (s[key] or 0) + v end
+				end
+				addIf("SpellPower", text:match("damage and healing done by magical spells and effects by up to (%d+)"))
+				addIf("HealingPower", text:match("[Ii]ncreases healing done by spells and effects by up to (%d+)"))
+				addIf("ManaRegen", text:match("[Rr]estores (%d+) mana per 5 sec"))
+				local school, amount = text:match("damage done by (%a+) spells and effects by up to (%d+)")
+				if school and SCHOOL_KEY[school:lower()] then addIf(SCHOOL_KEY[school:lower()], amount) end
 				if not hadExpertise then
 					local e = tonumber(text:match("[Ee]xpertise.-(%d+)"))
 					if e then s.ExpertiseRating = (s.ExpertiseRating or 0) + e end

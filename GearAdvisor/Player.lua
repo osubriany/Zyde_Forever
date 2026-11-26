@@ -16,6 +16,13 @@ function Player.invalidate() ctx = nil end
 Player.TREES = {
 	WARRIOR = { "ARMS", "FURY", "PROTECTION" },
 	HUNTER = { "BEAST_MASTERY", "MARKSMANSHIP", "SURVIVAL" },
+	ROGUE = { "ASSASSINATION", "COMBAT", "SUBTLETY" },
+	PALADIN = { "HOLY", "PROTECTION", "RETRIBUTION" },
+	SHAMAN = { "ELEMENTAL", "ENHANCEMENT", "RESTORATION" },
+	MAGE = { "ARCANE", "FIRE", "FROST" },
+	WARLOCK = { "AFFLICTION", "DEMONOLOGY", "DESTRUCTION" },
+	PRIEST = { "DISCIPLINE", "HOLY", "SHADOW" },
+	DRUID = { "BALANCE", "FERAL", "RESTORATION" },
 }
 
 -- Points spent in talent tree i, whatever shape this client's GetTalentTabInfo returns:
@@ -110,7 +117,10 @@ function Player.context()
 	c.spec, c.specSource = Player.detectSpec(c.class)
 	local map = C.specProfiles[c.class]
 	local override = ns.db and ns.db.specOverride
-	if override and C.profiles[override] then
+	-- Settings are shared by all your characters, so only honour a choice made for this class.
+	local mine = false
+	for _, key in pairs(map or {}) do if key == override then mine = true end end
+	if override and mine and C.profiles[override] then
 		c.profileKey, c.profileSource = override, "set by /ga spec"
 	elseif map then
 		c.profileKey = (c.spec and map[c.spec]) or map.default
@@ -125,17 +135,18 @@ function Player.context()
 	c.weights = Player.blend(c.profile.brackets, c.level)
 
 	-- Rating conversions at this level, for the profile's kind of hit and crit.
-	local ranged = c.profile.hitKind == "ranged"
-	c.hitCR = ranged and "CR_HIT_RANGED" or "CR_HIT_MELEE"
-	c.critCR = ranged and "CR_CRIT_RANGED" or "CR_CRIT_MELEE"
-	c.hitSplitKey = ranged and "HitRangedRating" or "HitMeleeRating"
-	c.critSplitKey = ranged and "CritRangedRating" or "CritMeleeRating"
+	-- hitKind "melee", "ranged" or "spell" (Forever has one hit and one crit rating for all three).
+	c.hitKind = c.profile.hitKind or "melee"
+	local kindName = ({ melee = "MELEE", ranged = "RANGED", spell = "SPELL" })[c.hitKind] or "MELEE"
+	local keyName = ({ melee = "Melee", ranged = "Ranged", spell = "Spell" })[c.hitKind] or "Melee"
+	c.hitCR, c.critCR = "CR_HIT_" .. kindName, "CR_CRIT_" .. kindName
+	c.hitSplitKey, c.critSplitKey = "Hit" .. keyName .. "Rating", "Crit" .. keyName .. "Rating"
 	c.hitPer, c.hitPerSource = Player.ratingPerPercent(c.hitCR, C.ratings.hit, c.level)
 	c.critPer, c.critPerSource = Player.ratingPerPercent(c.critCR, C.ratings.crit, c.level)
 
 	-- Hit cap.
 	c.targetGap, c.targetSetting = Player.targetGap(c.level)
-	c.hitCap = C.hitCap[c.targetGap] or 6
+	c.hitCap = ((c.hitKind == "spell" and C.spellHitCap) or C.hitCap)[c.targetGap] or 6
 
 	-- What you're wearing.
 	c.equipped, c.equippedIDs = {}, {}

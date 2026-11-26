@@ -182,21 +182,47 @@ local function dungeonCmd(name)
 	if loading > 0 then print(("  %d items still loading; run it again in a moment."):format(loading)) end
 end
 
-local SPEC_WORDS ={ arms = "WARRIOR_ARMS", bm = "HUNTER_BM", beastmastery = "HUNTER_BM" }
+-- Short names for /ga spec, on top of the full tree names (arms, fury, beastmastery, ...).
+local SPEC_ALIASES = {
+	bm = "BEAST_MASTERY", mm = "MARKSMANSHIP", sv = "SURVIVAL", prot = "PROTECTION", resto = "RESTORATION",
+	ele = "ELEMENTAL", enh = "ENHANCEMENT", enhance = "ENHANCEMENT", ret = "RETRIBUTION", disc = "DISCIPLINE",
+	affli = "AFFLICTION", aff = "AFFLICTION", demo = "DEMONOLOGY", destro = "DESTRUCTION",
+	assa = "ASSASSINATION", assassin = "ASSASSINATION", sub = "SUBTLETY", sublety = "SUBTLETY",
+	boomkin = "BALANCE", moonkin = "BALANCE", cat = "FERAL", feral = "FERAL", bear = "BEAR",
+}
+
+-- Your class's spec names, for messages.
+local function specNames(class)
+	local names = {}
+	for k in pairs(C.specProfiles[class] or {}) do
+		if k ~= "default" then names[#names + 1] = k:lower():gsub("_", "") end
+	end
+	table.sort(names)
+	return table.concat(names, ", ")
+end
 
 local function setSpec(arg)
-	arg = (arg or ""):lower()
+	arg = (arg or ""):lower():gsub("[%s_%-]", "")
+	local class = select(2, UnitClass("player"))
+	local map = C.specProfiles[class] or {}
 	if arg == "" then
 		local ctx = ns.Player.context()
-		ns.print("Profile: " .. tostring(ctx.profileKey) .. " (" .. tostring(ctx.profileSource or ctx.reason) .. "). Use /ga spec arms, bm or auto.")
+		ns.print("Profile: " .. tostring(ctx.profile and ctx.profile.label or ctx.profileKey) .. " (" .. tostring(ctx.profileSource or ctx.reason)
+			.. "). Use /ga spec " .. specNames(class) .. " or auto.")
 		return
+	end
+	local tree = SPEC_ALIASES[arg]
+	if not tree then
+		for k in pairs(map) do
+			if k ~= "default" and k:lower():gsub("_", "") == arg then tree = k end
+		end
 	end
 	if arg == "auto" then
 		ns.db.specOverride = nil
-	elseif SPEC_WORDS[arg] then
-		ns.db.specOverride = SPEC_WORDS[arg]
+	elseif tree and map[tree] then
+		ns.db.specOverride = map[tree]
 	else
-		ns.print("Unknown spec '" .. arg .. "'. Use arms, bm or auto.")
+		ns.print("Unknown spec '" .. arg .. "' for your class. Use " .. specNames(class) .. " or auto.")
 		return
 	end
 	ns.changed("spec")
@@ -285,7 +311,7 @@ local function help()
 	print("  /ga loot – what loot data GearAdvisor has")
 	print("  /ga droprates – paste your own drop rates (Item Name 13%) to fill the ? chances")
 	print("  /ga dungeon [name] – upgrades a dungeon drops for you (no name: list dungeons)")
-	print("  /ga spec [arms | bm | auto] – show or set the profile")
+	print("  /ga spec [name | auto] – show or set your spec's weights (e.g. fury, mm, bear, resto)")
 	print("  /ga target [auto | same | dungeon | raid] – which target the hit cap is for")
 	print("  /ga tooltip – turn the tooltip lines on or off")
 	print("  /ga quest – turn the quest reward marks on or off")

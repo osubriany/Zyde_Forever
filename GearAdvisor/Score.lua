@@ -41,7 +41,10 @@ local SPEED_KEY = { TwoHandDPS = "TwoHandSpeed", MainHandDPS = "MainHandSpeed", 
 
 -- Stats weighted directly (one point x weight).
 local PLAIN = { "Strength", "Agility", "Stamina", "Intellect", "Spirit", "AttackPower", "RangedAttackPower",
-	"Armor", "ExpertiseRating", "WeaponSkill", "Defense", "Dodge", "Parry", "Block", "BlockValue" }
+	"Armor", "ExpertiseRating", "WeaponSkill", "Defense", "Dodge", "Parry", "Block", "BlockValue",
+	"HasteRating", "ArmorPen", "SpellPen", "FeralAttackPower",
+	"SpellPower", "HealingPower", "HolyPower", "ShadowPower", "FirePower", "FrostPower", "ArcanePower", "NaturePower",
+	"ManaRegen" }
 
 -- The special-items entry for this item and profile, or nil.
 local function specialFor(itemID, ctx)
@@ -64,9 +67,12 @@ function Score.parts(info, slot, ctx)
 	end
 	for _, k in ipairs(PLAIN) do add(k, s[k], w[k]) end
 
-	local critPct = ((s.CritRating or 0) + (s[ctx.critSplitKey] or 0)) / ctx.critPer + (s.CritPercent or 0)
+	local spell = ctx.hitKind == "spell"
+	local critPct = ((s.CritRating or 0) + (s[ctx.critSplitKey] or 0)) / ctx.critPer
+		+ (spell and (s.SpellCritPercent or 0) or (s.CritPercent or 0))
 	add("Crit %", critPct, w.CritPercent)
-	local hitPct = ((s.HitRating or 0) + (s[ctx.hitSplitKey] or 0)) / ctx.hitPer + (s.HitPercent or 0)
+	local hitPct = ((s.HitRating or 0) + (s[ctx.hitSplitKey] or 0)) / ctx.hitPer
+		+ (spell and (s.SpellHitPercent or 0) or (s.HitPercent or 0))
 
 	local dpsKey = Score.dpsKey(info, slot)
 	if dpsKey then
@@ -204,12 +210,15 @@ local function swap(info, slot, ctx)
 	end
 
 	local oldLinear, oldHit, vs = 0, 0, {}
+	local oldArmorOnly = true   -- what comes off has nothing but armour (or the slot is empty)
 	local idsAfter = {}
 	for id in pairs(ctx.equippedIDs) do idsAfter[id] = true end
 	for s in pairs(removed) do
 		local e = eq[s]
 		if e then
-			local _, lin, hit = Score.parts(e, s, ctx)
+			local oparts, lin, hit = Score.parts(e, s, ctx)
+			if hit ~= 0 then oldArmorOnly = false end
+			for _, p in ipairs(oparts) do if p.label ~= "Armor" then oldArmorOnly = false end end
 			oldLinear, oldHit = oldLinear + lin, oldHit + hit
 			vs[#vs + 1] = e.link
 			idsAfter[e.itemID] = nil
@@ -218,6 +227,8 @@ local function swap(info, slot, ctx)
 	idsAfter[info.itemID] = true
 
 	local parts, newLinear, newHit = Score.parts(info, slot, ctx)
+	local armorOnly = oldArmorOnly and newHit == 0
+	for _, p in ipairs(parts) do if p.label ~= "Armor" then armorOnly = false end end
 	local base = ctx.hitHave - oldHit
 	local hitDelta = Score.hitValue(base + oldHit, base + newHit, ctx)
 	local setDelta = Score.setValue(idsAfter, ctx) - Score.setValue(ctx.equippedIDs, ctx)
@@ -237,7 +248,7 @@ local function swap(info, slot, ctx)
 		slot = slot, vs = vs, delta = delta, parts = parts,
 		newLinear = newLinear, oldLinear = oldLinear, hitDelta = hitDelta, setDelta = setDelta,
 		newHit = newHit, oldHit = oldHit, hitBefore = before, hitAfter = after, hitCap = cap,
-		notes = notes,
+		notes = notes, armorOnly = armorOnly,
 	}
 end
 
@@ -275,6 +286,13 @@ function Score.compare(link, ctx)
 		local min = C.minUpgradePct or 0
 		if best.pct > min then best.kind = "upgrade"
 		elseif best.pct < -min then best.kind = "downgrade"
+		elseif best.armorOnly and best.delta > 0.001 then
+			-- Plain items with no stats (early levels): more armour is still better, however small.
+			best.kind = "upgrade"
+			table.insert(best.notes, 1, "more armour, no other stats")
+		elseif best.armorOnly and best.delta < -0.001 then
+			best.kind = "downgrade"
+			table.insert(best.notes, 1, "less armour, no other stats")
 		else best.kind = "same" end
 	end
 	if ok == "later" then
