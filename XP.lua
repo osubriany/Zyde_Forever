@@ -361,3 +361,157 @@ end)
 xp:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 ns.PlaceXP, ns.RecordXP = placeXP, recordXP
+
+---------------------------------------------------------------------------
+-- Rested XP watch. Each character's rested XP, whether it was resting (inn
+-- or city), its level and level size are saved when it logs out (and as they
+-- change). At login: a note if this character's rested XP is full, and a
+-- list of your other characters that should be full by now.
+-- Rested XP grows by 5% of a level every 8 hours while resting, a quarter of
+-- that outside, up to 1.5 levels (the game's rules; Boosted Rest isn't
+-- counted). /zyde rested lists every character.
+---------------------------------------------------------------------------
+do
+	local P = "|cff66ccffZyde_Forever|r: "
+	local PER_SECOND = 0.05 / (8 * 3600) -- share of a level per second while resting
+	local OUTSIDE = 0.25
+	local CAP = 1.5
+	local function on() return F("restedWatch") end
+	local function num(v) if isSecret(v) or type(v) ~= "number" then return nil end return v end
+	local function rows()
+		ZydeForeverDB = ZydeForeverDB or {}
+		ZydeForeverDB.restedChars = ZydeForeverDB.restedChars or {}
+		return ZydeForeverDB.restedChars
+	end
+	local function myKey()
+		local name, realm = UnitName("player"), GetRealmName and GetRealmName()
+		if isSecret(name) or type(name) ~= "string" or name == "" then return nil end
+		if isSecret(realm) or type(realm) ~= "string" then realm = "" end
+		return name .. "-" .. realm, name
+	end
+	local function maxLevel()
+		local m = GetMaxPlayerLevel and num(safe(GetMaxPlayerLevel))
+		return m or MAX_PLAYER_LEVEL or 60
+	end
+
+	local function snapshot()
+		local key, name = myKey()
+		if not key then return end
+		local level, size = num(UnitLevel("player")), num(UnitXPMax("player"))
+		if not level or not size or size <= 0 then return end
+		local rested = GetXPExhaustion and GetXPExhaustion()
+		if isSecret(rested) then return end
+		local resting = IsResting and IsResting()
+		if isSecret(resting) then return end
+		local _, class = UnitClass("player")
+		if isSecret(class) then class = nil end
+		rows()[key] = {
+			name = name, level = level, size = size, rested = num(rested) or 0,
+			resting = resting and true or false, at = time(), class = class,
+		}
+	end
+
+	-- Rested XP now, the cap, and when it fills (a time()), from a saved row.
+	local function estimate(row, now)
+		local cap = row.size * CAP
+		local perSec = row.size * PER_SECOND * (row.resting and 1 or OUTSIDE)
+		local est = math.min(cap, row.rested + perSec * math.max(0, now - row.at))
+		local fullAt = row.at + math.max(0, cap - row.rested) / perSec
+		return est, cap, fullAt
+	end
+
+	local function span(seconds)
+		seconds = math.max(0, seconds)
+		local d, h = math.floor(seconds / 86400), math.floor(seconds % 86400 / 3600)
+		if d > 0 then return d .. "d " .. h .. "h" end
+		local m = math.floor(seconds % 3600 / 60)
+		if h > 0 then return h .. "h " .. m .. "m" end
+		return m .. "m"
+	end
+
+	local function who(row)
+		local c = row.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[row.class]
+		local hex = c and c.colorStr or "ffffffff"
+		return ("|c%s%s|r (%d)"):format(hex, row.name or "?", row.level or 0)
+	end
+
+	local function loginCheck()
+		if not on() then return end
+		local key = myKey()
+		local now = time()
+		-- This character, from the game itself.
+		local level, size = num(UnitLevel("player")), num(UnitXPMax("player"))
+		local rested = GetXPExhaustion and GetXPExhaustion()
+		if level and size and size > 0 and level < maxLevel() and not isSecret(rested) then
+			local r = num(rested) or 0
+			if r >= size * CAP * 0.995 then
+				local msg = "Rested XP is full on this character (1.5 levels). Go use it!"
+				print(P .. "|cff59ff8c" .. msg .. "|r")
+				if RaidNotice_AddMessage and RaidWarningFrame and ChatTypeInfo then
+					pcall(RaidNotice_AddMessage, RaidWarningFrame, msg, ChatTypeInfo.RAID_WARNING)
+				end
+			end
+		end
+		-- Your other characters, from when they logged out.
+		local full = {}
+		for k, row in pairs(rows()) do
+			if k ~= key and type(row) == "table" and type(row.size) == "number" and row.size > 0
+				and (row.level or 0) < maxLevel() then
+				local _, _, fullAt = estimate(row, now)
+				if fullAt <= now then full[#full + 1] = { row = row, since = now - fullAt } end
+			end
+		end
+		table.sort(full, function(a, b) return a.since > b.since end)
+		if #full > 0 then
+			local parts = {}
+			for _, f in ipairs(full) do parts[#parts + 1] = who(f.row) .. " for " .. span(f.since) end
+			print(P .. "rested XP full on " .. table.concat(parts, ", "))
+		end
+	end
+
+	-- /zyde rested: every character's rested XP, now.
+	function ns.RestedReport()
+		snapshot()
+		local now, list = time(), {}
+		for _, row in pairs(rows()) do
+			if type(row) == "table" and type(row.size) == "number" and row.size > 0 then list[#list + 1] = row end
+		end
+		if #list == 0 then print(P .. "no characters saved yet (each one is saved when it logs out)") return end
+		table.sort(list, function(a, b) return (a.level or 0) > (b.level or 0) end)
+		print(P .. "rested XP (estimated for characters not logged in):")
+		for _, row in ipairs(list) do
+			if (row.level or 0) >= maxLevel() then
+				print("  " .. who(row) .. ": max level")
+			else
+				local est, cap, fullAt = estimate(row, now)
+				local pct = math.floor(est / row.size * 100 + 0.5)
+				local where = row.resting and "resting" or "|cffff9933not resting|r"
+				local tail = fullAt <= now and "|cff59ff8cfull|r" or ("full in " .. span(fullAt - now))
+				print(("  %s: %d%% of a level (max 150%%), %s, %s"):format(who(row), pct, where, tail))
+			end
+		end
+	end
+
+	local ev = CreateFrame("Frame")
+	for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_LOGOUT", "PLAYER_UPDATE_RESTING",
+		"UPDATE_EXHAUSTION", "PLAYER_LEVEL_UP", "PLAYER_XP_UPDATE" }) do
+		pcall(ev.RegisterEvent, ev, e)
+	end
+	ev:SetScript("OnEvent", function(_, event, isLogin)
+		if event == "PLAYER_ENTERING_WORLD" then
+			if isLogin then
+				-- Read the others before this character's row is refreshed, then save.
+				C_Timer.After(5, function()
+					loginCheck()
+					snapshot()
+				end)
+			else
+				snapshot()
+			end
+			return
+		end
+		-- (a level-up changes the level size: read it a moment later)
+		if event == "PLAYER_LEVEL_UP" then C_Timer.After(1, snapshot) return end
+		snapshot()
+	end)
+end
