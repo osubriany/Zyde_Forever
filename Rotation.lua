@@ -93,8 +93,12 @@ local CLASSES = {
 		{ name = "Raptor Strike", kind = "filler" },
 	},
 	PALADIN = {
+		-- Seals and Judgement are chosen by paladinPick (below), ahead of the scored list.
+		{ name = "Seal of Righteousness", kind = "seal" },
+		{ name = "Seal of Command", kind = "seal" },
+		{ name = "Seal of the Crusader", kind = "seal" },
+		{ name = "Judgement", kind = "judgement" },
 		{ name = "Hammer of Wrath", kind = "execute", threshold = 0.2 },
-		{ name = "Judgement", kind = "direct" },
 		{ name = "Holy Strike", kind = "direct" },
 		{ name = "Crusader Strike", kind = "direct" },
 		{ name = "Exorcism", kind = "direct", needUsable = true },
@@ -399,6 +403,89 @@ local function score(spell, entry, f, ctx, index)
 	return dmg / time
 end
 
+---------------------------------------------------------------------------
+-- Paladins: keep the right seal up and judge it.
+-- On Forever a seal lasts 30 seconds and Judgement does NOT use it up (the seal reminder relies
+-- on the same), so the weave is:
+--   * long fight (an elite, or a mob that will last over 20 s) and Seal of the Crusader known:
+--     open with Seal of the Crusader, judge it (the target takes more Holy damage), then put
+--     your damage seal on for the rest of the fight
+--   * otherwise straight to the damage seal: Seal of Command with a slow weapon (3.3 s swing
+--     or slower) when you have it, else Seal of Righteousness
+--   * refresh the seal when it's missing, or in a fight with under 3 seconds left
+--   * Judgement whenever it's ready, in reach, and a seal is up
+-- Your buffs can be hidden in a fight, so your own seal casts are tracked too.
+---------------------------------------------------------------------------
+local SEAL_TIME, CRUSADER = 30, "Seal of the Crusader"
+local sealName, sealUntil = nil, 0
+local crusaderOn = {} -- [target GUID] = when your Judgement of the Crusader on it runs out
+
+-- Your seal now and the seconds it has left (nil when there's none).
+local function currentSeal()
+	local hidden = false
+	for i = 1, 40 do
+		local name, exp, raw
+		if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+			local aura = ns.safe(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
+			if not aura then break end
+			raw, exp = aura.name, plain(aura.expirationTime)
+		elseif UnitBuff then
+			local n, _, _, _, _, e = UnitBuff("player", i)
+			if not isSecret(n) and n == nil then break end
+			raw, exp = n, plain(e)
+		else
+			break
+		end
+		if isSecret(raw) then hidden = true end
+		name = plain(raw)
+		if type(name) == "string" and name:find("^Seal of") then
+			if exp and exp > 0 then sealName, sealUntil = name, exp
+			elseif sealName ~= name then sealName, sealUntil = name, GetTime() + SEAL_TIME end
+			return name, sealUntil - GetTime()
+		end
+	end
+	if not hidden then sealName, sealUntil = nil, 0 return nil end
+	if sealName and sealUntil > GetTime() then return sealName, sealUntil - GetTime() end
+	return nil
+end
+
+local function mainSeal()
+	local speed = plain(UnitAttackSpeed and UnitAttackSpeed("player"))
+	if byName["Seal of Command"] and speed and speed >= 3.3 then return "Seal of Command" end
+	if byName["Seal of Righteousness"] then return "Seal of Righteousness" end
+	return byName["Seal of Command"] and "Seal of Command" or nil
+end
+
+local function ready(name)
+	local e = byName[name]
+	if not e then return false end
+	if cooldownLeft(name, facts[e.id]) > 0.3 then return false end
+	return usable(e) ~= false
+end
+
+local function paladinPick(ctx, tg)
+	local seal, left = currentSeal()
+	local main = mainSeal()
+	local now = GetTime()
+	local judged = tg and crusaderOn[tg] and crusaderOn[tg] > now
+	local class = plain(UnitClassification("target"))
+	local long = ctx.ttk > 20 or class == "elite" or class == "rareelite" or class == "worldboss"
+	local wantCrusader = byName[CRUSADER] and long and not judged
+	local judgeReady = ready("Judgement") and inRange(byName["Judgement"])
+
+	if seal == CRUSADER then
+		if judgeReady and not judged then return "Judgement" end
+		if (judged or not wantCrusader) and main and ready(main) then return main end
+	end
+	local fighting = InCombatLockdown()
+	if not seal or (fighting and left and left < 3) then
+		if wantCrusader and ready(CRUSADER) then return CRUSADER end
+		if main and ready(main) then return main end
+	end
+	if seal and judgeReady then return "Judgement" end
+	return nil
+end
+
 -- The best pick, and the health-gated one (execute kind) if any: pick, gatedPick, threshold.
 local function choose()
 	if not LIST then return nil end
@@ -408,11 +495,15 @@ local function choose()
 		gcd = ENERGY_GCD[playerClass] or ((playerClass == "DRUID" and formId() == 1) and 1 or 1.5),
 		dots = tg and dots[tg],
 	}
+	if playerClass == "PALADIN" then
+		local p = paladinPick(ctx, tg)
+		if p then return p end
+	end
 	local share = targetShare()
 	local best, bestScore, gated, gatedScore, threshold
 	for index, spell in ipairs(LIST) do
 		local entry = byName[spell.name]
-		if entry then
+		if entry and spell.kind ~= "seal" and spell.kind ~= "judgement" then
 			local f = factsOf(entry.id)
 			if spell.kind == "execute" then
 				if not (spell.shardCap and shards() >= spell.shardCap) then
@@ -576,6 +667,8 @@ ev:SetScript("OnEvent", function(_, event, unit, _, spellID)
 			local now = GetTime()
 			lastCast[name] = now
 			local tg = plain(UnitGUID("target"))
+			if name:find("^Seal of") then sealName, sealUntil = name, now + SEAL_TIME end
+			if name == "Judgement" and tg and sealName == CRUSADER and sealUntil > now then crusaderOn[tg] = now + 10 end
 			local entry = byName[name]
 			local f = entry and facts[entry.id]
 			if tg and f and f.dotDur and f.dotDur > 0 then
@@ -625,6 +718,13 @@ function ns.RotationDebug()
 		tostring(pick), gatedPick and (" / under " .. math.floor(threshold * 100) .. "%: " .. gatedPick) or "",
 		enemyCount(), timeToKill(), targetShare() and (math.floor(targetShare() * 100) .. "%") or "hidden",
 		tostring(power()), tostring(comboPoints())))
+	if playerClass == "PALADIN" then
+		local seal, left = currentSeal()
+		local tg = plain(UnitGUID("target"))
+		print(P .. ("seal: %s%s   damage seal: %s   Crusader judged on target: %s"):format(tostring(seal),
+			left and (" (%.0fs left)"):format(left) or "", tostring(mainSeal()),
+			tostring(tg and crusaderOn[tg] and crusaderOn[tg] > GetTime() or false)))
+	end
 	for _, spell in ipairs(LIST) do
 		local e = byName[spell.name]
 		if e then
