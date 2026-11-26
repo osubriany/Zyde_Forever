@@ -427,40 +427,37 @@ local function macroNames(mobs)
 	return names
 end
 
--- The first live match is kept: every /target after the first only runs
--- while you have no target ([noexists]), and a corpse is cleared right
--- away ([dead]) so the search goes on. Each name is tried twice, in case
--- the first hit was the corpse of the one you just killed.
+-- Plain "/tar Name" lines, exactly what works typed in chat. On Forever, lines with
+-- conditions ("/tar [noexists] Name", "/tar [@nameplate1,harm,nodead]") ran but never left
+-- a target (/zyde mobsdebug: macro ran to the end, target still nothing), while typed
+-- "/tar Dalaran Protector" worked. A /tar that finds no one leaves your target as it was,
+-- so the names go in from least to most wanted: the last one that finds a mob wins.
+-- Then "/cleartarget [dead]" drops a corpse (a marker before it tells mobsdebug whether
+-- that check is what cleared it).
 --
 -- Someone else's tag: a macro can't test for that, so a name whose mobs in view
 -- are all tagged is left out.
 --
 -- The game runs at most 255 characters of a macro and cuts the rest off,
--- mid-word ("Unknown macro option: exis"), so lines are only added while
--- they fit, most important first: one try per name, then the second tries.
+-- mid-word, so only the most wanted names that fit go in.
 local MACRO_LIMIT = 255
 local function macroFor(mobs, namesOnly)
 	local names = macroNames(mobs)
 	if #names == 0 then return "" end
-	-- Two marker lines (start and end) tell /zyde mobsdebug whether the macro ran at all and
-	-- whether it got to the end.
-	local START, FINISH = "/run _ZQa=1", "\n/run _ZQb=1"
-	local text = START .. "\n/cleartarget"
-	local function add(...)
-		local chunk = table.concat({ ... }, "\n")
-		if #text + 1 + #chunk + #FINISH > MACRO_LIMIT then return false end
-		text = text .. "\n" .. chunk
-		return true
+	-- Marker lines tell /zyde mobsdebug whether the macro ran, whether you had a target just
+	-- before the corpse check, and whether it got to the end.
+	local START = "/run _ZQa=1"
+	local TAIL = "\n/run _ZQc=UnitExists'target'\n/cleartarget [dead]\n/run _ZQb=1"
+	local keep, used = {}, #START + #TAIL
+	for _, name in ipairs(names) do
+		local line = "\n/tar " .. name
+		if used + #line > MACRO_LIMIT then break end
+		keep[#keep + 1] = line
+		used = used + #line
 	end
-	-- (Names only: a "/tar [@nameplateN]" line looked like it stopped the whole macro. So
-	-- someone else's tag can't be skipped except by leaving out names whose mobs in view are
-	-- all tagged; see macroNames.)
-	for _ = 1, 2 do
-		for _, name in ipairs(names) do
-			add("/tar [noexists] " .. name, "/cleartarget [dead]")
-		end
-	end
-	return text .. FINISH
+	local text = START
+	for i = #keep, 1, -1 do text = text .. keep[i] end
+	return text .. TAIL
 end
 
 local lastMacro
@@ -565,13 +562,18 @@ targetButton:HookScript("PreClick", function()
 	presses[#presses + 1] = { at = GetTime(), before = describeTarget(), combat = InCombatLockdown(),
 		lines = select(2, (targetButton:GetAttribute("macrotext") or ""):gsub("\n", "\n")) }
 	if #presses > 4 then table.remove(presses, 1) end
-	_G._ZQa, _G._ZQb = nil, nil
+	_G._ZQa, _G._ZQb, _G._ZQc = nil, nil, nil
 end)
 targetButton:HookScript("PostClick", function()
 	local p = presses[#presses]
 	if not p then return end
 	p.after = describeTarget()
 	p.ran = _G._ZQb and "ran to the end" or (_G._ZQa and "STOPPED part-way" or "did NOT run")
+	if _G._ZQa then
+		local had = _G._ZQc
+		p.ran = p.ran .. (ns.isSecret(had) and ", target before the dead-check: hidden"
+			or (had and ", had a target before the dead-check" or ", NO target before the dead-check"))
+	end
 	C_Timer.After(0.3, function() p.later = describeTarget() end)
 end)
 
