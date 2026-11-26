@@ -564,6 +564,32 @@ end)
 
 ns.OnFeatureChanged(function(key) if key == "questMobs" then refresh() end end)
 
+-- What the last few presses of the key ended on (for /zyde mobsdebug): the target right after the
+-- macro ran, and again a moment later (Action Targeting can swap your target afterwards).
+local presses = {}
+local function describeTarget()
+	if not plain(UnitExists("target")) then return "nothing" end
+	local raw = UnitName("target")
+	local name = ns.isSecret(raw) and "<hidden name>" or tostring(raw)
+	local ok = check("target")
+	return name .. (ok and " (quest mob)" or " (NOT a quest mob)")
+end
+local function cvarText(name)
+	local v = GetCVar and ns.safe(GetCVar, name)
+	return name .. "=" .. tostring(plain(v))
+end
+targetButton:HookScript("PreClick", function()
+	presses[#presses + 1] = { at = GetTime(), before = describeTarget(), combat = InCombatLockdown(),
+		lines = select(2, (targetButton:GetAttribute("macrotext") or ""):gsub("\n", "\n")) }
+	if #presses > 4 then table.remove(presses, 1) end
+end)
+targetButton:HookScript("PostClick", function()
+	local p = presses[#presses]
+	if not p then return end
+	p.after = describeTarget()
+	C_Timer.After(0.3, function() p.later = describeTarget() end)
+end)
+
 -- /zyde mobsdebug: every nameplate near you and why it does or doesn't count.
 local function debug()
 	local p = "|cff66ccffZyde_Forever|r: "
@@ -586,6 +612,15 @@ local function debug()
 	for i = 1, math.min(8, #zone) do print(p .. "    " .. zone[i].name) end
 	local text = targetButton:GetAttribute("macrotext") or ""
 	print(p .. "target key macro: " .. (text == "" and "(empty)" or text:gsub("\n", " | ")))
+	print(p .. "targeting settings: " .. cvarText("SoftTargetEnemy") .. ", " .. cvarText("SoftTargetForce")
+		.. ", " .. cvarText("ActionButtonUseKeyDown"))
+	if #presses == 0 then print(p .. "key presses: none yet this session") end
+	for i = #presses, 1, -1 do
+		local k = presses[i]
+		print(("%s  press %.0fs ago%s (%d-line macro): before %s -> after %s -> 0.3s later %s"):format(p,
+			GetTime() - k.at, k.combat and " in combat" or "", (k.lines or 0) + 1, k.before, tostring(k.after or "?"),
+			tostring(k.later or "?")))
+	end
 end
 
 ns.QuestMobs = {
