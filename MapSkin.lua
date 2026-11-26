@@ -311,3 +311,7 @@ ev:SetScript("OnEvent", function(_, event, name)
 	if not on() then return end
 	if event == "PLAYER_LOGIN" or name == "Blizzard_WorldMap" then hookUp() end
 end)
+-- Ticking it in /zyde applies it right away (turning it off takes a reload).
+ns.OnFeatureChanged(function(key)
+	if key == "mapSkin" and on() then hookUp() skinAll() end
+end)
