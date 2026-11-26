@@ -209,7 +209,7 @@ local function swap(info, slot, ctx)
 		return { kind = "n/a", slot = slot, delta = -math.huge, notes = { "you use a two-hander" } }
 	end
 
-	local oldLinear, oldHit, vs = 0, 0, {}
+	local oldLinear, oldHit, vs, oldArmor = 0, 0, {}, 0
 	local oldArmorOnly = true   -- what comes off has nothing but armour (or the slot is empty)
 	local idsAfter = {}
 	for id in pairs(ctx.equippedIDs) do idsAfter[id] = true end
@@ -220,6 +220,7 @@ local function swap(info, slot, ctx)
 			if hit ~= 0 then oldArmorOnly = false end
 			for _, p in ipairs(oparts) do if p.label ~= "Armor" then oldArmorOnly = false end end
 			oldLinear, oldHit = oldLinear + lin, oldHit + hit
+			oldArmor = oldArmor + (e.stats and e.stats.Armor or 0)
 			vs[#vs + 1] = e.link
 			idsAfter[e.itemID] = nil
 		end
@@ -249,6 +250,8 @@ local function swap(info, slot, ctx)
 		newLinear = newLinear, oldLinear = oldLinear, hitDelta = hitDelta, setDelta = setDelta,
 		newHit = newHit, oldHit = oldHit, hitBefore = before, hitAfter = after, hitCap = cap,
 		notes = notes, armorOnly = armorOnly,
+		-- raw armour gained (casters weigh armour at 0, so plain early items need this to compare)
+		armorGain = (info.stats and info.stats.Armor or 0) - oldArmor,
 	}
 end
 
@@ -286,11 +289,11 @@ function Score.compare(link, ctx)
 		local min = C.minUpgradePct or 0
 		if best.pct > min then best.kind = "upgrade"
 		elseif best.pct < -min then best.kind = "downgrade"
-		elseif best.armorOnly and best.delta > 0.001 then
+		elseif best.armorOnly and (best.delta > 0.001 or (math.abs(best.delta) <= 0.001 and (best.armorGain or 0) > 0)) then
 			-- Plain items with no stats (early levels): more armour is still better, however small.
 			best.kind = "upgrade"
 			table.insert(best.notes, 1, "more armour, no other stats")
-		elseif best.armorOnly and best.delta < -0.001 then
+		elseif best.armorOnly and (best.delta < -0.001 or (math.abs(best.delta) <= 0.001 and (best.armorGain or 0) < 0)) then
 			best.kind = "downgrade"
 			table.insert(best.notes, 1, "less armour, no other stats")
 		else best.kind = "same" end

@@ -71,7 +71,9 @@ function ns.headline(r)
 	local vs = r.vs and r.vs[1]
 	local over = vs and (" over " .. vs .. (r.vs[2] and (" + " .. r.vs[2]) or "")) or " (empty slot)"
 	local function pct(p) return ("%s%.1f%%"):format(p >= 0 and "+" or "", p) end
-	if r.kind == "upgrade" then return "Upgrade: " .. pct(r.pct) .. over, 0.1, 1, 0.1
+	if r.kind == "upgrade" then
+		local gain = (r.pct and r.pct < 0.05 and (r.armorGain or 0) > 0) and ("+" .. r.armorGain .. " armour") or pct(r.pct)
+		return "Upgrade: " .. gain .. over, 0.1, 1, 0.1
 	elseif r.kind == "future" then return "Future upgrade: " .. pct(r.pct) .. over, 0.4, 0.8, 1
 	elseif r.kind == "downgrade" then return "Downgrade: " .. pct(r.pct) .. (vs and (" vs " .. vs) or ""), 1, 0.3, 0.3
 	elseif r.kind == "same" then return "About the same" .. (vs and (" as " .. vs) or ""), 0.7, 0.7, 0.7

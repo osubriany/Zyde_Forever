@@ -146,7 +146,8 @@ function Toast.show(link, r)
 	pendingEquip = nil
 	local texture = ns.safe(C_Item and C_Item.GetItemIconByID or GetItemIcon, r.info.itemID)
 	frame.icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
-	frame.title:SetText(("|cff1aff1aUpgrade +%.1f%%|r  %s"):format(r.pct, link))
+	local gain = (r.pct < 0.05 and (r.armorGain or 0) > 0) and ("+" .. r.armorGain .. " armour") or ("+%.1f%%"):format(r.pct)
+	frame.title:SetText(("|cff1aff1aUpgrade %s|r  %s"):format(gain, link))
 	local over = (r.vs and r.vs[1]) and ("over " .. table.concat(r.vs, " + ")) or "(empty slot)"
 	local notes = (r.notes and #r.notes > 0) and (" – " .. table.concat(r.notes, ", ")) or ""
 	frame.detail:SetText(over .. notes)
