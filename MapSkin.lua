@@ -205,14 +205,24 @@ local function skinNavButton(b, current, first)
 		end
 		b:HookScript("OnEnter", function(self) self.zydeHover = true paintNav(self) end)
 		b:HookScript("OnLeave", function(self) self.zydeHover = false paintNav(self) end)
+		-- The dropdown arrow: its art drew an empty square once hidden, so all of
+		-- it goes and a small gold "v" sits there (like /zyde's own drop-downs).
 		if b.MenuArrowButton then
-			hideArt(b.MenuArrowButton)
-			local arrow = b.MenuArrowButton:GetNormalTexture()
-			if arrow then
-				arrow:SetAlpha(0.85)
-				if arrow.SetDesaturated then arrow:SetDesaturated(true) end
-				arrow:SetVertexColor(GOLD[1], GOLD[2], GOLD[3])
-			end
+			local ab = b.MenuArrowButton
+			local v = ab:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+			v:SetPoint("CENTER", 0, 0)
+			v:SetText("v")
+			v:SetTextColor(GOLD[1], GOLD[2], GOLD[3], 0.85)
+			ab:HookScript("OnEnter", function() v:SetTextColor(1, 0.95, 0.6, 1) end)
+			ab:HookScript("OnLeave", function() v:SetTextColor(GOLD[1], GOLD[2], GOLD[3], 0.85) end)
+		end
+	end
+	if b.MenuArrowButton then
+		local ab = b.MenuArrowButton
+		hideArt(ab)
+		for _, get in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture", "GetDisabledTexture" }) do
+			local t = ab[get] and ab[get](ab)
+			if t then t:SetAlpha(0) end
 		end
 	end
 	-- Blizzard's tab art comes back when the bar is rebuilt: hide it again.
@@ -298,7 +308,9 @@ local function skinQuestHeaders()
 	if not contents or not contents.GetChildren then return end
 	for _, c in ipairs({ contents:GetChildren() }) do
 		-- Zone headings have ButtonText and a collapse button; quest lines don't.
-		if c.ButtonText or c.CollapseButton then skinHeader(c) end
+		-- Only zone headings get the bar and the purple accent, not quest lines.
+		local quest = c.Check or c.questID or c.questLogIndex or c.TaskIcon or c.TagTexture
+		if (c.ButtonText or c.CollapseButton) and not quest then skinHeader(c) end
 	end
 end
 
@@ -331,11 +343,184 @@ local function skinQuestPanel()
 end
 
 ---------------------------------------------------------------------------
+-- 3. The small buttons along the top right of the map (Questie's toggle and
+-- the like): a dark round disc with a thin ring behind each, and their art
+-- muted to gray-gold so they sit in the frame's colors.
+---------------------------------------------------------------------------
+local CIRCLE = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+local function overlayButtons()
+	local list = {}
+	local canvas = WorldMapFrame and WorldMapFrame.ScrollContainer
+	if not canvas then return list end
+	local cx, cy = canvas:GetCenter()
+	if ns.isSecret(cx) or type(cx) ~= "number" then return list end
+	for _, f in ipairs(WorldMapFrame.overlayFrames or {}) do
+		if f.IsShown and f:IsShown() and f.GetCenter and not (f.PlayerCoords or f.CursorCoords) then
+			local x, y = f:GetCenter()
+			local w = f:GetWidth()
+			if not ns.isSecret(x) and type(x) == "number" and type(w) == "number" and not ns.isSecret(w)
+				and w < 60 and x > cx and y > cy then
+				list[#list + 1] = f
+			end
+		end
+	end
+	return list
+end
+
+local function badgeButton(f)
+	if not f.zydeRound then
+		f.zydeRound = true
+		local w = f:GetWidth()
+		local size = (type(w) == "number" and not ns.isSecret(w) and w > 10) and (w + 4) or 26
+		for _, spec in ipairs({ { -8, size, 0.85, true }, { -7, size - 3, 0.94, false } }) do
+			local t = own(f:CreateTexture(nil, "BACKGROUND", nil, spec[1]))
+			t:SetPoint("CENTER")
+			t:SetSize(spec[2], spec[2])
+			t:SetTexture(CIRCLE)
+			if spec[4] then t:SetVertexColor(0.55, 0.55, 0.58, spec[3]) else t:SetVertexColor(0.05, 0.05, 0.06, spec[3]) end
+		end
+	end
+	local function mute(fr, depth)
+		for _, r in ipairs({ fr:GetRegions() }) do
+			if r.GetObjectType and r:GetObjectType() == "Texture" and not r.zydeOwn then
+				if r.SetDesaturated then r:SetDesaturated(true) end
+				r:SetVertexColor(0.9, 0.84, 0.66)
+			end
+		end
+		if depth < 2 and fr.GetChildren then
+			for _, c in ipairs({ fr:GetChildren() }) do mute(c, depth + 1) end
+		end
+	end
+	mute(f, 0)
+end
+
+local function skinOverlayButtons()
+	for _, f in ipairs(overlayButtons()) do badgeButton(f) end
+end
+
+---------------------------------------------------------------------------
+-- 5. One coordinates bar along the bottom of the map: "Player 35.4, 10.9 .
+-- Cursor 52.1, 40.3". The cursor part is blank when the mouse is off the
+-- map. The game's own corner readout is hidden.
+---------------------------------------------------------------------------
+local coordBar
+local function mapXY(mapID, unit)
+	if not (C_Map and C_Map.GetPlayerMapPosition) or type(mapID) ~= "number" then return nil end
+	local pos = ns.safe(C_Map.GetPlayerMapPosition, mapID, unit)
+	if type(pos) ~= "table" or not pos.GetXY then return nil end
+	local x, y = pos:GetXY()
+	if ns.isSecret(x) or ns.isSecret(y) or type(x) ~= "number" or (x == 0 and y == 0) then return nil end
+	return x, y
+end
+
+local function buildCoordBar()
+	local f, canvas = WorldMapFrame, WorldMapFrame and WorldMapFrame.ScrollContainer
+	if coordBar or not canvas then return end
+	coordBar = CreateFrame("Frame", nil, f)
+	coordBar:SetPoint("BOTTOMLEFT", canvas, "BOTTOMLEFT", 0, 0)
+	coordBar:SetPoint("BOTTOMRIGHT", canvas, "BOTTOMRIGHT", 0, 0)
+	coordBar:SetHeight(18)
+	coordBar:SetFrameLevel((canvas:GetFrameLevel() or 1) + 7)
+	coordBar:EnableMouse(false)
+	local bg = coordBar:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints()
+	bg:SetColorTexture(1, 1, 1, 1)
+	if bg.SetGradient and CreateColor then
+		pcall(bg.SetGradient, bg, "VERTICAL", CreateColor(0, 0, 0, 0.7), CreateColor(0, 0, 0, 0))
+	else
+		bg:SetColorTexture(0, 0, 0, 0.45)
+	end
+	local text = coordBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	text:SetPoint("BOTTOM", 0, 3)
+	local wait = 0
+	coordBar:SetScript("OnUpdate", function(_, dt)
+		wait = wait + dt
+		if wait < 0.1 then return end
+		wait = 0
+		local mapID = WorldMapFrame:GetMapID()
+		local px, py = mapXY(mapID, "player")
+		local parts = {}
+		parts[1] = "|cff9a9aa2Player|r " .. (px and string.format("%.1f, %.1f", px * 100, py * 100) or "|cff666666-|r")
+		if canvas:IsMouseOver() and canvas.GetNormalizedCursorPosition then
+			local cx, cy = canvas:GetNormalizedCursorPosition()
+			if not ns.isSecret(cx) and type(cx) == "number" and cx >= 0 and cx <= 1 and cy >= 0 and cy <= 1 then
+				parts[2] = "|cff9a9aa2Cursor|r " .. string.format("%.1f, %.1f", cx * 100, cy * 100)
+			end
+		end
+		text:SetText(table.concat(parts, "   |cff555560·|r   "))
+	end)
+end
+
+local function hideNativeCoords()
+	for _, f in ipairs(WorldMapFrame and WorldMapFrame.overlayFrames or {}) do
+		for _, key in ipairs({ "PlayerCoords", "CursorCoords", "CrosshairCoords" }) do
+			local fs = f[key]
+			if fs and fs.SetAlpha then fs:SetAlpha(0) end
+		end
+	end
+	for _, key in ipairs({ "PlayerCoord", "CursorCoord" }) do
+		local fs = WorldMapFrame and WorldMapFrame[key]
+		if fs and fs.SetAlpha then fs:SetAlpha(0) end
+	end
+end
+
+---------------------------------------------------------------------------
+-- 6. A slim quest-list scrollbar: the game's art hidden (its arrows still
+-- work), a faint track and a thin purple thumb.
+---------------------------------------------------------------------------
+local function skinScrollBar()
+	local scroll = _G.QuestScrollFrame
+	local sb = scroll and (scroll.ScrollBar or (scroll.GetName and scroll:GetName() and _G[scroll:GetName() .. "ScrollBar"]))
+	if not sb then return end
+	local function hideTree(fr, depth)
+		hideArt(fr)
+		if depth < 3 and fr.GetChildren then
+			for _, c in ipairs({ fr:GetChildren() }) do
+				hideArt(c)
+				for _, get in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetHighlightTexture", "GetDisabledTexture" }) do
+					local t = c[get] and c[get](c)
+					if t and not t.zydeOwn then t:SetAlpha(0) end
+				end
+				hideTree(c, depth + 1)
+			end
+		end
+	end
+	hideTree(sb, 0)
+	if sb.zydeSlim then return end
+	sb.zydeSlim = true
+	local track = own(sb:CreateTexture(nil, "BACKGROUND", nil, -8))
+	track:SetPoint("TOP", 0, -4)
+	track:SetPoint("BOTTOM", 0, 4)
+	track:SetWidth(2)
+	track:SetColorTexture(PURPLE[1], PURPLE[2], PURPLE[3], 0.18)
+	local thumb = (sb.Track and sb.Track.Thumb) or sb.ThumbTexture or (sb.GetThumbTexture and sb:GetThumbTexture())
+	if not thumb then return end
+	if thumb.GetObjectType and thumb:GetObjectType() == "Texture" then
+		-- (an old-style thumb is itself a texture: recolor it thin)
+		own(thumb)
+		thumb:SetAlpha(1)
+		thumb:SetTexture("Interface\\Buttons\\WHITE8X8")
+		thumb:SetVertexColor(PURPLE[1], PURPLE[2], PURPLE[3], 0.8)
+		thumb:SetWidth(4)
+		return
+	end
+	local fill = own(thumb:CreateTexture(nil, "OVERLAY", nil, 7))
+	fill:SetPoint("TOP", 0, -1)
+	fill:SetPoint("BOTTOM", 0, 1)
+	fill:SetWidth(4)
+	fill:SetColorTexture(PURPLE[1], PURPLE[2], PURPLE[3], 0.8)
+end
+
+---------------------------------------------------------------------------
 local function skinAll()
 	if not on() or not WorldMapFrame then return end
 	skinFrame()
 	skinNav()
 	skinQuestPanel()
+	skinOverlayButtons()
+	buildCoordBar()
+	hideNativeCoords()
+	skinScrollBar()
 end
 
 local hooked = false
