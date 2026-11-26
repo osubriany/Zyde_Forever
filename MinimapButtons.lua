@@ -4,8 +4,8 @@
 -- Click the button on the minimap to spread the gathered buttons out beside
 -- it. Drag the button around the minimap to move it. Hold "Buttons at
 -- cursor" (Options > Keybindings > Zyde Forever) and a panel opens at the
--- mouse: tradeskills, then the game menu, then the minimap buttons. Let go
--- and it closes.
+-- mouse: tradeskills, then the game menu, then the minimap buttons, then
+-- addons. Let go and it closes.
 --
 -- Addon buttons are taken off the minimap and kept here. The game menu
 -- buttons stay where they are; the panel clicks them, so this still works
@@ -170,6 +170,14 @@ flyout.note:SetPoint("CENTER")
 flyout.note:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
 flyout.note:SetText("No addon buttons yet")
 flyout.note:Hide()
+flyout.head = flyout:CreateFontString(nil, "OVERLAY")
+font(flyout.head, 12)
+flyout.head:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+flyout.head:SetText("Other Addons")
+flyout.head:Hide()
+flyout.rule = flyout:CreateTexture(nil, "ARTWORK")
+flyout.rule:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.55)
+flyout.rule:Hide()
 
 local popup = CreateFrame("Frame", "ZydeForeverButtonBagPopup", UIParent)
 popup:SetFrameStrata("DIALOG")
@@ -287,6 +295,63 @@ local function displayName(frame)
 	n = n:gsub("_", " ")
 	if n == "" then n = "Addon" end
 	return n
+end
+
+local function plainName(s)
+	if type(s) ~= "string" then return "" end
+	return s:lower():gsub("[^%w]", "")
+end
+
+local function texKey(tex)
+	if type(tex) == "number" then return tostring(tex) end
+	if type(tex) ~= "string" or tex == "" then return nil end
+	return tex:lower()
+end
+
+-- Names and icons already sitting in the gathered row, so the compartment
+-- list does not paint that addon a second time.
+local function gatheredMarks()
+	local names, icons = {}, {}
+	for _, frame in ipairs(collected) do
+		local n = plainName(displayName(frame))
+		if n ~= "" then names[n] = true end
+		local raw = frame.GetName and frame:GetName()
+		if type(raw) == "string" then
+			local p = plainName(raw:gsub("^LibDBIcon10_", ""))
+			if p ~= "" then names[p] = true end
+		end
+		local icon = frame and (frame.icon or frame.Icon)
+		if icon and icon.GetTexture then
+			local ok, t = pcall(icon.GetTexture, icon)
+			if ok then
+				local key = texKey(t)
+				if key then icons[key] = true end
+			end
+		end
+		local data = frame.dataObject
+		if type(data) == "table" then
+			local key = texKey(data.icon)
+			if key then icons[key] = true end
+		end
+	end
+	return names, icons
+end
+
+local function uniqueButtons(list)
+	local seen, out = {}, {}
+	for _, frame in ipairs(list) do
+		local raw = frame.GetName and frame:GetName()
+		local name = (type(raw) == "string" and raw ~= "") and plainName(displayName(frame)) or ""
+		if name ~= "" and seen[name] then
+			laying = true
+			frame:Hide()
+			laying = false
+		else
+			if name ~= "" then seen[name] = true end
+			out[#out + 1] = frame
+		end
+	end
+	return out
 end
 
 local function sorted()
@@ -750,12 +815,29 @@ local function compartmentButtons()
 	if type(reg) ~= "table" then return list end
 	local lib = LibStub and LibStub("LibDBIcon-1.0", true)
 	local objects = lib and lib.objects
+	local names, icons = gatheredMarks()
+	local seen, seenIcon = {}, {}
 	local n = 0
 	for _, entry in ipairs(reg) do
 		if type(entry) == "table" then
 			local text = entry.text
+			local key = plainName(text)
+			local icon = texKey(entry.icon)
 			local real = objects and type(text) == "string" and objects[text]
-			if not (real and real.zydeOwned) then
+			local owned = real and real.zydeOwned and true or false
+			if not owned and objects and key ~= "" then
+				for objName, button in pairs(objects) do
+					if type(button) == "table" and button.zydeOwned and (button.compartmentData == entry or plainName(objName) == key) then
+						owned = true
+						break
+					end
+				end
+			end
+			if not owned and key ~= "" and (names[key] or seen[key]) then owned = true end
+			if not owned and icon and (icons[icon] or seenIcon[icon]) then owned = true end
+			if not owned then
+				if key ~= "" then seen[key] = true end
+				if icon then seenIcon[icon] = true end
 				n = n + 1
 				local b = compPool[n]
 				if not b then
@@ -764,8 +846,10 @@ local function compartmentButtons()
 					b:RegisterForClicks("AnyUp")
 					b:EnableMouse(true)
 					b.zydeCompartment = true
+					-- The other minimap buttons show a small icon inside the frame.
 					b.icon = b:CreateTexture(nil, "ARTWORK")
-					b.icon:SetAllPoints()
+					b.icon:SetSize(17, 17)
+					b.icon:SetPoint("CENTER")
 					b:SetScript("OnClick", function(self, mouseButton)
 						local item = self.entry
 						local func = item and item.func
@@ -804,6 +888,9 @@ local function compartmentButtons()
 				else
 					b.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
 				end
+				b.icon:ClearAllPoints()
+				b.icon:SetSize(17, 17)
+				b.icon:SetPoint("CENTER")
 				b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 				list[#list + 1] = b
 			end
@@ -824,32 +911,89 @@ local function placeProxy(frame, parent, left, top)
 	frame:Show()
 end
 
-local function gathered()
-	local list = {}
-	for _, frame in ipairs(sorted()) do list[#list + 1] = frame end
-	for _, frame in ipairs(compartmentButtons()) do list[#list + 1] = frame end
-	return list
+-- Same slot as the gathered buttons. The icon stays the small size set above.
+local function placeAddon(frame, x, y, scale)
+	frame:SetParent(popup)
+	frame:SetScale(scale or 1)
+	frame:SetSize(31, 31)
+	frame:ClearAllPoints()
+	local s = frame:GetScale()
+	if not s or s == 0 then s = 1 end
+	frame:SetPoint("TOPLEFT", popup, "TOPLEFT", x / s, -y / s)
+	frame:SetFrameStrata(popup:GetFrameStrata() or "DIALOG")
+	frame:SetFrameLevel((popup:GetFrameLevel() or 1) + 8)
+	frame:Show()
 end
 
 layoutFlyout = function()
 	if popup:IsShown() then return end
-	local list = gathered()
-	local n = #list
-	if n == 0 then
+	local buttons = uniqueButtons(sorted())
+	local addons = compartmentButtons()
+	local nb, na = #buttons, #addons
+	if nb == 0 and na == 0 then
 		flyout.note:Show()
+		flyout.head:Hide()
+		flyout.rule:Hide()
 		flyout:SetSize(190, 34)
 	else
 		flyout.note:Hide()
-		local cols = n < 8 and n or 8
-		local rows = math.ceil(n / cols)
-		flyout:SetSize(PAD * 2 + cols * CELL + (cols - 1) * GAP, PAD * 2 + rows * CELL + (rows - 1) * GAP)
-		for i, frame in ipairs(list) do
-			local col = (i - 1) % cols
-			local row = math.floor((i - 1) / cols)
-			local left = PAD + col * (CELL + GAP)
-			local top = PAD + row * (CELL + GAP)
-			if frame.zydeCompartment then placeProxy(frame, flyout, left, top) else park(frame, flyout, left, top) end
+		local function colsOf(n)
+			if n <= 0 then return 0 end
+			return n < 8 and n or 8
 		end
+		local function gridH(n)
+			local c = colsOf(n)
+			if c == 0 then return 0 end
+			local rows = math.ceil(n / c)
+			return rows * CELL + (rows - 1) * GAP
+		end
+		local cols = math.max(colsOf(nb), colsOf(na))
+		local width = PAD * 2 + cols * CELL + (cols - 1) * GAP
+		if na > 0 then
+			local hw = (flyout.head:GetStringWidth() or 0) + PAD * 2
+			if hw > width then width = hw end
+		end
+		local function placeGrid(list, top)
+			local c = colsOf(#list)
+			for i, frame in ipairs(list) do
+				local col = (i - 1) % c
+				local row = math.floor((i - 1) / c)
+				local left = PAD + col * (CELL + GAP)
+				local rowTop = top + row * (CELL + GAP)
+				if frame.zydeCompartment then
+					placeProxy(frame, flyout, left, rowTop)
+				else
+					park(frame, flyout, left, rowTop)
+				end
+			end
+		end
+		local y = PAD
+		if nb > 0 then
+			placeGrid(buttons, y)
+			y = y + gridH(nb)
+		end
+		if na > 0 then
+			if nb > 0 then
+				y = y + 8
+				flyout.rule:ClearAllPoints()
+				flyout.rule:SetPoint("TOPLEFT", flyout, "TOPLEFT", PAD, -y)
+				flyout.rule:SetSize(math.max(8, width - PAD * 2), 2)
+				flyout.rule:Show()
+				y = y + 8
+			else
+				flyout.rule:Hide()
+			end
+			flyout.head:ClearAllPoints()
+			flyout.head:SetPoint("TOPLEFT", flyout, "TOPLEFT", PAD, -y)
+			flyout.head:Show()
+			y = y + 18
+			placeGrid(addons, y)
+			y = y + gridH(na)
+		else
+			flyout.head:Hide()
+			flyout.rule:Hide()
+		end
+		flyout:SetSize(width, y + PAD)
 	end
 	anchorFlyout()
 	if flyout:IsShown() then icon:SetVertexColor(GOLD[1], GOLD[2], GOLD[3]) else icon:SetVertexColor(1, 1, 1) end
@@ -1399,6 +1543,24 @@ local function listHeader(i, text, x, y)
 	fs:Show()
 end
 
+local listRules = { popup.rule, popup.rule2 }
+local function hideRules()
+	for _, tex in ipairs(listRules) do tex:Hide() end
+end
+
+local function showRule(i, x, y, span)
+	local tex = listRules[i]
+	if not tex then
+		tex = popup:CreateTexture(nil, "ARTWORK")
+		listRules[i] = tex
+	end
+	tex:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.55)
+	tex:ClearAllPoints()
+	tex:SetPoint("TOPLEFT", popup, "TOPLEFT", x, -y)
+	tex:SetSize(span, 2)
+	tex:Show()
+end
+
 -- One tile size: icon centered above the name.
 local TILE_W, TILE_H, TILE_ICON, TILE_GAP = 116, 82, 40, 8
 local LIST_ICON = math.floor(TILE_ICON * 0.6 * 1.1 + 0.5)
@@ -1470,9 +1632,9 @@ local function anchorPopup(point)
 	end
 end
 
--- Three bands of the same button. Tradeskills on the first row, the game
--- menu at five a row, then the minimap buttons. A line sits between bands.
-local function layoutList(menu, buttons, profs)
+-- Tradeskills, the game menu, the minimap buttons, then Addons. A line sits
+-- between bands.
+local function layoutList(menu, buttons, profs, addons)
 	local PAD, HEAD = 10, 20
 	local COLS = 5
 
@@ -1498,20 +1660,30 @@ local function layoutList(menu, buttons, profs)
 		if type(w) ~= "number" or w < 8 or w > 80 then w = 31 end
 		miniSlot = math.max(miniSlot, math.ceil(w * MINI) + 8)
 	end
-	local miniCols, miniRows = #buttons, (#buttons > 0 and 1 or 0)
-	if #buttons > 0 then
+	local function measure(n)
+		if n <= 0 then return 0, 0, 0 end
 		local fit = math.max(1, math.floor((width - PAD * 2) / miniSlot))
-		if #buttons > fit then
-			miniRows = 2
-			miniCols = math.ceil(#buttons / 2)
+		local cols, rows
+		if n > fit then
+			rows = 2
+			cols = math.ceil(n / 2)
+		else
+			rows = 1
+			cols = n
 		end
+		return cols, rows, cols * miniSlot + PAD * 2
 	end
-	local rowW = miniCols * miniSlot + PAD * 2
+	local miniCols, miniRows, rowW = measure(#buttons)
+	local addonCols, addonRows, addonW = measure(#addons)
 	if rowW > width then width = rowW end
+	if addonW > width then width = addonW end
+	miniCols, miniRows, rowW = measure(#buttons)
+	addonCols, addonRows, addonW = measure(#addons)
 	local btnBlock = miniRows > 0 and (HEAD + 4 + miniRows * miniSlot) or 0
+	local addonBlock = addonRows > 0 and (HEAD + 4 + addonRows * miniSlot) or 0
 
 	local y = PAD
-	local profY, menuY, miniY
+	local profY, menuY, miniY, addonY
 	local rules, seen = {}, false
 	local function split()
 		y = y + 8
@@ -1533,6 +1705,12 @@ local function layoutList(menu, buttons, profs)
 		if seen then split() end
 		miniY = y
 		y = y + btnBlock
+		seen = true
+	end
+	if #addons > 0 then
+		if seen then split() end
+		addonY = y
+		y = y + addonBlock
 	end
 	local height = y + PAD
 	if height < 48 then height = 48 end
@@ -1585,57 +1763,49 @@ local function layoutList(menu, buttons, profs)
 			putTile(b, menuY, i, #menu, 12)
 		end
 	end
-	popup.rule:Hide()
-	popup.rule2:Hide()
-	local ruleTex = { popup.rule, popup.rule2 }
+	hideRules()
 	local span = math.max(8, width - PAD * 2)
 	for i, ry in ipairs(rules) do
-		local tex = ruleTex[i]
-		if tex then
-			tex:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.55)
-			tex:ClearAllPoints()
-			tex:SetPoint("TOPLEFT", popup, "TOPLEFT", PAD, -ry)
-			tex:SetSize(span, 2)
-			tex:Show()
+		showRule(i, PAD, ry, span)
+	end
+	local function putIcons(list, originY, cols)
+		local gridY = originY + HEAD + 2
+		local contentW = width - PAD * 2
+		for i, frame in ipairs(list) do
+			local col = (i - 1) % cols
+			local row = math.floor((i - 1) / cols)
+			local inRow = math.min(cols, #list - row * cols)
+			local originX = PAD + math.floor((contentW - inRow * miniSlot) / 2)
+			local x = originX + col * miniSlot
+			local iy = gridY + row * miniSlot
+			if frame.zydeCompartment then
+				placeAddon(frame, x, iy, MINI)
+			else
+				placeCenter(frame, x, iy, "TOPLEFT", MINI)
+			end
 		end
 	end
 	if miniY then
 		head("Minimap buttons", PAD, miniY)
-		local gridY = miniY + HEAD + 2
-		local contentW = width - PAD * 2
-		for i, frame in ipairs(buttons) do
-			local col = (i - 1) % miniCols
-			local row = math.floor((i - 1) / miniCols)
-			local inRow = math.min(miniCols, #buttons - row * miniCols)
-			local originX = PAD + math.floor((contentW - inRow * miniSlot) / 2)
-			if frame.zydeCompartment then
-				local side = math.floor(31 * MINI)
-				frame:SetParent(popup)
-				frame:SetScale(1)
-				frame:SetSize(side, side)
-				frame:ClearAllPoints()
-				frame:SetPoint("TOPLEFT", popup, "TOPLEFT", originX + col * miniSlot + math.floor((miniSlot - side) / 2), -(gridY + row * miniSlot))
-				frame:SetFrameStrata(popup:GetFrameStrata() or "DIALOG")
-				frame:SetFrameLevel((popup:GetFrameLevel() or 1) + 8)
-				frame:Show()
-			else
-				placeCenter(frame, originX + col * miniSlot, gridY + row * miniSlot, "TOPLEFT", MINI)
-			end
-		end
+		putIcons(buttons, miniY, miniCols)
+	end
+	if addonY then
+		head("Other Addons", PAD, addonY)
+		putIcons(addons, addonY, addonCols)
 	end
 	anchorPopup("CENTER")
 end
 
 layoutPopup = function()
 	local menu = menuButtons()
-	local list = gathered()
+	local buttons = uniqueButtons(sorted())
+	local addons = compartmentButtons()
 	local profs = orderedProfessions()
 	hideProxies()
 	hideProfButtons()
 	hideHeaders()
-	popup.rule:Hide()
-	popup.rule2:Hide()
-	layoutList(menu, list, profs)
+	hideRules()
+	layoutList(menu, buttons, profs, addons)
 end
 
 local function showPopup()
@@ -1654,8 +1824,7 @@ end
 
 popup:SetScript("OnHide", function()
 	catcher:Hide()
-	popup.rule:Hide()
-	popup.rule2:Hide()
+	hideRules()
 	hideHeaders()
 	hideProxies()
 	hideProfButtons()
