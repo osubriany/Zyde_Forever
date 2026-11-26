@@ -421,31 +421,30 @@ local sealName, sealUntil = nil, 0
 local crusaderOn = {} -- [target GUID] = when your Judgement of the Crusader on it runs out
 
 -- Your seal now and the seconds it has left (nil when there's none).
+-- (Reads your buffs through the shared ns.PlayerBuffs, as the seal reminder does. A seal buff with
+-- no expiry time given counts as up with its time unknown - it used to fall back to an old cast
+-- time, which had run out, so the seal glowed blue all fight while it was on.)
 local function currentSeal()
-	local hidden = false
-	for i = 1, 40 do
-		local name, exp, raw
-		if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
-			local aura = ns.safe(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
-			if not aura then break end
-			raw, exp = aura.name, plain(aura.expirationTime)
-		elseif UnitBuff then
-			local n, _, _, _, _, e = UnitBuff("player", i)
-			if not isSecret(n) and n == nil then break end
-			raw, exp = n, plain(e)
-		else
-			break
+	local now = GetTime()
+	local buffs = ns.PlayerBuffs and ns.PlayerBuffs()
+	if buffs then
+		for _, a in ipairs(buffs.list or {}) do
+			local name = a.name
+			if type(name) == "string" and name:find("^Seal of") then
+				local exp = a.expirationTime
+				if type(exp) == "number" and exp > now then
+					sealName, sealUntil = name, exp
+					return name, exp - now
+				end
+				-- time not given: your own cast of this seal, if it's still within 30 s
+				if sealName == name and sealUntil > now then return name, sealUntil - now end
+				return name, nil
+			end
 		end
-		if isSecret(raw) then hidden = true end
-		name = plain(raw)
-		if type(name) == "string" and name:find("^Seal of") then
-			if exp and exp > 0 then sealName, sealUntil = name, exp
-			elseif sealName ~= name then sealName, sealUntil = name, GetTime() + SEAL_TIME end
-			return name, sealUntil - GetTime()
-		end
+		if not buffs.hidden then sealName, sealUntil = nil, 0 return nil end
 	end
-	if not hidden then sealName, sealUntil = nil, 0 return nil end
-	if sealName and sealUntil > GetTime() then return sealName, sealUntil - GetTime() end
+	-- Buffs hidden: go by your own seal casts.
+	if sealName and sealUntil > now then return sealName, sealUntil - now end
 	return nil
 end
 
