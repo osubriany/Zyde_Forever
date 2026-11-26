@@ -552,11 +552,15 @@ local function placeSun()
 	placingSun = false
 end
 
--- The tracking (magnifier) and calendar buttons come with their own square
--- brown and orange frames. Here they become small round badges in the map's
--- look: the frame art goes, the icon is muted a little and sits on a dark
--- disc with a thin ring in the map's ring color, and brightens on hover.
-local BADGE_SIZE = 26
+-- The tracking (magnifier) and calendar buttons: each button's picture has
+-- its square brown or orange backing drawn into it, so it can't be trimmed.
+-- Their pictures are hidden and a round badge is drawn over each instead,
+-- in the map's look: a dark disc with a thin ring in the ring's color.
+--   tracking: what you're tracking (Find Herbs...), cut round
+--   calendar: today's date in gold
+-- The buttons themselves stay and click as before; the badge brightens on hover.
+local BADGE_SIZE = 24
+local TRACK_FALLBACK = "Interface\\Icons\\INV_Misc_Spyglass_03"
 local function ringColor()
 	if lookKey() == "gilded" then return 1, 0.78, 0.25 end
 	return 0.55, 0.55, 0.58
@@ -574,59 +578,92 @@ local function eachTexture(f, fn, depth)
 	end
 end
 
--- Frame art, not the icon: the border and background pieces by name or file.
-local function isFrameArt(t)
-	local name = t.GetName and t:GetName() or ""
-	local file = t.GetTexture and t:GetTexture()
-	local atlas = t.GetAtlas and t:GetAtlas()
-	local text = (type(name) == "string" and name or "") .. " " .. (type(file) == "string" and file or "")
-		.. " " .. (type(atlas) == "string" and atlas or "")
-	text = text:lower()
-	return text:find("border", 1, true) or text:find("background", 1, true) or text:find("ring", 1, true)
-		or text:find("shadow", 1, true)
+local function hideFonts(f, depth)
+	depth = depth or 0
+	for _, r in ipairs({ f:GetRegions() }) do
+		if r.GetObjectType and r:GetObjectType() == "FontString" and not r.zydeBadge then r:SetAlpha(0) end
+	end
+	if depth < 2 and f.GetChildren then
+		for _, c in ipairs({ f:GetChildren() }) do
+			if not c.zydeBadgeFrame then hideFonts(c, depth + 1) end
+		end
+	end
 end
 
-local function badge(f)
+local function trackingIcon()
+	local tex = GetTrackingTexture and GetTrackingTexture()
+	if tex and not isSecret(tex) and tex ~= "" and tex ~= 0 then return tex end
+	return TRACK_FALLBACK
+end
+
+local function paintBadge(b, hover)
+	local r, g, bl = ringColor()
+	b.ring:SetVertexColor(r, g, bl, hover and 1 or 0.85)
+	if b.icon then b.icon:SetVertexColor(hover and 1 or 0.85, hover and 1 or 0.82, hover and 1 or 0.76) end
+	if b.day then
+		if hover then b.day:SetTextColor(1, 0.9, 0.5) else b.day:SetTextColor(1, 0.82, 0.2) end
+	end
+end
+
+local function badge(f, kind)
 	if not canMove(f) then return end
-	if not f.zydeBadge then
+	local b = f.zydeBadge
+	if not b then
 		local holder = CreateFrame("Frame", nil, f)
 		holder.zydeBadgeFrame = true
 		holder:SetPoint("CENTER")
 		holder:SetSize(BADGE_SIZE, BADGE_SIZE)
-		holder:SetFrameLevel(math.max(0, (f:GetFrameLevel() or 1) - 1))
+		holder:SetFrameLevel((f:GetFrameLevel() or 1) + 6)
 		holder:EnableMouse(false)
-		local ringTex = holder:CreateTexture(nil, "BACKGROUND", nil, -8)
-		ringTex.zydeBadge = true
-		ringTex:SetAllPoints()
-		local disc = holder:CreateTexture(nil, "BACKGROUND", nil, -7)
-		disc.zydeBadge = true
-		disc:SetPoint("CENTER")
-		disc:SetSize(BADGE_SIZE - 3, BADGE_SIZE - 3)
-		for _, t in ipairs({ ringTex, disc }) do
+		b = { holder = holder }
+		local function round(layer, sub, size)
+			local t = holder:CreateTexture(nil, layer, nil, sub)
+			t.zydeBadge = true
+			t:SetPoint("CENTER")
+			t:SetSize(size, size)
 			if not t:SetTexture(CIRCLE) then t:SetTexture(CIRCLE_FALLBACK) end
+			return t
 		end
-		disc:SetVertexColor(0.05, 0.05, 0.06, 0.92)
-		f.zydeBadge = { ring = ringTex, holder = holder }
-		if f.HookScript then
-			f:HookScript("OnEnter", function(self)
-				if on() and self.zydeBadge then eachTexture(self, function(t) if not isFrameArt(t) then t:SetVertexColor(1, 1, 1) end end) end
-			end)
-			f:HookScript("OnLeave", function(self)
-				if on() and self.zydeBadge then eachTexture(self, function(t) if not isFrameArt(t) then t:SetVertexColor(0.85, 0.82, 0.76) end end) end
-			end)
+		b.ring = round("BACKGROUND", 0, BADGE_SIZE)
+		b.disc = round("BACKGROUND", 1, BADGE_SIZE - 3)
+		b.disc:SetVertexColor(0.05, 0.05, 0.06, 0.94)
+		if kind == "tracking" then
+			b.icon = holder:CreateTexture(nil, "ARTWORK")
+			b.icon.zydeBadge = true
+			b.icon:SetPoint("CENTER")
+			b.icon:SetSize(BADGE_SIZE - 7, BADGE_SIZE - 7)
+			local m = holder:CreateMaskTexture()
+			m:SetTexture(CIRCLE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+			m:SetAllPoints(b.icon)
+			b.icon:AddMaskTexture(m)
+		else
+			b.day = holder:CreateFontString(nil, "OVERLAY")
+			b.day.zydeBadge = true
+			font(b.day, 11)
+			b.day:SetPoint("CENTER", 0, 0)
+		end
+		f.zydeBadge = b
+		-- Hover: the frame or its inner button, whichever takes the mouse.
+		local targets = { f }
+		for _, c in ipairs({ f:GetChildren() }) do
+			if c.IsMouseEnabled and c:IsMouseEnabled() then targets[#targets + 1] = c end
+		end
+		for _, t in ipairs(targets) do
+			if t.HookScript then
+				t:HookScript("OnEnter", function() if on() then paintBadge(b, true) end end)
+				t:HookScript("OnLeave", function() if on() then paintBadge(b, false) end end)
+			end
 		end
 	end
-	local r, g, b = ringColor()
-	f.zydeBadge.ring:SetVertexColor(r, g, b, 0.9)
-	-- (again each layout: the game can put its art back)
-	eachTexture(f, function(t)
-		if isFrameArt(t) then
-			t:SetAlpha(0)
-		else
-			if t.SetDesaturated then t:SetDesaturated(false) end
-			t:SetVertexColor(0.85, 0.82, 0.76)
-		end
-	end)
+	-- (again each layout: the game can put its pictures back)
+	eachTexture(f, function(t) t:SetAlpha(0) end)
+	if kind ~= "tracking" then hideFonts(f) end
+	if b.icon then b.icon:SetTexture(trackingIcon()) b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
+	if b.day then
+		local d = date("*t")
+		b.day:SetText(d and d.day or "")
+	end
+	paintBadge(b, false)
 end
 
 local function layoutHeader()
@@ -639,8 +676,8 @@ local function layoutHeader()
 	placeMail()
 	placeHeader(headerSides(), true, 3)
 	placingHeader = false
-	badge((MinimapCluster and MinimapCluster.Tracking) or MiniMapTracking)
-	badge(GameTimeFrame)
+	badge((MinimapCluster and MinimapCluster.Tracking) or MiniMapTracking, "tracking")
+	badge(GameTimeFrame, "calendar")
 end
 
 local mover = MinimapCluster or Minimap
@@ -966,6 +1003,15 @@ do
 	-- (a moment later: the mail icon shows or hides on the same event)
 	mev:SetScript("OnEvent", function() C_Timer.After(0.2, update) end)
 	ns.OnFeatureChanged(function(key) if key == "minimap" then update() end end)
+end
+
+do
+	local tev = CreateFrame("Frame")
+	pcall(tev.RegisterEvent, tev, "MINIMAP_UPDATE_TRACKING")
+	tev:SetScript("OnEvent", function()
+		if not on() or InCombatLockdown() then return end
+		badge((MinimapCluster and MinimapCluster.Tracking) or MiniMapTracking, "tracking")
+	end)
 end
 
 ns.MinimapLook = {
