@@ -113,3 +113,12 @@ Seeds.transports = {
 }
 
 Seeds.DEEPRUN_TRAM_AREA = 2257
+
+-- Flight masters Questie doesn't list (Forever's own zones), so the plan can send you to learn
+-- their flight path. Which flights you can take still comes from your own flight map (Learn.lua);
+-- `links` is a note only.
+Seeds.flightMasters = {
+	-- (seen in game 2026-11-26, standing at the flight master: links to Stonard and Hammerfall, maybe more)
+	{ name = "Grakna", faction = "Horde", map = RIVERGLADES, x = 59.6, y = 45.1, place = "Rog'mar, Riverglades",
+		links = { "Stonard", "Hammerfall" } },
+}

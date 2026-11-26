@@ -28,11 +28,13 @@ local pending = false   -- changed during combat; apply when it ends
 local function buildMacro(plan)
 	local names, seen = {}, {}
 	for _, s in ipairs(plan and plan.stops or {}) do
-		if NPC_KINDS[s.kind] and type(s.npcIds) == "table" then
-			for _, id in ipairs(s.npcIds) do
+		if NPC_KINDS[s.kind] and (type(s.npcIds) == "table" or s.npcName) then
+			for _, id in ipairs(s.npcIds or {}) do
 				local name = ns.QuestSource.Npc(id, "name")
 				if name and not seen[name] then seen[name] = true names[#names + 1] = name end
 			end
+			-- (an NPC Questie doesn't have, like a seeded flight master: by its name)
+			if #names == 0 and s.npcName then names[1] = s.npcName end
 			break
 		end
 	end

@@ -505,7 +505,23 @@ end
 
 -- Flight masters friendly to you, with a placeable position (see Places.lua). Call inside a job.
 function QS.FlightMasters()
-	return ns.Places.List("Flight Master")
+	local list = ns.Places.List("Flight Master")
+	-- plus the ones Questie doesn't have (Travel/Seeds.lua), unless it lists one there after all
+	local seeds = ns.TravelSeeds and ns.TravelSeeds.flightMasters
+	if not seeds or #seeds == 0 then return list end
+	local faction = UnitFactionGroup and UnitFactionGroup("player")
+	local out = {}
+	for i, fm in ipairs(list) do out[i] = fm end
+	for _, s in ipairs(seeds) do
+		local p = (not s.faction or s.faction == faction) and ns.Geo.PointOnMap(s.map, s.x, s.y)
+		local dup = false
+		for _, fm in ipairs(p and list or {}) do
+			local d = ns.Geo.Distance(fm.point, p)
+			if d and d <= 150 then dup = true break end
+		end
+		if p and not dup then out[#out + 1] = { id = "seed:" .. s.name, name = s.name, point = p, seed = true } end
+	end
+	return out
 end
 
 function QS.ChainRequires(id, inRoute, complete, log)

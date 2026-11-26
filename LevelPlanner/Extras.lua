@@ -263,7 +263,9 @@ function X.OptionalStops(route, ctx)
 			local id = "fp:" .. fm.id
 			if fm.point.inst == ctx.start.inst and not ns.Travel.KnownTaxiNear(fm.point, 150) then
 				local q = oneStopQuest(id, "flightpath", "Flight path (" .. fm.name .. ")",
-					string.format("Learn the flight path at %s (%s)", zoneName(fm.point), fm.name), { fm.point }, 20, { npcIds = { fm.id } })
+					string.format("Learn the flight path at %s (%s)", zoneName(fm.point), fm.name), { fm.point }, 20,
+					-- (a seeded one has no Questie NPC id: the target key goes by its name)
+					{ npcIds = type(fm.id) == "number" and { fm.id } or nil, npcName = fm.name })
 				out[#out + 1] = { quest = q, worth = cfg.flightPathValueMinutes or 8, maxDetour = cfg.flightPathMaxDetourMinutes or 4 }
 			end
 		end
