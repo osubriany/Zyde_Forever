@@ -578,6 +578,50 @@ local function cvarText(name)
 	local v = GetCVar and ns.safe(GetCVar, name)
 	return name .. "=" .. tostring(plain(v))
 end
+-- Action Targeting (SoftTargetForce=1) ties your target to the enemy in front of you and
+-- undoes the key's /target straight away (/zyde mobsdebug showed every press ending on nothing).
+-- So a press switches SoftTargetForce off just before the macro runs, and it's put back once the
+-- quest mob you got is dead or you've moved off it. (Also put back after a reload or log-in.)
+local heldGUID
+local function setForce(v)
+	if C_CVar and C_CVar.SetCVar then return pcall(C_CVar.SetCVar, "SoftTargetForce", tostring(v)) end
+end
+local function releaseForce()
+	local saved = db().softForceSaved
+	if saved ~= nil then setForce(saved) end
+	db().softForceSaved = nil
+	heldGUID = nil
+end
+local function holdCheck()
+	if db().softForceSaved == nil then return end
+	local alive = plain(UnitExists("target")) and plain(UnitIsDead("target")) ~= true
+	local guid = plain(UnitGUID("target"))
+	if not alive or (heldGUID and guid and guid ~= heldGUID) then releaseForce() end
+end
+targetButton:HookScript("PreClick", function()
+	local force = GetCVar and tonumber(plain(ns.safe(GetCVar, "SoftTargetForce")))
+	if force and force ~= 0 and db().softForceSaved == nil then
+		db().softForceSaved = force
+		setForce(0)
+	end
+end)
+targetButton:HookScript("PostClick", function()
+	if db().softForceSaved == nil then return end
+	heldGUID = plain(UnitGUID("target"))
+	if not heldGUID then releaseForce() end -- (nothing found: Action Targeting back on)
+end)
+local holdEv = CreateFrame("Frame")
+holdEv:RegisterEvent("PLAYER_TARGET_CHANGED")
+holdEv:RegisterEvent("PLAYER_ENTERING_WORLD")
+holdEv:SetScript("OnEvent", function(_, event)
+	if event == "PLAYER_ENTERING_WORLD" then
+		if not heldGUID and db().softForceSaved ~= nil then releaseForce() end
+		return
+	end
+	C_Timer.After(0, holdCheck)
+end)
+C_Timer.NewTicker(1, holdCheck) -- (the quest mob dying doesn't change your target)
+
 targetButton:HookScript("PreClick", function()
 	presses[#presses + 1] = { at = GetTime(), before = describeTarget(), combat = InCombatLockdown(),
 		lines = select(2, (targetButton:GetAttribute("macrotext") or ""):gsub("\n", "\n")) }
