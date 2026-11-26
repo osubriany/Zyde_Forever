@@ -357,18 +357,38 @@ local function verdict(r)
 	if r == true or r == 1 then return true end
 	return nil
 end
+local SHOTS = { "Auto Shot", "Arcane Shot", "Serpent Sting", "Concussive Shot", "Multi-Shot", "Aimed Shot" }
+local rangeOf -- (below: the plain range answer, used for the shots here)
+
+-- A hunter's shots don't work inside about 8 yards: when one of them says the target is in
+-- reach, you're not in melee.
+local function shotInReach()
+	for _, name in ipairs(SHOTS) do
+		local e = byName[name]
+		if e and rangeOf(e) == true then return true end
+	end
+	return false
+end
+
 local function inRange(entry, spell)
-	local v
-	local a = entry.button and actionOf(entry.button)
-	if a and IsActionInRange then v = verdict(safe(IsActionInRange, a)) end
-	if v == nil and C_Spell and C_Spell.IsSpellInRange then v = verdict(safe(C_Spell.IsSpellInRange, entry.id, "target")) end
-	if v == nil and IsSpellInRange then v = verdict(safe(IsSpellInRange, spellName(entry.id) or "", "target")) end
+	if spell and spell.melee and playerClass == "HUNTER" and shotInReach() then return false end
+	local v = rangeOf(entry)
 	if v ~= nil then return v end
 	if spell and spell.melee then
 		local near = verdict(safe(CheckInteractDistance, "target", 3))
 		return near == true
 	end
 	return true
+end
+
+-- The game's own range answer for this button / spell: true, false or nil (it won't say).
+function rangeOf(entry)
+	local v
+	local a = entry.button and actionOf(entry.button)
+	if a and IsActionInRange then v = verdict(safe(IsActionInRange, a)) end
+	if v == nil and C_Spell and C_Spell.IsSpellInRange then v = verdict(safe(C_Spell.IsSpellInRange, entry.id, "target")) end
+	if v == nil and IsSpellInRange then v = verdict(safe(IsSpellInRange, spellName(entry.id) or "", "target")) end
+	return v
 end
 
 ---------------------------------------------------------------------------
@@ -744,8 +764,10 @@ function ns.RotationDebug()
 		local e = byName[spell.name]
 		if e then
 			local f = facts[e.id]
-			print(("  %s: %s"):format(spell.name, f and ("hit %.0f, dot %.0f/%ss, cd %ss, cast %ss, cost %s"):format(
-				f.direct, f.dot, f.dotDur, f.cd, f.cast, f.cost) or "no tooltip numbers"))
+			print(("  %s: %s; range: game says %s, counted %s"):format(spell.name,
+				f and ("hit %.0f, dot %.0f/%ss, cd %ss, cast %ss, cost %s"):format(
+				f.direct, f.dot, f.dotDur, f.cd, f.cast, f.cost) or "no tooltip numbers",
+				tostring(rangeOf(e)), inRange(e, spell) and "in reach" or "OUT of reach"))
 		end
 	end
 end
