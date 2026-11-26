@@ -696,13 +696,18 @@ function View:Button(i)
 	-- Left clicks pass through to this button, which still picks up and drops.
 	local use = CreateFrame("Button", nil, UIParent, "SecureActionButtonTemplate")
 	use:SetSize(S, S)
-	use:SetFrameStrata("HIGH")
-	use:SetFrameLevel(40)
-	use:RegisterForClicks("RightButtonUp")
-	use:Hide()
-	use.owner = b
+	-- The bag window is HIGH and toplevel, and its item buttons sit above that.
+	-- A HIGH button under them never sees the click. DIALOG is above the window.
+	use:SetFrameStrata("DIALOG")
+	use:SetFrameLevel(100)
+	use:RegisterForClicks("RightButtonDown", "RightButtonUp")
+	use:EnableMouse(true)
+	if use.SetMouseClickEnabled then use:SetMouseClickEnabled(true) end
+	-- Motion falls through so the slot underneath still shows its tooltip.
 	if use.SetMouseMotionEnabled then use:SetMouseMotionEnabled(false) end
 	if use.SetPassThroughButtons then use:SetPassThroughButtons("LeftButton", "MiddleButton") end
+	use:Hide()
+	use.owner = b
 	b.use = use
 	local origClick = b:GetScript("OnClick")
 	if origClick then
@@ -791,9 +796,15 @@ local function placeUse(b, active)
 	local key = bag .. " " .. slot
 	if use.itemKey ~= key then
 		use.itemKey = key
+		-- Right click reads type2 / item2. The bare names cover an unmodified click.
 		use:SetAttribute("type", "item")
 		use:SetAttribute("item", key)
+		use:SetAttribute("type2", "item")
+		use:SetAttribute("item2", key)
+		use:SetAttribute("*type2", "item")
+		use:SetAttribute("*item2", key)
 	end
+	if use:GetFrameStrata() ~= "DIALOG" then use:SetFrameStrata("DIALOG") end
 	use:Show()
 end
 local function refreshUses()
