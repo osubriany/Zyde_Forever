@@ -276,24 +276,35 @@ end
 
 runner:Hide()
 runner:SetScript("OnUpdate", function(self, elapsed)
-	if not job then self:Hide() return end
-	if InCombatLockdown() or UnitOnTaxi("player") then return end -- no planning work during fights or flights
+	if not job then self:Hide() self.lastSlice = nil return end
+	-- (no slice this frame: the next frame's time is all the game's own)
+	if InCombatLockdown() or UnitOnTaxi("player") then self.lastSlice = nil return end -- no planning work during fights or flights
 	local _, instanceType = IsInInstance()
-	if instanceType == "party" or instanceType == "raid" then return end -- the plan waits until you leave the dungeon
+	if instanceType == "party" or instanceType == "raid" then self.lastSlice = nil return end -- the plan waits until you leave the dungeon
 	jobSeconds = jobSeconds + (elapsed or 0)
 	local limit = ns.cfg.planTimeoutSeconds or 45
 	if jobName == "plan" and jobSeconds > limit and not (ns.quickPlanUntil and GetTime() < ns.quickPlanUntil) then
 		jobFailed(self, string.format("planning took over %d s - switching to the quicker search for a while", limit), true)
 		return
 	end
-	-- a high frame rate has room to spare: use more of each frame (Config.frameBudgetFastMs) so a
-	-- re-plan lands sooner; at a low one, the usual small slice (Config.frameBudgetMs)
+	-- a high frame rate has room to spare: use more of each frame so a re-plan lands sooner - above
+	-- 90 fps Config.frameBudgetFasterMs, above 50 Config.frameBudgetFastMs; at a low one, the usual
+	-- small slice (Config.frameBudgetMs). The frame rate is the game's own: the last frame's time
+	-- without the planning slice in it (or the bigger slice would read as a slow machine).
 	local base = ns.cfg.frameBudgetMs or 4
-	frameBudget = (elapsed or 1) < 1 / 50 and math.max(base, ns.cfg.frameBudgetFastMs or 8) or base
+	local game = (elapsed or 1) * 1000 - (self.lastSlice or 0)
+	if game < 1000 / 90 then
+		frameBudget = math.max(base, ns.cfg.frameBudgetFasterMs or 14)
+	elseif game < 1000 / 50 then
+		frameBudget = math.max(base, ns.cfg.frameBudgetFastMs or 8)
+	else
+		frameBudget = base
+	end
 	frameStart = debugprofilestop()
 	local co = job
 	local ok, result = coroutine.resume(co)
-	jobCpu = jobCpu + (debugprofilestop() - frameStart)
+	self.lastSlice = debugprofilestop() - frameStart
+	jobCpu = jobCpu + self.lastSlice
 	if not ok then
 		local stack = debugstack and select(2, pcall(debugstack, co, 1, 4, 0))
 		jobFailed(self, "planning error in " .. tostring(jobName) .. ": " .. tostring(result)
@@ -575,8 +586,17 @@ local function onQuestieReady()
 			local R = Questie.API.Enums and Questie.API.Enums.QuestUpdateTriggerReason
 			-- the step you just finished leaves the list at once; the re-plan refines it a moment later
 			ns.safe(ns.DropFinished, questId, objectiveIndex, reason, R)
+			local progress = R and reason == R.QUEST_UPDATED
+			-- a count ticking (3/10 -> 4/10) only refreshes the shown counts (above): the plan changes
+			-- when an objective is finished, a quest is taken / turned in / abandoned, or at the regular
+			-- refresh. (Config.replanOnProgress = true: re-plan on every tick, as before.)
+			if progress and objectiveIndex and ns.cfg.replanOnProgress ~= true then
+				local entry = ns.Q.QuestLogCache and ns.safe(ns.Q.QuestLogCache.TryGetQuest, questId)
+				local o = entry and entry.objectives and entry.objectives[objectiveIndex]
+				if o and not o.finished then return end
+			end
 			-- progress only needs a re-plan; accept / turn-in / abandon change which quests are available
-			ns.RequestReplan(not (R and reason == R.QUEST_UPDATED), ns.cfg.replanDelayQuest or 0.3)
+			ns.RequestReplan(not progress, ns.cfg.replanDelayQuest or 0.3)
 		end)
 	end
 	events:RegisterEvent("PLAYER_LEVEL_UP")

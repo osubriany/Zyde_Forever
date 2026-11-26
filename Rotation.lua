@@ -84,13 +84,13 @@ local CLASSES = {
 		{ name = "Sinister Strike", kind = "builder" },
 	},
 	HUNTER = {
-		{ name = "Mongoose Bite", kind = "reactive", needUsable = true },
-		{ name = "Multi-Shot", kind = "direct", aoe = { 2, 3 } },
+		{ name = "Mongoose Bite", kind = "reactive", needUsable = true, melee = true },
+		{ name = "Multi-Shot", kind = "direct", aoe = { 1, 3 }, rangedWeapon = true }, -- (worth it on one target too)
 		{ name = "Volley", kind = "direct", aoe = { 3, 10 } },
 		{ name = "Serpent Sting", kind = "dot" },
-		{ name = "Aimed Shot", kind = "direct" },
+		{ name = "Aimed Shot", kind = "direct", rangedWeapon = true },
 		{ name = "Arcane Shot", kind = "direct" },
-		{ name = "Raptor Strike", kind = "filler" },
+		{ name = "Raptor Strike", kind = "filler", melee = true, meleeWeapon = true },
 	},
 	PALADIN = {
 		-- Seals and Judgement are chosen by paladinPick (below), ahead of the scored list.
@@ -233,12 +233,14 @@ local function parseFacts(id)
 			if rest ~= " over" then f.direct = num(d) or 0 break end
 		end
 		if f.direct == 0 then
-			local d = text:match("additional (%d+)")
+			-- "an additional 120", "increases ranged damage by 70" (Aimed Shot), "damage by 45"
+			local d = text:match("additional (%d+)") or text:match("damage by (%d+)")
 			if d and not (dotDmg and num(d) == f.dot) then f.direct = num(d) or 0 end
 		end
 	end
 	-- Weapon strikes ("weapon damage plus 40"): add your average swing.
 	if text:find("weapon damage", 1, true) then
+		f.weapon = true
 		local mn, mx = UnitDamage("player")
 		mn, mx = plain(mn), plain(mx)
 		if mn and mx then f.direct = f.direct + (mn + mx) / 2 end
@@ -260,7 +262,16 @@ end
 ---------------------------------------------------------------------------
 local lastCast = {} -- [spell name] = GetTime() of your last cast
 local dots = {}     -- [target GUID] = { [spell name] = time it runs out }
-local fightStart, samples = nil, {} -- your target's health over time (when the game shows it)
+local samples = {}    -- your target's health over time (when the game shows it)
+local engagedAt = {}  -- [mob GUID] = when you started fighting it
+-- Your kill times: ZydeForeverDB.killTimes[character][kind] = { n, mean seconds }.
+local function killStats()
+	ZydeForeverDB = ZydeForeverDB or {}
+	ZydeForeverDB.killTimes = ZydeForeverDB.killTimes or {}
+	local me = (UnitName("player") or "?") .. "-" .. (GetRealmName and GetRealmName() or "")
+	ZydeForeverDB.killTimes[me] = ZydeForeverDB.killTimes[me] or {}
+	return ZydeForeverDB.killTimes[me]
+end
 
 local function cooldownLeft(name, f)
 	local entry = byName[name]
@@ -311,13 +322,45 @@ local function timeToKill()
 		local rate = (first[2] - share) / math.max(0.1, now - first[1])
 		if rate > 0.001 then return share / rate end
 	end
-	-- Hidden, or too early to tell: a guess from the mob's type, less the time already spent.
+	-- Hidden, or too early to tell: how long your kills of this kind of mob take (learned, below;
+	-- a guess until you've made a few), less the time already spent on THIS mob. (It used to count
+	-- from when you entered combat, so a fresh mob pulled mid-fight looked nearly dead: 3 s left,
+	-- and Serpent Sting wasn't worth casting.)
 	local class = plain(UnitClassification("target"))
-	local base = (class == "elite" or class == "rareelite") and 45 or (class == "worldboss" and 120 or 14)
+	local kind = (class == "elite" or class == "rareelite") and "elite" or (class == "worldboss" and "boss" or "normal")
+	local learned = killStats()[kind]
+	local base = (learned and learned.n >= 3) and learned.mean
+		or (kind == "elite" and 45 or (kind == "boss" and 120 or 14))
 	local helpers = plain(GetNumGroupMembers and GetNumGroupMembers()) or 0
-	if helpers > 1 then base = base / math.min(helpers, 5) * 1.5 end
-	local spent = fightStart and (now - fightStart) or 0
+	if helpers > 1 and not (learned and learned.n >= 3) then base = base / math.min(helpers, 5) * 1.5 end
+	local guid = plain(UnitGUID("target"))
+	local started = guid and engagedAt[guid]
+	local spent = started and (now - started) or 0
 	return math.max(3, base - spent)
+end
+
+-- Note when you start on a mob (it's fighting), and how long it took when it dies: a running
+-- mean per kind of mob (normal / elite / boss), kept per character.
+local recorded = {}
+local function watchTarget()
+	local guid = plain(UnitGUID("target"))
+	if not guid then return end
+	local now = GetTime()
+	if not engagedAt[guid] and plain(UnitAffectingCombat("target")) then engagedAt[guid] = now end
+	local started = engagedAt[guid]
+	if started and not recorded[guid] and plain(UnitIsDead("target")) == true then
+		recorded[guid] = true
+		local took = now - started
+		if took >= 2 and took <= 300 then
+			local class = plain(UnitClassification("target"))
+			local kind = (class == "elite" or class == "rareelite") and "elite" or (class == "worldboss" and "boss" or "normal")
+			local stats = killStats()
+			local s = stats[kind] or { n = 0, mean = took }
+			s.n = math.min(s.n + 1, 10) -- (the last ten or so: you get stronger as you level)
+			s.mean = s.mean + (took - s.mean) / s.n
+			stats[kind] = s
+		end
+	end
 end
 
 local function power()
@@ -347,12 +390,48 @@ local function usable(entry)
 	return plain(u)
 end
 
-local function inRange(entry)
-	local r = C_Spell and C_Spell.IsSpellInRange and safe(C_Spell.IsSpellInRange, entry.id, "target")
-	if r == nil and IsSpellInRange then r = safe(IsSpellInRange, spellName(entry.id) or "", "target") end
+-- In reach of your target? Asks the action button first (the game answers that for melee
+-- moves too), then the spell. A spell marked melee = true (a hunter's Raptor Strike) that
+-- nobody answers for is only in reach within about 10 yards. Unknown otherwise: allowed.
+-- (Before: a hidden or missing answer counted as in range, so Raptor Strike glowed at 30 yards.)
+local function verdict(r)
 	r = plain(r)
 	if r == false or r == 0 then return false end
+	if r == true or r == 1 then return true end
+	return nil
+end
+local SHOTS = { "Auto Shot", "Arcane Shot", "Serpent Sting", "Concussive Shot", "Multi-Shot", "Aimed Shot" }
+local rangeOf -- (below: the plain range answer, used for the shots here)
+
+-- A hunter's shots don't work inside about 8 yards: when one of them says the target is in
+-- reach, you're not in melee.
+local function shotInReach()
+	for _, name in ipairs(SHOTS) do
+		local e = byName[name]
+		if e and rangeOf(e) == true then return true end
+	end
+	return false
+end
+
+local function inRange(entry, spell)
+	if spell and spell.melee and playerClass == "HUNTER" and shotInReach() then return false end
+	local v = rangeOf(entry)
+	if v ~= nil then return v end
+	if spell and spell.melee then
+		local near = verdict(safe(CheckInteractDistance, "target", 3))
+		return near == true
+	end
 	return true
+end
+
+-- The game's own range answer for this button / spell: true, false or nil (it won't say).
+function rangeOf(entry)
+	local v
+	local a = entry.button and actionOf(entry.button)
+	if a and IsActionInRange then v = verdict(safe(IsActionInRange, a)) end
+	if v == nil and C_Spell and C_Spell.IsSpellInRange then v = verdict(safe(C_Spell.IsSpellInRange, entry.id, "target")) end
+	if v == nil and IsSpellInRange then v = verdict(safe(IsSpellInRange, spellName(entry.id) or "", "target")) end
+	return v
 end
 
 ---------------------------------------------------------------------------
@@ -361,7 +440,7 @@ end
 local function score(spell, entry, f, ctx, index)
 	if spell.form and spell.form ~= ctx.form then return nil end
 	if cooldownLeft(spell.name, f) > 0.3 then return nil end
-	if not inRange(entry) then return nil end
+	if not inRange(entry, spell) then return nil end
 	local u = usable(entry)
 	if u == false then return nil end
 	if spell.needUsable and u ~= true then return nil end
@@ -393,6 +472,19 @@ local function score(spell, entry, f, ctx, index)
 			end
 			dmg = v
 		end
+	end
+	-- Shots that fire your bow or gun (Multi-Shot, Aimed Shot): their bonus plus an average shot.
+	if spell.rangedWeapon and UnitRangedDamage then
+		local _, lo, hi = UnitRangedDamage("player")
+		lo, hi = plain(lo), plain(hi)
+		if lo and hi then dmg = dmg + (lo + hi) / 2 end
+	end
+	-- ...and a melee strike's (Raptor Strike: "increases melee damage by 45"), unless the
+	-- tooltip's "weapon damage" already added it
+	if spell.meleeWeapon and f and not f.weapon then
+		local lo, hi = UnitDamage("player")
+		lo, hi = plain(lo), plain(hi)
+		if lo and hi then dmg = dmg + (lo + hi) / 2 end
 	end
 	if dmg <= 0 then dmg = fallback end
 	if spell.aoe then
@@ -677,12 +769,14 @@ ev:SetScript("OnEvent", function(_, event, unit, _, spellID)
 		end
 		return
 	end
-	if event == "UNIT_HEALTH" then feedGates() return end
-	if event == "PLAYER_REGEN_DISABLED" then fightStart = GetTime() return end
+	if event == "UNIT_HEALTH" then feedGates() watchTarget() return end
+	if event == "PLAYER_REGEN_DISABLED" then return end
 	if event == "PLAYER_REGEN_ENABLED" then
-		fightStart = nil
+		watchTarget() -- (the last kill, before the fight's notes are cleared)
 		wipe(dots)
 		wipe(samples)
+		wipe(engagedAt)
+		wipe(recorded)
 	end
 	if event == "PLAYER_TARGET_CHANGED" then wipe(samples) feedGates() return end
 	if event == "SPELLS_CHANGED" or event == "PLAYER_EQUIPMENT_CHANGED" then wipe(facts) end
@@ -703,6 +797,7 @@ root:SetScript("OnUpdate", function(_, dt)
 	wait = wait + dt
 	if wait < 0.1 then return end
 	wait = 0
+	if on() then watchTarget() end
 	update()
 end)
 
@@ -717,6 +812,14 @@ function ns.RotationDebug()
 		tostring(pick), gatedPick and (" / under " .. math.floor(threshold * 100) .. "%: " .. gatedPick) or "",
 		enemyCount(), timeToKill(), targetShare() and (math.floor(targetShare() * 100) .. "%") or "hidden",
 		tostring(power()), tostring(comboPoints())))
+	local ks, parts = killStats(), {}
+	for _, kind in ipairs({ "normal", "elite", "boss" }) do
+		local s = ks[kind]
+		parts[#parts + 1] = kind .. " " .. (s and ("%.0fs (%d kills)"):format(s.mean, s.n) or "not learned yet")
+	end
+	local guid = plain(UnitGUID("target"))
+	print(P .. "your kill times: " .. table.concat(parts, ", ") .. ("   on this mob for %s"):format(
+		guid and engagedAt[guid] and ("%.0fs"):format(GetTime() - engagedAt[guid]) or "-"))
 	if playerClass == "PALADIN" then
 		local seal, left = currentSeal()
 		local tg = plain(UnitGUID("target"))
@@ -728,8 +831,10 @@ function ns.RotationDebug()
 		local e = byName[spell.name]
 		if e then
 			local f = facts[e.id]
-			print(("  %s: %s"):format(spell.name, f and ("hit %.0f, dot %.0f/%ss, cd %ss, cast %ss, cost %s"):format(
-				f.direct, f.dot, f.dotDur, f.cd, f.cast, f.cost) or "no tooltip numbers"))
+			print(("  %s: %s; range: game says %s, counted %s"):format(spell.name,
+				f and ("hit %.0f, dot %.0f/%ss, cd %ss, cast %ss, cost %s"):format(
+				f.direct, f.dot, f.dotDur, f.cd, f.cast, f.cost) or "no tooltip numbers",
+				tostring(rangeOf(e)), inRange(e, spell) and "in reach" or "OUT of reach"))
 		end
 	end
 end
