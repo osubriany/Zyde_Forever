@@ -553,6 +553,7 @@ function View:Holder(bag)
 	local h = CreateFrame("Frame", nil, self.win)
 	h:SetID(bag)
 	h:SetAllPoints()
+	h:SetFrameLevel((self.win:GetFrameLevel() or 1) + 2)
 	self.holders[bag] = h
 	return h
 end
@@ -776,6 +777,9 @@ function View:Layout()
 						used = used + 1
 						local b = self:Button(used)
 						b:SetParent(self:Holder(e.bag))
+						-- (a moved button keeps its old level: put it back above the window,
+						-- or it draws under the window's background, faded and unclickable)
+						b:SetFrameLevel((self.win:GetFrameLevel() or 1) + 4)
 						b:SetID(e.slot)
 						b.empty = e.empty
 						b.emptyTex, b.emptyCount, b.emptyOrdinary = e.tex, e.count, e.ordinary
@@ -1150,6 +1154,7 @@ local function buildBags()
 	toggle:SetScript("OnClick", function()
 		if InCombatLockdown() then return end
 		db().bagSlotsShown = not bagRowShown()
+		v.hoverBag = nil -- (hiding the row under the mouse skipped its OnLeave)
 		v:PlaceContent()
 		v:Layout()
 	end)
@@ -1267,6 +1272,7 @@ local function buildBags()
 		function() ns.OpenBankWindow() end)
 
 	win:SetScript("OnShow", function()
+		v.hoverBag = nil
 		v:Place()
 		paintKeys()
 		paintBagSlots()
