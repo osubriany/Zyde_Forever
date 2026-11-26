@@ -659,19 +659,10 @@ function View:Button(i)
 	b:SetSize(S, S)
 	b.cd = b.Cooldown or _G[name .. "Cooldown"]
 	b.countText = b.Count or _G[name .. "Count"]
-	local view = self
-	-- Hook, do not replace. The template's own click uses the item, picks it
-	-- up, and drops a cursor item or a split. Calling that from here taints
-	-- UseContainerItem and the game blocks it.
-	b:HookScript("OnClick", function(btn, mouse)
-		if btn.empty or mouse ~= "LeftButton" or not IsAltKeyDown() then return end
-		local info = C_Container.GetContainerItemInfo(btn:GetParent():GetID(), btn:GetID())
-		if info and not ns.isSecret(info) and not ns.isSecret(info.itemID) and info.itemID then
-			togglePerma(info.itemID)
-			for _, v in pairs(views) do v.dirty = true end
-			if not InCombatLockdown() then view:Layout() end
-		end
-	end)
+	-- Do not hook OnClick. On this client a click hook taints the button, and
+	-- the game then blocks UseContainerItem. Alt-click Perma is a post-hook
+	-- on the game's function, below, so the use itself stays the game's.
+	b.zydeBag = true
 	b:HookScript("OnEnter", function(btn)
 		if btn.empty then
 			GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
@@ -697,6 +688,29 @@ function View:Button(i)
 	end)
 	self.pool[i] = b
 	return b
+end
+
+-- After the game's click, not instead of it. hooksecurefunc does not taint
+-- UseContainerItem the way a button OnClick hook does.
+if hooksecurefunc then
+	local function afterBagClick(btn, mouse)
+		if not btn or not btn.zydeBag or btn.empty then return end
+		if mouse ~= "LeftButton" or not IsAltKeyDown() then return end
+		local parent = btn.GetParent and btn:GetParent()
+		if not parent or not parent.GetID then return end
+		local info = C_Container.GetContainerItemInfo(parent:GetID(), btn:GetID())
+		if ns.isSecret(info) or not info or ns.isSecret(info.itemID) or not info.itemID then return end
+		togglePerma(info.itemID)
+		for _, v in pairs(views) do
+			v.dirty = true
+			if v.win:IsShown() and not InCombatLockdown() then v:Layout() end
+		end
+	end
+	if type(ContainerFrameItemButton_OnClick) == "function" then
+		hooksecurefunc("ContainerFrameItemButton_OnClick", afterBagClick)
+	elseif ContainerFrameItemButtonMixin and type(ContainerFrameItemButtonMixin.OnClick) == "function" then
+		hooksecurefunc(ContainerFrameItemButtonMixin, "OnClick", afterBagClick)
+	end
 end
 
 function View:Label(i)
@@ -852,7 +866,6 @@ function View:Layout()
 		b:SetFrameLevel((self.win:GetFrameLevel() or 1) + 4)
 		b:SetID(reserve.slot)
 		b.bagID = reserve.bag
-		if b.SetBagID then pcall(b.SetBagID, b, reserve.bag) end
 		b.empty = true
 		b.emptyTex, b.emptyCount, b.emptyOrdinary = reserve.tex, reserve.count, reserve.ordinary
 		b.slots = nil
@@ -906,7 +919,6 @@ function View:Layout()
 						b:SetFrameLevel((self.win:GetFrameLevel() or 1) + 4)
 						b:SetID(e.slot)
 						b.bagID = e.bag
-						if b.SetBagID then pcall(b.SetBagID, b, e.bag) end
 						b.empty = e.empty
 						b.emptyTex, b.emptyCount, b.emptyOrdinary = e.tex, e.count, e.ordinary
 						b.slots = e.slots
