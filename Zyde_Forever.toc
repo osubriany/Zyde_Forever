@@ -32,6 +32,7 @@ MarkerWheel.lua
 Radial.lua
 BagWindow.lua
 MapNotes.lua
+MapSkin.lua
 MinimapButtons.lua
 MinimapLook.lua
 Tidy.lua

@@ -211,6 +211,7 @@ local FEATURES = {
 	{ key = "fishing", short = "one-key fishing", label = "One Button Fishing", desc = "Same key casts and reels in (set the key in Keybindings)" },
 	{ key = "buttonBag", short = "one button, a key for the rest", label = "Minimap button bag", desc = "Gathers the other addon buttons on the minimap onto one button. Click that button to spread them out. Drag it around the minimap to move it. Hold Buttons at cursor (Options > Keybindings > Zyde Forever) to open tradeskills, the game menu, and those buttons at the mouse" },
 	{ key = "minimap", short = "zone and local time", label = "Minimap", desc = "A few looks for the minimap: Round, Gilded, or Square. Drag the map to move it. The zone name sits under it, with your local time below. Off while SexyMap is loaded", conflict = "SexyMap" },
+	{ key = "mapSkin", short = "the map in Zyde's look", label = "World map look", desc = "The world map in Zyde's look: a flat dark frame with a gold title and square buttons, flat tabs along the top (purple for the map you're on), and a dark quest list with flat headings. The map, its icons and pins are unchanged. Off until you tick it", defaultOff = true, reload = true },
 	{ key = "mapNotes", short = "alt-click to mark", label = "Map markers", desc = "Your own named markers on the world map, kept between sessions. Alt-click the map to drop one and name it, alt-click a marker to remove it, right-click to rename it" },
 	{ key = "flight", short = "skip flight chat", label = "Flight master shortcut", desc = "Flight masters open the map directly (hold Shift to talk)" },
 	{ key = "tracking", short = "re-enable after death", label = "Keep tracking after death", desc = "Turns Find Minerals, Find Herbs... back on after you die" },
@@ -305,6 +306,9 @@ local function featureWanted(key)
 		if key == "scrap" and db.scrapOff then return false end
 		if key == "vendor" and db.vendorOff then return false end
 	end
+	-- A few features start off until you tick them (defaultOff in FEATURES).
+	local f = FEATURE_BY_KEY[key]
+	if f and f.defaultOff then return false end
 	return true
 end
 ns.featureWanted = featureWanted
@@ -1901,6 +1905,7 @@ local CATEGORIES = {
 			{ "reminders", children = {}, choosers = { "reminderSize" } },
 			{ group = "Action bars", children = { "hideBars", "hideMicroMenu", "barTidy" } },
 			{ "minimap", children = {}, choosers = { "minimapLook" } },
+			"mapSkin",
 			"buttonBag", "gear",
 			{ "radial", children = {}, button = { label = "Set up", click = function() if ns.Radial then ns.Radial.ToggleEditor() end end } },
 		} },
