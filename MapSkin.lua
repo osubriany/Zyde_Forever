@@ -344,10 +344,11 @@ end
 
 ---------------------------------------------------------------------------
 -- 3. The small buttons along the top right of the map (Questie's toggle and
--- the like): a dark round disc with a thin ring behind each, and their art
--- muted to gray-gold so they sit in the frame's colors.
+-- the like) come with a round backing and a gold tracking ring. Those go:
+-- just the icon stays, small and muted gold, sitting flat in the top bar
+-- like the rest of the frame, brightening on hover. A button with no icon
+-- of its own is only muted.
 ---------------------------------------------------------------------------
-local CIRCLE = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local function overlayButtons()
 	local list = {}
 	local canvas = WorldMapFrame and WorldMapFrame.ScrollContainer
@@ -367,35 +368,49 @@ local function overlayButtons()
 	return list
 end
 
-local function badgeButton(f)
-	if not f.zydeRound then
-		f.zydeRound = true
-		local w = f:GetWidth()
-		local size = (type(w) == "number" and not ns.isSecret(w) and w > 10) and (w + 4) or 26
-		for _, spec in ipairs({ { -8, size, 0.85, true }, { -7, size - 3, 0.94, false } }) do
-			local t = own(f:CreateTexture(nil, "BACKGROUND", nil, spec[1]))
-			t:SetPoint("CENTER")
-			t:SetSize(spec[2], spec[2])
-			t:SetTexture(CIRCLE)
-			if spec[4] then t:SetVertexColor(0.55, 0.55, 0.58, spec[3]) else t:SetVertexColor(0.05, 0.05, 0.06, spec[3]) end
-		end
+local ICON_SIZE = 18
+local function paintFlat(icon, hover)
+	if icon.SetDesaturated then icon:SetDesaturated(true) end
+	if hover then icon:SetVertexColor(1, 0.92, 0.6, 1) else icon:SetVertexColor(0.95, 0.8, 0.45, 0.85) end
+end
+
+local function flattenButton(f)
+	local icon = f.Icon or f.icon
+	-- (the dimming Questie puts over its icon while it's turned off stays)
+	local keep = { [icon or false] = true, [f.IconOverlay or false] = true }
+	for _, r in ipairs({ f:GetRegions() }) do
+		if r.GetObjectType and r:GetObjectType() == "Texture" and not r.zydeOwn and not keep[r] then r:SetAlpha(0) end
 	end
-	local function mute(fr, depth)
-		for _, r in ipairs({ fr:GetRegions() }) do
+	local hl = f.GetHighlightTexture and f:GetHighlightTexture()
+	if hl then hl:SetAlpha(0) end
+	if not icon or not icon.SetVertexColor then
+		for _, r in ipairs({ f:GetRegions() }) do
 			if r.GetObjectType and r:GetObjectType() == "Texture" and not r.zydeOwn then
+				r:SetAlpha(1)
 				if r.SetDesaturated then r:SetDesaturated(true) end
 				r:SetVertexColor(0.9, 0.84, 0.66)
 			end
 		end
-		if depth < 2 and fr.GetChildren then
-			for _, c in ipairs({ fr:GetChildren() }) do mute(c, depth + 1) end
-		end
+		return
 	end
-	mute(f, 0)
+	icon:ClearAllPoints()
+	icon:SetPoint("CENTER")
+	icon:SetSize(ICON_SIZE, ICON_SIZE)
+	icon:SetAlpha(1)
+	if not f.zydeFlat then
+		f.zydeFlat = true
+		local glow = own(f:CreateTexture(nil, "HIGHLIGHT"))
+		glow:SetPoint("CENTER")
+		glow:SetSize(ICON_SIZE + 6, ICON_SIZE + 6)
+		glow:SetColorTexture(1, 1, 1, 0.08)
+		f:HookScript("OnEnter", function() if on() then paintFlat(icon, true) end end)
+		f:HookScript("OnLeave", function() if on() then paintFlat(icon, false) end end)
+	end
+	paintFlat(icon, false)
 end
 
 local function skinOverlayButtons()
-	for _, f in ipairs(overlayButtons()) do badgeButton(f) end
+	for _, f in ipairs(overlayButtons()) do flattenButton(f) end
 end
 
 ---------------------------------------------------------------------------
