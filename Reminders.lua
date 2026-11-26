@@ -1694,12 +1694,54 @@ do
 		return type(name) == "string" and name:lower():find("%f[%a]tent%f[%A]") ~= nil
 	end
 
+	-- A placed tent has no nameplate on this client, so three ways to see one:
+	--   1. an object nameplate with "tent" in its name (if the client shows one)
+	--   2. the soft-interact target (the object you're facing, close enough to use)
+	--   3. hovering it: its tooltip says "Camp Tent". That counts for 2 minutes
+	--      while you stay within about 20 yards of where you hovered it.
+	local hoveredAt, hoveredX, hoveredY, hoveredMap = 0, nil, nil, nil
+	local function myPos()
+		local map = C_Map and C_Map.GetBestMapForUnit and safe(C_Map.GetBestMapForUnit, "player")
+		map = plain(map)
+		if type(map) ~= "number" then return nil end
+		local pos = safe(C_Map.GetPlayerMapPosition, map, "player")
+		if type(pos) ~= "table" or not pos.GetXY then return nil end
+		local x, y = pos:GetXY()
+		x, y = plain(x), plain(y)
+		if type(x) ~= "number" or type(y) ~= "number" then return nil end
+		return map, x, y
+	end
+	local function noteTooltip(tooltip)
+		if tooltip ~= GameTooltip then return end
+		local line = _G.GameTooltipTextLeft1
+		local text = line and plain(line:GetText())
+		if not isTentName(text) then return end
+		hoveredAt = GetTime()
+		hoveredMap, hoveredX, hoveredY = myPos()
+	end
+	if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and TooltipDataProcessor.AllTypes then
+		TooltipDataProcessor.AddTooltipPostCall(TooltipDataProcessor.AllTypes, noteTooltip)
+	end
+	GameTooltip:HookScript("OnShow", noteTooltip)
+
+	local function hoveredStill()
+		if GetTime() - hoveredAt > 120 then return false end
+		local map, x, y = myPos()
+		if not (map and hoveredMap and map == hoveredMap and hoveredX) then return true end
+		-- (map units: about 0.004 of a zone is 20 yards in a mid-sized zone)
+		local dx, dy = x - hoveredX, y - hoveredY
+		return dx * dx + dy * dy < 0.004 * 0.004
+	end
+
 	local function tentNearby()
 		for _, unit in ipairs(ns.Plates and ns.Plates.units() or {}) do
 			local name = plain(safe(UnitName, unit))
 			local player = plain(safe(UnitIsPlayer, unit))
-			if not player and isTentName(name) then return name end
+			if not player and isTentName(name) then return name, "nameplate" end
 		end
+		local soft = plain(safe(UnitName, "softinteract"))
+		if isTentName(soft) then return soft, "facing it" end
+		if hoveredStill() then return "Camp Tent", "hovered" end
 	end
 
 	local LEATHERWORKING = 165 -- skill line
@@ -1772,6 +1814,10 @@ do
 	function ns.TentDebug()
 		local P = "|cff66ccffZyde_Forever|r: "
 		local units = ns.Plates and ns.Plates.units() or {}
+		local name, how = tentNearby()
+		print(P .. "tent nearby: " .. (name and ("yes (" .. how .. ")") or "no")
+			.. "   facing: " .. tostring(plain(safe(UnitName, "softinteract")) or "nothing")
+			.. "   hovered: " .. (hoveredAt > 0 and (math.floor(GetTime() - hoveredAt) .. "s ago") or "never"))
 		print(P .. "tent check: " .. #units .. " nameplates near you")
 		for _, unit in ipairs(units) do
 			local name = safe(UnitName, unit)
