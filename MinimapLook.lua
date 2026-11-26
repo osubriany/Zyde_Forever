@@ -122,6 +122,8 @@ local function blizzBits()
 		conceal(cluster.ZoneText)
 	end
 	hideClock()
+	local box = MinimapCluster and MinimapCluster.MinimapContainer
+	if box and box.PlayerCoords then conceal(box.PlayerCoords) end
 	-- The + and - that fade in while the cursor is over the map.
 	conceal(Minimap.ZoomIn)
 	conceal(Minimap.ZoomOut)
@@ -233,10 +235,29 @@ local function hour12(h, m)
 	return string.format("%d:%02d %s", h, m, ap)
 end
 
+-- Where you are on this zone's map, "44.2, 40.8". nil inside a dungeon or when hidden.
+local function coordsText()
+	if not (C_Map and C_Map.GetBestMapForUnit and C_Map.GetPlayerMapPosition) then return nil end
+	local map = ns.safe(C_Map.GetBestMapForUnit, "player")
+	if isSecret(map) or type(map) ~= "number" then return nil end
+	local pos = ns.safe(C_Map.GetPlayerMapPosition, map, "player")
+	if type(pos) ~= "table" or not pos.GetXY then return nil end
+	local x, y = pos:GetXY()
+	if isSecret(x) or isSecret(y) or type(x) ~= "number" or type(y) ~= "number" then return nil end
+	if x == 0 and y == 0 then return nil end
+	return string.format("%.1f, %.1f", x * 100, y * 100)
+end
+
+-- The second line: "44.2, 40.8  ·  6:40 AM" (coordinates in gray, time in white).
 local function paintTimes()
 	local stamp = date("*t")
-	local localText = stamp and hour12(stamp.hour, stamp.min)
-	if localText then localTime:SetText(localText) end
+	local clock = stamp and hour12(stamp.hour, stamp.min)
+	local where = coordsText()
+	if where and clock then
+		localTime:SetText("|cff9a9aa2" .. where .. "|r  |cff555560·|r  " .. clock)
+	elseif clock then
+		localTime:SetText(clock)
+	end
 end
 
 -- The square used to fill the whole minimap, so its corner covered the ZF button.
@@ -435,12 +456,28 @@ local function savePos()
 	db().minimapPos = { x = right, y = bottom }
 end
 
+local CORNER = 16 -- room for the ring and the icons on its rim
 local function applyPos()
-	local pos = db().minimapPos
-	if type(pos) ~= "table" or type(pos.x) ~= "number" or type(pos.y) ~= "number" then return end
 	if InCombatLockdown() then return end
+	local pos = db().minimapPos
+	if type(pos) == "table" and type(pos.x) == "number" and type(pos.y) == "number" then
+		mover:ClearAllPoints()
+		mover:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", pos.x, pos.y)
+		return
+	end
+	if mover == Minimap then
+		mover:ClearAllPoints()
+		mover:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -CORNER, -CORNER)
+		return
+	end
+	local cTop, cRight = mover:GetTop(), mover:GetRight()
+	local mTop, mRight = Minimap:GetTop(), Minimap:GetRight()
+	for _, v in ipairs({ cTop, cRight, mTop, mRight }) do
+		if isSecret(v) or type(v) ~= "number" then return end
+	end
+	local above, beside = cTop - mTop, cRight - mRight
 	mover:ClearAllPoints()
-	mover:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", pos.x, pos.y)
+	mover:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", beside - CORNER, above - CORNER)
 end
 
 local function startDrag()
@@ -466,7 +503,7 @@ layoutText = function()
 	if coords then
 		panel:SetPoint("TOP", coords, "BOTTOM", 0, -3)
 	else
-		panel:SetPoint("TOP", Minimap, "BOTTOM", 0, -28)
+		panel:SetPoint("TOP", Minimap, "BOTTOM", 0, -10)
 	end
 	panel:SetWidth(math.max(w, 240))
 end
@@ -502,7 +539,7 @@ end
 local elapsed = 0
 panel:SetScript("OnUpdate", function(_, dt)
 	elapsed = elapsed + dt
-	if elapsed < 1 then return end
+	if elapsed < 0.25 then return end
 	elapsed = 0
 	paintTimes()
 	hideClock()
@@ -547,6 +584,7 @@ panel:SetScript("OnDragStop", stopDrag)
 -- The game puts the round mask back whenever it lays the minimap out again.
 local function settle()
 	if not on() or InCombatLockdown() then return end
+	applyPos()
 	local key = lookKey()
 	mask(key == "square" and "square" or "circle")
 	fitSquare(key == "square")
