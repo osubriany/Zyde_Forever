@@ -92,6 +92,7 @@ end
 local DEFAULT_PERMA = {
 	[6948] = true,  -- Hearthstone
 	[9149] = true,  -- Philosopher's Stone
+	[211527] = true, -- Cozy Sleeping Bag
 	[2901] = true,  -- Mining Pick
 	[7005] = true,  -- Skinning Knife
 	[5956] = true,  -- Blacksmith Hammer
