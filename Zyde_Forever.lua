@@ -38,7 +38,11 @@ do
 	watch:SetScript("OnEvent", function(_, _, addon, func)
 		if told or addon ~= ADDON then return end
 		told = true
-		print("|cff66ccffZyde_Forever|r was blocked calling " .. tostring(func))
+		local name = (not ns.isSecret(func) and tostring(func)) or "?"
+		local msg = "|cff66ccffZyde_Forever|r was blocked calling " .. name
+		-- Outside this event. Printing here runs inside the blocked action and taints chat.
+		if C_Timer and C_Timer.After then C_Timer.After(0, function() print(msg) end)
+		else print(msg) end
 	end)
 end
 

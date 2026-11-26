@@ -659,53 +659,18 @@ function View:Button(i)
 	b:SetSize(S, S)
 	b.cd = b.Cooldown or _G[name .. "Cooldown"]
 	b.countText = b.Count or _G[name .. "Count"]
-	b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-	b:RegisterForDrag("LeftButton")
 	local view = self
-	-- The game's slot click places a cursor item. If that click does nothing
-	-- (this button is not inside a Blizzard bag frame), place it ourselves.
-	-- Only while the cursor still holds the item, so a click that already
-	-- landed does not pick the item straight back up.
-	local function placeIfHolding(btn)
-		if not btn.empty or InCombatLockdown() then return end
-		local holding = false
-		if CursorHasItem then
-			local ok, has = pcall(CursorHasItem)
-			holding = ok and not ns.isSecret(has) and has
-		end
-		if not holding and GetCursorInfo then
-			local ok, kind = pcall(GetCursorInfo)
-			holding = ok and not ns.isSecret(kind) and kind == "item"
-		end
-		if not holding then return end
-		local bag = btn.bagID or btn:GetParent():GetID()
-		local slot = btn:GetID()
-		if ns.isSecret(bag) or ns.isSecret(slot) then return end
-		if C_Container and C_Container.PickupContainerItem then
-			C_Container.PickupContainerItem(bag, slot)
-		elseif PickupContainerItem then
-			PickupContainerItem(bag, slot)
-		end
-	end
-	local origClick = b:GetScript("OnClick")
-	local origDrag = b:GetScript("OnReceiveDrag")
-	b:SetScript("OnClick", function(btn, mouse)
-		if origClick then pcall(origClick, btn, mouse) end
-		if btn.empty then
-			if mouse == "LeftButton" then placeIfHolding(btn) end
-			return
-		end
-		if mouse ~= "LeftButton" or not IsAltKeyDown() then return end
+	-- Hook, do not replace. The template's own click uses the item, picks it
+	-- up, and drops a cursor item or a split. Calling that from here taints
+	-- UseContainerItem and the game blocks it.
+	b:HookScript("OnClick", function(btn, mouse)
+		if btn.empty or mouse ~= "LeftButton" or not IsAltKeyDown() then return end
 		local info = C_Container.GetContainerItemInfo(btn:GetParent():GetID(), btn:GetID())
 		if info and not ns.isSecret(info) and not ns.isSecret(info.itemID) and info.itemID then
 			togglePerma(info.itemID)
 			for _, v in pairs(views) do v.dirty = true end
 			if not InCombatLockdown() then view:Layout() end
 		end
-	end)
-	b:SetScript("OnReceiveDrag", function(btn)
-		if origDrag then pcall(origDrag, btn) end
-		placeIfHolding(btn)
 	end)
 	b:HookScript("OnEnter", function(btn)
 		if btn.empty then
