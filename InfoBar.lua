@@ -1,5 +1,5 @@
 -- Zyde_Forever: a small draggable bar.
--- One line: where you are, gold, bag space, the reagent bag, and thrown durability or ammo.
+-- One line: where you are, gold, bag space, the reagent bag, thrown durability or ammo, then gear durability.
 -- Travel opens a second line: steps, yards swum, yards ridden, and jumps.
 -- Mining, once that profession is learned, opens a line for each ore.
 -- Herbalism does the same for herbs. Both can be open at once, so the bar
@@ -70,6 +70,7 @@ local gold = piece("Interface\\MoneyFrame\\UI-GoldIcon", false)
 local bags = piece("Interface\\Icons\\INV_Misc_Bag_08")
 local reagents = piece("Interface\\Icons\\INV_Misc_Bag_10")
 local ranged = piece("Interface\\Icons\\INV_ThrowingKnife_02")
+local durability = piece("Interface\\Icons\\INV_Hammer_20")
 local steps = piece("Interface\\Icons\\INV_Boots_08")
 local swum = piece("Interface\\Icons\\Ability_Druid_AquaticForm")
 local ridden = piece("Interface\\Icons\\Ability_Mount_RidingHorse")
@@ -134,7 +135,7 @@ local herbs = stackPieces(HERB_ITEMS, "Interface\\Icons\\Trade_Herbalism")
 local ROW_H = 22
 -- Row 1 is always on. Travel, Mining and Herbs each open their own row.
 local rows = {
-	{ loc, gold, bags, reagents, ranged },
+	{ loc, gold, bags, reagents, ranged, durability },
 	{ steps, swum, ridden, jumps },
 	ores,
 	herbs,
@@ -254,7 +255,7 @@ end
 bar:SetScript("OnEnter", function(self)
 	GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
 	GameTooltip:AddLine("Info bar", 1, 0.84, 0.35)
-	GameTooltip:AddLine("Where you are, gold, bag space, the reagent bag, and ammo for a bow, gun, or throwing weapon.", 1, 1, 1, true)
+	GameTooltip:AddLine("Where you are, gold, bag space, the reagent bag, ammo for a bow, gun, or throwing weapon, and gear durability.", 1, 1, 1, true)
 	GameTooltip:AddLine("Travel opens steps, yards swum, yards mounted, and jumps.", 1, 1, 1, true)
 	GameTooltip:AddLine("Mining, once learned, opens a count of each ore in your bags and bank.", 1, 1, 1, true)
 	GameTooltip:AddLine("Herbs, once Herbalism is learned, does the same for herbs. Both can be open together.", 1, 1, 1, true)
@@ -441,6 +442,23 @@ local function duraColor(pct)
 	if pct < 0.25 then return 1, 0.25, 0.2 end
 	if pct < 0.5 then return 1, 0.82, 0 end
 	return 1, 0.84, 0.35
+end
+
+-- All equipped pieces that can wear out, as one percent. Hidden with nothing equipped.
+local function durabilityText()
+	if not GetInventoryItemDurability then durability.on = false return end
+	local cur, max = 0, 0
+	for slot = 1, 18 do
+		local c, m = safe(GetInventoryItemDurability, slot)
+		if isSecret(c) or isSecret(m) then return nil end
+		c, m = plain(c), plain(m)
+		if c and m and m > 0 then
+			cur, max = cur + c, max + m
+		end
+	end
+	if max <= 0 then durability.on = false return end
+	local pct = cur / max
+	return ("Durability: %d%%"):format(math.floor(pct * 100 + 0.5)), duraColor(pct)
 end
 
 ---------------------------------------------------------------------------
@@ -761,6 +779,8 @@ local function update(full)
 		if text then show(reagents, text, r, g, b) end
 		text, r, g, b = rangedText()
 		if text then show(ranged, text, r, g, b) end
+		text, r, g, b = durabilityText()
+		if text then show(durability, text, r, g, b) end
 		if refreshOres() or refreshHerbs() then changed = true end
 	end
 	-- the travel counts only while their line is open

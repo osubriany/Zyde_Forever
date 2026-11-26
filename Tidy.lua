@@ -3,6 +3,10 @@
 --     * short keybind labels: a-1 -> A1, c-3 -> C3, s-E -> SE, Mouse Button 4 -> M4
 --     * empty slots are invisible (they come back while you drag a spell or
 --       item, so you can still place things)
+--   A sharpening stone (or poison, or anything you click onto gear) waits for
+--   a second click on the equipped weapon. While that cursor is up, the
+--   action bars let the click through, so a bar sitting over the weapon
+--   slot does not take it.
 
 local ADDON, ns = ...
 
@@ -13,7 +17,8 @@ local function barsOn() return ns.F("barTidy") end
 
 local BAR_PREFIXES = {
 	"ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton", "MultiBarRightButton",
-	"MultiBarLeftButton", "MultiBar5Button", "MultiBar6Button", "MultiBar7Button",
+	"MultiBarLeftButton", "MultiBar5Button", "MultiBar6Button", "MultiBar7Button", "MultiBar8Button",
+	"AbilityBarButton", "AbilityButton",
 }
 
 local function eachButton(fn)
@@ -148,5 +153,89 @@ barEv:SetScript("OnEvent", function(_, event)
 	-- Let the game draw its own update first, then tidy it.
 	C_Timer.After(0, updateAll)
 end)
+
+-- While a stone, poison, or similar cursor is waiting for the equipped weapon,
+-- bars let the click through. A bar drawn over the weapon slot was taking it.
+local passOn = false
+local passSaved = {}
+
+local function clickNow(f)
+	if not f.IsMouseClickEnabled then return true end
+	local ok, v = pcall(f.IsMouseClickEnabled, f)
+	if ok then return v and true or false end
+	return true
+end
+
+local function setClick(f, enabled)
+	if f and f.SetMouseClickEnabled then pcall(f.SetMouseClickEnabled, f, enabled and true or false) end
+end
+
+local function eachBarFrame(fn)
+	local function consider(f)
+		if not f then return end
+		local name = f.GetName and f:GetName()
+		if type(name) ~= "string" or name:find("^Zyde") then return end
+		if name:find("ActionBar") or name:find("AbilityBar") then fn(f) end
+	end
+	for _, n in ipairs({
+		"MainMenuBar", "MainActionBar", "MultiBarBottomLeft", "MultiBarBottomRight",
+		"MultiBarRight", "MultiBarLeft", "MultiBar5", "MultiBar6", "MultiBar7", "MultiBar8",
+		"AbilityBar", "AbilityBarFrame", "OverrideActionBar", "StanceBar",
+	}) do
+		consider(_G[n])
+	end
+	for i = 1, 12 do consider(_G["MainActionBarButtonContainer" .. i]) end
+	if UIParent and UIParent.GetChildren then
+		for _, f in ipairs({ UIParent:GetChildren() }) do
+			consider(f)
+			if f.GetChildren then
+				for _, c in ipairs({ f:GetChildren() }) do consider(c) end
+			end
+		end
+	end
+end
+
+local function aimingAtGear()
+	if dragging then return false end
+	-- A stone or poison wants an item, which is the equipped weapon.
+	if SpellCanTargetItem then return SpellCanTargetItem() and true or false end
+	return SpellIsTargeting and SpellIsTargeting() and true or false
+end
+
+local function holdClick(f)
+	if not f or passSaved[f] ~= nil then return end
+	passSaved[f] = clickNow(f)
+	setClick(f, false)
+end
+
+local function holdTree(f, depth)
+	holdClick(f)
+	if depth >= 3 or not f.GetChildren then return end
+	for _, c in ipairs({ f:GetChildren() }) do holdTree(c, depth + 1) end
+end
+
+local function updatePass()
+	if aimingAtGear() then
+		eachButton(holdClick)
+		eachBarFrame(function(f) holdTree(f, 0) end)
+		passOn = true
+		return
+	end
+	if not passOn then return end
+	for f, cur in pairs(passSaved) do
+		setClick(f, cur)
+		passSaved[f] = nil
+	end
+	passOn = false
+end
+
+local passEv = CreateFrame("Frame")
+for _, e in ipairs({
+	"CURSOR_CHANGED", "CURRENT_SPELL_CAST_CHANGED", "PLAYER_REGEN_ENABLED",
+	"ACTIONBAR_SHOWGRID", "ACTIONBAR_HIDEGRID",
+}) do
+	pcall(passEv.RegisterEvent, passEv, e)
+end
+passEv:SetScript("OnEvent", function() updatePass() end)
 
 ns.OnFeatureChanged(function(key) if key == "barTidy" then updateAll() end end)

@@ -1,7 +1,7 @@
 -- Zyde_Forever: flat nameplates for enemies, in the unit frames' style.
 --   * a flat bar in the hostile / neutral / tapped color, thin dark outline; in a fight, by your
---     threat on it: green (safe / you hold it), yellow (about to pull), orange (losing it), red (on you),
---     grey (someone else's mob)
+--     threat on it: green (safe / you hold it), yellow (about to pull), orange (losing it), red (on you).
+--     Someone else's tag stays grey even when you have threat on it.
 --   * your target's plate: a white edge, a little bigger (others a bit faded), its health % inside the bar
 --   * the full name above it (smaller, so long names fit)
 --   * a level badge on the left: difficulty color, "+" for elites, a silver
@@ -377,8 +377,23 @@ end
 ---------------------------------------------------------------------------
 -- Updating the parts
 ---------------------------------------------------------------------------
+-- Someone else tagged it, so you get no credit. A party tag counts as yours.
+-- A mob that pays everyone on the threat list counts as yours too.
+local function notMyTap(unit)
+	local denied = UnitIsTapDenied and UnitIsTapDenied(unit)
+	if not isSecret(denied) and denied then return true end
+	local tapped = UnitIsTapped and UnitIsTapped(unit)
+	if isSecret(tapped) or not tapped then return false end
+	local mine = UnitIsTappedByPlayer and UnitIsTappedByPlayer(unit)
+	if isSecret(mine) then return false end
+	if mine then return false end
+	local everyone = UnitIsTappedByAllThreatList and UnitIsTappedByAllThreatList(unit)
+	if not isSecret(everyone) and everyone then return false end
+	return true
+end
+
 local function reactionColor(unit)
-	if UnitIsTapDenied and plain(UnitIsTapDenied(unit)) then return COLOR.tapped end
+	if notMyTap(unit) then return COLOR.tapped end
 	local r = plain(UnitReaction(unit, "player"))
 	if r then
 		if r <= 3 then return COLOR.hostile end
@@ -533,11 +548,11 @@ function ns.BossDebug()
 end
 
 -- A mob in a fight: coloured by your threat on it. Green 0 (safe, or you hold it), yellow 1 (about
--- to pull it), orange 2 (tanking, about to lose it), red 3 (it's on you). Someone else's mob: grey.
--- nil when it isn't fighting, or the game won't say (in some dungeons).
+-- to pull it), orange 2 (tanking, about to lose it), red 3 (it's on you). Someone else's tag
+-- stays grey no matter the threat number. nil when it isn't fighting, or the game won't say.
 local function threatColor(unit)
 	if not plain(UnitAffectingCombat(unit)) then return nil end
-	if UnitIsTapDenied and plain(UnitIsTapDenied(unit)) then return COLOR.tapped end
+	if notMyTap(unit) then return COLOR.tapped end
 	local status = UnitThreatSituation and plain(UnitThreatSituation("player", unit))
 	return status and COLOR.threat[status] or nil
 end

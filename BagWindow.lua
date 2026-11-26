@@ -12,6 +12,8 @@
 --   "Sell junk at vendors" in /zyde).
 --   At a banker the bank gets the same sorted window, where the game's bank
 --   window was ("Game bank" brings that back, to buy slots).
+--   Away from a banker, Bank (or /zyde bank) opens that window from the last
+--   visit. You can look, not move things. Your bags stay open.
 -- Off while Baganator is loaded.
 --
 -- The item buttons are the game's own bag slot buttons. Their bag is their
@@ -28,11 +30,21 @@ local LABEL_H, HEAD_H, GROUP_GAP = 14, 22, 12
 local INNER_W = COLS * (S + GAP) - GAP
 local P = "|cff66ccffZyde_Forever|r: "
 
--- Your bags: the backpack, the four bags, and Forever's reagent (profession)
--- bag, which has its own slot and its own bag number past the four.
+-- Your bags: the backpack, the four bags, Forever's reagent (profession) bag,
+-- and the keyring. On this client the keyring is bag -1 (the old bank number).
+-- The bank itself is the bags after yours, read while you're at a banker.
 local LAST_BAG = NUM_BAG_SLOTS or 4
 local REAGENT_BAG = (Enum and Enum.BagIndex and Enum.BagIndex.ReagentBag) or REAGENTBAG_CONTAINER or 5
-local BANK_MAIN = BANK_CONTAINER or -1
+local KEYRING = (Enum and Enum.BagIndex and Enum.BagIndex.Keyring) or KEYRING_CONTAINER
+local BANK_NAMED = Enum and Enum.BagIndex and Enum.BagIndex.Bank
+local BANK_MAIN
+if type(BANK_NAMED) == "number" and BANK_NAMED ~= KEYRING then
+	BANK_MAIN = BANK_NAMED
+elseif type(BANK_CONTAINER) == "number" and BANK_CONTAINER ~= KEYRING then
+	BANK_MAIN = BANK_CONTAINER
+elseif KEYRING == nil then
+	BANK_MAIN = -1
+end
 local toInv = (C_Container and C_Container.ContainerIDToInventoryID) or ContainerIDToInventoryID
 local function invSlot(bag)
 	if not toInv then return nil end
@@ -41,22 +53,35 @@ local function invSlot(bag)
 end
 local HAS_REAGENT = REAGENT_BAG > LAST_BAG and invSlot(REAGENT_BAG) ~= nil
 local function numSlots(bag) return ns.safe(C_Container.GetContainerNumSlots, bag) or 0 end
+local function keyringId()
+	if type(KEYRING) == "number" then return KEYRING end
+	-- A classic keyring, when the client still has one and didn't name it.
+	if BANK_MAIN ~= -2 and numSlots(-2) > 0 then return -2 end
+end
+local function isKeyring(id) return type(id) == "number" and id == keyringId() end
+local function isEquippedBag(id)
+	return type(id) == "number" and ((id >= 0 and id <= LAST_BAG) or (HAS_REAGENT and id == REAGENT_BAG))
+end
 local function myBags()
 	local list = {}
 	for bag = 0, LAST_BAG do list[#list + 1] = bag end
 	if HAS_REAGENT then list[#list + 1] = REAGENT_BAG end
+	local key = keyringId()
+	if key and not isEquippedBag(key) and key ~= REAGENT_BAG then list[#list + 1] = key end
 	return list
 end
-local function isMine(id)
-	return type(id) == "number" and ((id >= 0 and id <= LAST_BAG) or (HAS_REAGENT and id == REAGENT_BAG))
-end
--- The bank, while you're at a banker: its main slots and its bags (or tabs),
--- which have the numbers after yours. Only the ones with slots count.
+local function isMine(id) return isEquippedBag(id) or isKeyring(id) end
+-- The bank, while you're at a banker: its main slots (when it has its own bag)
+-- and its bags or tabs, which have the numbers after yours. The keyring is
+-- never one of them. Only bags that currently have slots count.
 local function bankBags()
 	local list = {}
-	if numSlots(BANK_MAIN) > 0 then list[#list + 1] = BANK_MAIN end
+	local key = keyringId()
+	if BANK_MAIN and BANK_MAIN ~= key and numSlots(BANK_MAIN) > 0 then list[#list + 1] = BANK_MAIN end
 	for bag = LAST_BAG + 1, LAST_BAG + 14 do
-		if not (HAS_REAGENT and bag == REAGENT_BAG) and numSlots(bag) > 0 then list[#list + 1] = bag end
+		if bag ~= key and not (HAS_REAGENT and bag == REAGENT_BAG) and numSlots(bag) > 0 then
+			list[#list + 1] = bag
+		end
 	end
 	return list
 end
@@ -203,8 +228,9 @@ end
 -- Small marks on an item: red tint (can't use it), green arrow (upgrade),
 -- gold coin (junk that sells), BoE (could go on the auction house), a
 -- red-orange-yellow outline and number (the scrap list's picks, bags full),
--- and Open / Lock (a clam or a lockbox). What the tooltip says is read once
--- per item in a slot and kept until the bags, your level, skills or gear change.
+-- Open / Lock (a clam or a lockbox), and the required level on gear, in the
+-- top right. What the tooltip says is read once per item in a slot and kept
+-- until the bags, your level, skills or gear change.
 ---------------------------------------------------------------------------
 local scanCache = {}
 local getInfoAny = (C_Item and C_Item.GetItemInfo) or GetItemInfo
@@ -228,10 +254,15 @@ local function scan(bag, slot, info)
 			end
 		end
 	end
-	local name, _, _, _, _, _, _, _, equipLoc, _, sellPrice, _, _, bindType = ns.safe(getInfoAny, info.hyperlink or info.itemID)
-	if type(name) ~= "string" then return c end -- not loaded yet: ask again next paint
-	c.sells = type(sellPrice) == "number" and sellPrice > 0 and not info.hasNoValue
-	c.boe = bindType == 2 and type(equipLoc) == "string" and equipLoc ~= "" -- still unbound: checked at paint
+	local name, _, _, _, reqLevel, _, _, _, equipLoc, _, sellPrice, classID, _, bindType = ns.safe(getInfoAny, info.hyperlink or info.itemID)
+	if type(name) ~= "string" or ns.isSecret(name) then return c end -- not loaded yet: ask again next paint
+	c.sells = not ns.isSecret(sellPrice) and type(sellPrice) == "number" and sellPrice > 0 and not info.hasNoValue
+	local loc = (not ns.isSecret(equipLoc) and type(equipLoc) == "string") and equipLoc or ""
+	c.boe = not ns.isSecret(bindType) and bindType == 2 and loc ~= "" -- still unbound: checked at paint
+	-- Weapons and armor. A required level of 1 is every starter piece, so it stays off.
+	local req = (not ns.isSecret(reqLevel) and type(reqLevel) == "number") and reqLevel or nil
+	local cls = (not ns.isSecret(classID) and type(classID) == "number") and classID or nil
+	if req and req > 1 and (cls == 2 or (cls == 4 and loc ~= "")) then c.req = req end
 	c.upgrade = ns.BagItemUpgrade and ns.BagItemUpgrade(bag, slot, info.hyperlink) or nil
 	scanCache[key] = c
 	return c
@@ -265,6 +296,10 @@ local function marks(b)
 	m.tag = b:CreateFontString(nil, "OVERLAY")
 	markFont(m.tag, 10)
 	m.tag:SetPoint("TOPRIGHT", -1, -2)
+	m.req = b:CreateFontString(nil, "OVERLAY")
+	markFont(m.req, 9)
+	m.req:SetPoint("TOPRIGHT", -1, -1)
+	m.req:SetJustifyH("RIGHT")
 	m.scrapNum = b:CreateFontString(nil, "OVERLAY")
 	markFont(m.scrapNum, 14)
 	m.scrapNum:SetPoint("TOPRIGHT", -2, -1)
@@ -282,7 +317,7 @@ local function setMarks(b, info)
 	local m = marks(b)
 	local icon = iconOf(b)
 	if not info then
-		for _, k in ipairs({ "arrow", "coin", "ah", "boe", "tag", "scrapNum" }) do m[k]:Hide() end
+		for _, k in ipairs({ "arrow", "coin", "ah", "boe", "tag", "scrapNum", "req" }) do m[k]:Hide() end
 		for _, t in ipairs(m.scrapEdges) do t:Hide() end
 		if icon then icon:SetVertexColor(1, 1, 1) end
 		return
@@ -317,6 +352,7 @@ local function setMarks(b, info)
 		m.scrapNum:SetTextColor(col[1], col[2], col[3])
 		m.scrapNum:Show()
 		m.tag:Hide()
+		m.req:Hide()
 		return
 	end
 	m.scrapNum:Hide()
@@ -331,6 +367,15 @@ local function setMarks(b, info)
 		m.tag:Show()
 	else
 		m.tag:Hide()
+	end
+	if c.req and not m.tag:IsShown() then
+		local mine = UnitLevel("player")
+		local low = not ns.isSecret(mine) and type(mine) == "number" and mine < c.req
+		m.req:SetText(c.req)
+		if low then m.req:SetTextColor(1, 0.25, 0.2) else m.req:SetTextColor(1, 1, 1) end
+		m.req:Show()
+	else
+		m.req:Hide()
 	end
 end
 
@@ -418,18 +463,21 @@ local function gather(bags)
 	-- kind of thing (reagent bag, quiver, ammo pouch, soul bag) counted apart.
 	local ordinaryFree, extra = 0, {}
 	for _, bag in ipairs(bags) do
-		local free, fam = C_Container.GetContainerNumFreeSlots(bag)
-		free, fam = tonumber(free) or 0, tonumber(fam) or 0
-		local kind
-		if bag == REAGENT_BAG and HAS_REAGENT then kind = "reagent"
-		elseif fam == 0 then kind = nil
-		elseif bit and bit.band and bit.band(fam, 3) ~= 0 then kind = "ammo"
-		elseif bit and bit.band and bit.band(fam, 4) ~= 0 then kind = "soul"
-		else kind = "special" end
-		if kind then
-			if numSlots(bag) > 0 then extra[kind] = (extra[kind] or 0) + free end
-		else
-			ordinaryFree = ordinaryFree + free
+		-- Empty key slots only hold keys. They are not free bag space.
+		if not isKeyring(bag) then
+			local free, fam = C_Container.GetContainerNumFreeSlots(bag)
+			free, fam = tonumber(free) or 0, tonumber(fam) or 0
+			local kind
+			if bag == REAGENT_BAG and HAS_REAGENT then kind = "reagent"
+			elseif fam == 0 then kind = nil
+			elseif bit and bit.band and bit.band(fam, 3) ~= 0 then kind = "ammo"
+			elseif bit and bit.band and bit.band(fam, 4) ~= 0 then kind = "soul"
+			else kind = "special" end
+			if kind then
+				if numSlots(bag) > 0 then extra[kind] = (extra[kind] or 0) + free end
+			else
+				ordinaryFree = ordinaryFree + free
+			end
 		end
 	end
 	-- Same items next to each other, best quality first.
@@ -561,6 +609,7 @@ function View:Head(i)
 		collapsed()[btn.section] = not collapsed()[btn.section] or nil
 		for _, v in pairs(views) do v.dirty = true end
 		view:Layout()
+		if ns.RefreshBankMemory then ns.RefreshBankMemory() end
 	end)
 	self.heads[i] = h
 	return h
@@ -654,6 +703,7 @@ function View:Layout()
 	if InCombatLockdown() then self.dirty = true return end
 	self.dirty = false
 	local data, free, extra = gather(self.bags())
+	if self.omitKeys and self.omitKeys() and data.General then data.General.Keys = nil end
 	self.free, self.extraFree = free, extra
 	self:SetTitle()
 	-- Restack only shows when it would free something: "Restack +3".
@@ -972,6 +1022,21 @@ end
 local bagsView, bankView
 
 local function bagRowShown() return db().bagSlotsShown and true or false end
+-- Keys start visible. The key button by the search box hides the keyring
+-- and any other keys in this window.
+local function keysShown()
+	local v = db().bagKeysShown
+	if v == nil then return true end
+	return v and true or false
+end
+local function shownBags()
+	if keysShown() then return myBags() end
+	local list = {}
+	for _, bag in ipairs(myBags()) do
+		if not isKeyring(bag) then list[#list + 1] = bag end
+	end
+	return list
+end
 
 local EMPTY_BAG_TEX = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Bag"
 local function paintBagSlots()
@@ -1038,10 +1103,11 @@ local closeBlizzard -- forward
 
 local function buildBags()
 	local v = newView({
-		frameName = "ZydeForeverBags", bags = myBags, posKey = "bagPos",
+		frameName = "ZydeForeverBags", bags = shownBags, posKey = "bagPos",
 		titleText = "Bags",
 		defaultPoint = { "BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -60, 110 },
 		bagRowShown = bagRowShown,
+		omitKeys = function() return not keysShown() end,
 	})
 	local win = v.win
 	win.bagRow = CreateFrame("Frame", nil, win)
@@ -1069,19 +1135,53 @@ local function buildBags()
 		GameTooltip:Show()
 	end)
 	toggle:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	-- Room for the key button, so the title stops before it.
+	win.title:SetWidth(INNER_W - 140 - 6 - 24 - 40 - 26)
+	local keysBtn = CreateFrame("Button", nil, win)
+	keysBtn:SetSize(22, 22)
+	keysBtn:SetPoint("RIGHT", toggle, "LEFT", -2, 0)
+	local keyIcon = keysBtn:CreateTexture(nil, "ARTWORK")
+	keyIcon:SetAllPoints()
+	keyIcon:SetTexture("Interface\\Icons\\INV_Misc_Key_03")
+	keyIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	keysBtn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+	local function paintKeys()
+		local on = keysShown()
+		if keyIcon.SetDesaturated then keyIcon:SetDesaturated(not on) end
+		keyIcon:SetAlpha(on and 1 or 0.4)
+	end
+	keysBtn:SetScript("OnClick", function()
+		if InCombatLockdown() then return end
+		db().bagKeysShown = not keysShown()
+		paintKeys()
+		v.dirty = true
+		v:Layout()
+	end)
+	keysBtn:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:AddLine(keysShown() and "Hide keys" or "Show keys")
+		GameTooltip:AddLine("Takes keys out of this window.", 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	keysBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	paintKeys()
 	v:PlaceContent()
 	paintBagSlots()
 
 	win.restackBtn = win.AddButton("Restack", 80, "Join part stacks",
 		"Puts part stacks of the same item together in your real bags. The number is how many slots that frees.",
-		function() restack(myBags()) end)
+		function() restack(shownBags()) end)
 	win.sellJunk = win.AddButton("Sell junk", 70, "Sell your junk",
 		"Sells every gray item that's worth something (never Perma). Only at a vendor.",
 		function() sellJunk(false) end)
 	win.sellJunk:Hide()
+	win.AddButton("Bank", 56, "Your bank",
+		"Opens the bank from the last time you visited a banker. Your bags stay open. At a banker this opens the real bank.",
+		function() ns.OpenBankWindow() end)
 
 	win:SetScript("OnShow", function()
 		v:Place()
+		paintKeys()
 		paintBagSlots()
 		win.money:SetText(moneyText())
 		win.sellJunk:SetShown(MerchantFrame and MerchantFrame:IsShown() or false)
@@ -1170,8 +1270,9 @@ end
 local function blizzOpen()
 	for _, f in ipairs(blizzFrames()) do
 		local id = f.GetID and f:GetID()
-		-- Only the backpack and bags: the bank's own bags keep their windows.
-		if f:IsShown() and (f == ContainerFrameCombinedBags or isMine(id)) then return true end
+		-- Only the backpack and bags. The keyring rides along in this window,
+		-- and the bank's own bags keep their windows.
+		if f:IsShown() and (f == ContainerFrameCombinedBags or isEquippedBag(id)) then return true end
 	end
 	return false
 end
@@ -1191,11 +1292,392 @@ end
 
 function closeBlizzard()
 	if syncing then return end
-	if blizzOpen() and CloseAllBags then
-		syncing = true
-		pcall(CloseAllBags)
-		syncing = false
+	syncing = true
+	if blizzOpen() and CloseAllBags then pcall(CloseAllBags) end
+	local key = keyringId()
+	if key and CloseBag then pcall(CloseBag, key) end
+	syncing = false
+end
+
+---------------------------------------------------------------------------
+-- The bank from your last visit. The game only sends bank slots while you
+-- are at a banker, so this window remembers them. You can look, link, and
+-- mark Perma. Moving items waits until you are at a banker.
+---------------------------------------------------------------------------
+local memoryWin, layoutMemory
+
+local function charKey()
+	local name = UnitName("player")
+	if ns.isSecret(name) or type(name) ~= "string" or name == "" then return nil end
+	return name
+end
+
+local function savedBank()
+	local key = charKey()
+	local all = key and db().bankSeen
+	if type(all) ~= "table" then return nil end
+	local row = all[key]
+	return type(row) == "table" and row or nil
+end
+
+local function rememberBank(force)
+	local f = bankFrame()
+	if not force and not (f and f:IsShown()) then return end
+	local bags = bankBags()
+	if #bags == 0 then return end
+	local key = charKey()
+	if not key then return end
+	local data, free, extra = gather(bags)
+	local items = {}
+	for _, sec in ipairs(SECTIONS) do
+		for group, list in pairs(data[sec] or {}) do
+			for _, e in ipairs(list) do
+				local info = e.info
+				local id = info and info.itemID
+				if id and not ns.isSecret(id) and type(id) == "number" then
+					local n = 0
+					if e.slots and #e.slots > 1 then
+						for _, s in ipairs(e.slots) do
+							local other = C_Container.GetContainerItemInfo(s.bag, s.slot)
+							if other and not ns.isSecret(other.itemID) and other.itemID == id then
+								local sc = other.stackCount
+								n = n + ((not ns.isSecret(sc) and type(sc) == "number") and sc or 1)
+							end
+						end
+					end
+					if n == 0 then
+						local sc = info.stackCount
+						n = (not ns.isSecret(sc) and type(sc) == "number") and sc or 1
+					end
+					local link, icon, name, q = info.hyperlink, info.iconFileID, e.name, info.quality
+					if ns.isSecret(link) or type(link) ~= "string" then link = nil end
+					if ns.isSecret(icon) then icon = nil end
+					if ns.isSecret(name) or type(name) ~= "string" then name = "" end
+					if ns.isSecret(q) or type(q) ~= "number" then q = 1 end
+					items[#items + 1] = {
+						id = id, n = n, q = q, icon = icon, link = link, name = name,
+						sec = sec, group = group,
+						quest = (sec == "General" and group == "Quest") or nil,
+					}
+				end
+			end
+		end
 	end
+	local savedExtra = {}
+	for k, v in pairs(extra or {}) do
+		if type(k) == "string" and type(v) == "number" and v > 0 then savedExtra[k] = v end
+	end
+	db().bankSeen = db().bankSeen or {}
+	db().bankSeen[key] = { free = free or 0, extra = savedExtra, items = items, at = time() }
+	if ns.RefreshBankMemory then ns.RefreshBankMemory() end
+end
+
+local function buildMemory()
+	local win = CreateFrame("Frame", "ZydeForeverBankMemory", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+	memoryWin = win
+	win:SetWidth(INNER_W + PAD * 2)
+	win:SetHeight(160)
+	win:SetFrameStrata("MEDIUM")
+	win:SetToplevel(true)
+	win:SetClampedToScreen(true)
+	win:EnableMouse(true)
+	win:SetMovable(true)
+	win:RegisterForDrag("LeftButton")
+	if win.SetBackdrop then
+		win:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+		win:SetBackdropColor(0.06, 0.06, 0.07, 0.95)
+		win:SetBackdropBorderColor(0, 0, 0, 1)
+	end
+	tinsert(UISpecialFrames, "ZydeForeverBankMemory")
+	win:Hide()
+
+	local function savePos()
+		local r, btm = win:GetRight(), win:GetBottom()
+		if ns.isSecret(r) or ns.isSecret(btm) or type(r) ~= "number" or type(btm) ~= "number" then return end
+		db().bankMemoryPos = { x = r, y = btm }
+	end
+	local function place()
+		win:ClearAllPoints()
+		local p = db().bankMemoryPos
+		if type(p) == "table" and type(p.x) == "number" and type(p.y) == "number" then
+			win:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", p.x, p.y)
+		else
+			win:SetPoint("CENTER", -220, 40)
+		end
+	end
+	win:SetScript("OnDragStart", function(self) self:StartMoving() end)
+	win:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() savePos() end)
+
+	win.title = win:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	win.title:SetPoint("TOPLEFT", PAD, -9)
+	win.title:SetWidth(INNER_W - 150)
+	win.title:SetJustifyH("LEFT")
+	win.title:SetWordWrap(false)
+	win.title:SetText("Bank")
+	win.close = CreateFrame("Button", nil, win, "UIPanelCloseButton")
+	win.close:SetPoint("TOPRIGHT", 2, 2)
+	win.close:SetScript("OnClick", function() win:Hide() end)
+
+	local ok, search = pcall(CreateFrame, "EditBox", nil, win, "SearchBoxTemplate")
+	if not ok or not search then search = CreateFrame("EditBox", nil, win, "InputBoxTemplate") end
+	search:SetSize(140, 20)
+	search:SetAutoFocus(false)
+	search:SetPoint("RIGHT", win.close, "LEFT", -6, 0)
+	search:SetScript("OnEscapePressed", function(self) self:SetText("") self:ClearFocus() end)
+	win.search = search
+
+	win.content = CreateFrame("Frame", nil, win)
+	win.content:SetPoint("TOPLEFT", PAD, -34)
+	win.content:SetWidth(INNER_W)
+	win.content:SetHeight(10)
+	local note = win.content:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	note:SetPoint("TOPLEFT", 0, -8)
+	note:SetWidth(INNER_W)
+	note:SetJustifyH("LEFT")
+	note:SetText("Visit a banker once. This window keeps what was there.")
+	note:Hide()
+
+	local pool, heads, labels = {}, {}, {}
+	local function button(i)
+		local b = pool[i]
+		if b then return b end
+		b = CreateFrame("Button", nil, win.content, BackdropTemplateMixin and "BackdropTemplate" or nil)
+		b:SetSize(S, S)
+		if b.SetBackdrop then
+			b:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+		end
+		b.icon = b:CreateTexture(nil, "ARTWORK")
+		b.icon:SetPoint("TOPLEFT", 1, -1)
+		b.icon:SetPoint("BOTTOMRIGHT", -1, 1)
+		b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+		b.count:SetPoint("BOTTOMRIGHT", -2, 2)
+		b.req = b:CreateFontString(nil, "OVERLAY")
+		markFont(b.req, 9)
+		b.req:SetPoint("TOPRIGHT", -1, -1)
+		b.req:SetJustifyH("RIGHT")
+		b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+		b:SetScript("OnClick", function(self, mouse)
+			if IsModifiedClick("CHATLINK") and self.link then
+				if ChatEdit_InsertLink then ChatEdit_InsertLink(self.link) end
+				return
+			end
+			if mouse == "LeftButton" and IsAltKeyDown() and self.itemID then
+				togglePerma(self.itemID)
+				layoutMemory()
+				if bagsView and bagsView.win:IsShown() and not InCombatLockdown() then
+					bagsView.dirty = true
+					bagsView:Layout()
+				end
+			end
+		end)
+		b:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			local link = self.link or (self.itemID and ("item:" .. self.itemID))
+			if link then GameTooltip:SetHyperlink(link) end
+			GameTooltip:AddLine("From your last bank visit. You can look, not move it.", 0.6, 0.8, 1, true)
+			GameTooltip:AddLine("Alt-click: " .. (ns.IsPerma(self.itemID) and "take out of Perma" or "keep in Perma"), 0.6, 0.8, 1)
+			GameTooltip:Show()
+		end)
+		b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		pool[i] = b
+		return b
+	end
+	local function head(i)
+		local h = heads[i]
+		if h then return h end
+		h = CreateFrame("Button", nil, win.content)
+		h:SetSize(INNER_W, HEAD_H - 4)
+		h.icon = h:CreateTexture(nil, "ARTWORK")
+		h.icon:SetSize(14, 14)
+		h.icon:SetPoint("LEFT", 0, 0)
+		h.text = h:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		h.text:SetPoint("LEFT", h.icon, "RIGHT", 4, 0)
+		h.line = h:CreateTexture(nil, "ARTWORK")
+		h.line:SetColorTexture(1, 0.82, 0, 0.25)
+		h.line:SetHeight(1)
+		h.line:SetPoint("LEFT", h.text, "RIGHT", 8, 0)
+		h.line:SetPoint("RIGHT")
+		h:SetScript("OnClick", function(btn)
+			collapsed()[btn.section] = not collapsed()[btn.section] or nil
+			layoutMemory()
+			if InCombatLockdown() then
+				for _, v in pairs(views) do v.dirty = true end
+				return
+			end
+			for _, v in pairs(views) do
+				v.dirty = true
+				if v.win:IsShown() then v:Layout() end
+			end
+		end)
+		heads[i] = h
+		return h
+	end
+	local function label(i)
+		local t = labels[i]
+		if t then return t end
+		t = win.content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		t:SetJustifyH("LEFT")
+		t:SetWordWrap(false)
+		t:SetTextColor(0.85, 0.85, 0.85)
+		labels[i] = t
+		return t
+	end
+
+	local function paintItem(b, it)
+		b.itemID, b.link = it.id, it.link
+		local icon = it.icon
+		if not icon and GetItemIcon then
+			icon = ns.safe(GetItemIcon, it.id)
+			if ns.isSecret(icon) then icon = nil end
+		end
+		b.icon:SetTexture(icon)
+		if it.n > 1 then b.count:SetText(it.n) b.count:Show() else b.count:Hide() end
+		local qr, qg, qb = 0.4, 0.4, 0.4
+		local c = ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[it.q]
+		if c and type(c.r) == "number" and not ns.isSecret(c.r) then qr, qg, qb = c.r, c.g, c.b end
+		if b.SetBackdropBorderColor then b:SetBackdropBorderColor(qr, qg, qb, 1) end
+		b.req:Hide()
+		local name, _, _, _, req, _, _, _, equip, _, _, classID = ns.safe(getInfoAny, it.link or it.id)
+		if type(name) == "string" and not ns.isSecret(name) and it.name == "" then it.name = name end
+		req = (not ns.isSecret(req) and type(req) == "number") and req or nil
+		equip = (not ns.isSecret(equip) and type(equip) == "string") and equip or ""
+		classID = (not ns.isSecret(classID) and type(classID) == "number") and classID or nil
+		if req and req > 1 and (classID == 2 or (classID == 4 and equip ~= "")) then
+			local mine = UnitLevel("player")
+			local low = not ns.isSecret(mine) and type(mine) == "number" and mine < req
+			b.req:SetText(req)
+			if low then b.req:SetTextColor(1, 0.25, 0.2) else b.req:SetTextColor(1, 1, 1) end
+			b.req:Show()
+		end
+		local text = (search:GetText() or ""):lower()
+		local show = text == "" or (it.name or ""):lower():find(text, 1, true) ~= nil
+		b:SetAlpha(show and 1 or 0.25)
+	end
+
+	local laying = false
+	layoutMemory = function()
+		if laying or not win:IsShown() then return end
+		laying = true
+		local saved = savedBank()
+		local r, g, bl = freeColor(saved and saved.free or 0)
+		local free = saved and ((saved.free or 0) <= 0 and "full" or ((saved.free or 0) .. " free")) or ""
+		local when, tail = "", ""
+		if saved and type(saved.at) == "number" then
+			when = "  |cff888888" .. date("%m/%d %I:%M%p", saved.at) .. "|r"
+		end
+		if saved and saved.extra then
+			local more = {}
+			for _, kind in ipairs({ "reagent", "ammo", "soul", "special" }) do
+				local n = saved.extra[kind]
+				if type(n) == "number" and n > 0 then more[#more + 1] = n .. " " .. kind end
+			end
+			if #more > 0 then tail = "  |cff888888· " .. table.concat(more, " · ") .. "|r" end
+		end
+		if saved then
+			win.title:SetText("Bank  " .. string.format("|cff%02x%02x%02x%s|r",
+				math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(bl * 255 + 0.5), free) .. tail .. when)
+		else
+			win.title:SetText("Bank")
+		end
+		for _, h in ipairs(heads) do h:Hide() end
+		for _, t in ipairs(labels) do t:Hide() end
+		for _, b in ipairs(pool) do b:Hide() end
+		if not saved then
+			note:Show()
+			win.content:SetHeight(36)
+			win:SetHeight(34 + 36 + PAD)
+			laying = false
+			return
+		end
+		note:Hide()
+		local data = {}
+		for _, sec in ipairs(SECTIONS) do data[sec] = {} end
+		for _, it in ipairs(saved.items or {}) do
+			local info = { itemID = it.id, hyperlink = it.link, quality = it.q }
+			local okCat, sec, group = pcall(categorize, info)
+			if not okCat or type(sec) ~= "string" or not data[sec] then sec, group = it.sec, it.group end
+			if it.quest and not ns.IsPerma(it.id) and group ~= "Quest" then sec, group = "General", "Quest" end
+			if type(sec) ~= "string" or not data[sec] then sec, group = "General", "Other" end
+			group = group or "Other"
+			data[sec][group] = data[sec][group] or {}
+			table.insert(data[sec][group], it)
+		end
+		for _, groups in pairs(data) do
+			for _, list in pairs(groups) do
+				table.sort(list, function(a, b)
+					if a.q ~= b.q then return a.q > b.q end
+					return (a.name or "") < (b.name or "")
+				end)
+			end
+		end
+		local used, labelUsed, headUsed, y = 0, 0, 0, 0
+		local content = win.content
+		for _, sec in ipairs(SECTIONS) do
+			local groups = data[sec]
+			local order = groupOrder(sec, groups)
+			if #order > 0 then
+				headUsed = headUsed + 1
+				local h = head(headUsed)
+				h.section = sec
+				local folded = collapsed()[sec]
+				local n = 0
+				for _, gname in ipairs(order) do n = n + #groups[gname] end
+				h.text:SetText(sec .. (folded and ("  |cff888888(" .. n .. ")|r") or ""))
+				h.icon:SetTexture(folded and "Interface\\Buttons\\UI-PlusButton-Up" or "Interface\\Buttons\\UI-MinusButton-Up")
+				h:ClearAllPoints()
+				h:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
+				h:Show()
+				y = y + HEAD_H
+				if not folded then
+					local x, rowH = 0, 0
+					for _, gname in ipairs(order) do
+						local list = groups[gname]
+						local cols = math.min(#list, COLS)
+						local w = cols * (S + GAP) - GAP
+						if x > 0 and x + w > INNER_W then
+							x = 0
+							y = y + rowH + 6
+							rowH = 0
+						end
+						labelUsed = labelUsed + 1
+						local l = label(labelUsed)
+						l:ClearAllPoints()
+						l:SetPoint("TOPLEFT", content, "TOPLEFT", x, -y)
+						l:SetWidth(math.max(w, S))
+						l:SetText(gname)
+						l:Show()
+						for i, it in ipairs(list) do
+							used = used + 1
+							local b = button(used)
+							local col, row = (i - 1) % cols, math.floor((i - 1) / cols)
+							b:ClearAllPoints()
+							b:SetPoint("TOPLEFT", content, "TOPLEFT", x + col * (S + GAP), -(y + LABEL_H + row * (S + GAP)))
+							paintItem(b, it)
+							b:Show()
+						end
+						local rows = math.ceil(#list / cols)
+						rowH = math.max(rowH, LABEL_H + rows * (S + GAP) - GAP)
+						x = x + w + GROUP_GAP
+					end
+					y = y + rowH + 10
+				end
+			end
+		end
+		content:SetHeight(math.max(10, y))
+		win:SetHeight(y + 34 + PAD + 8)
+		laying = false
+	end
+
+	search:HookScript("OnTextChanged", function() layoutMemory() end)
+	win:SetScript("OnShow", function()
+		place()
+		layoutMemory()
+	end)
+end
+
+function ns.RefreshBankMemory()
+	if layoutMemory then layoutMemory() end
 end
 
 local installed = false
@@ -1204,6 +1686,7 @@ local function install()
 	installed = true
 	bagsView = buildBags()
 	bankView = buildBank()
+	buildMemory()
 	-- The same frames also show bank bags: each time one opens, it goes in the
 	-- hidden frame for your own bags and back on screen for a bank bag.
 	for _, f in ipairs(blizzFrames()) do
@@ -1216,7 +1699,15 @@ local function install()
 				if self:GetParent() ~= want then self:SetParent(want) end
 			end
 			place(f)
-			hooksecurefunc(f, "Show", place)
+			hooksecurefunc(f, "Show", function(self)
+				place(self)
+				-- The keyring button opens your bags. A bank visit can also
+				-- show that frame; the bags stay as they were.
+				if syncing or not isKeyring(self:GetID()) then return end
+				local bank = bankFrame()
+				if bank and bank:IsShown() then return end
+				if bagsView and not bagsView.win:IsShown() then bagsView.win:Show() end
+			end)
 			hooksecurefunc(f, "SetID", place)
 		end
 	end
@@ -1225,6 +1716,32 @@ local function install()
 		if type(_G[fn]) == "function" then hooksecurefunc(fn, sync) end
 	end
 	bagsView:Layout()
+end
+
+function ns.OpenBankWindow()
+	if not on() then
+		print(P .. "turn on One bag window in /zyde")
+		return
+	end
+	if not bankView then
+		if InCombatLockdown() then
+			print(P .. "open your bags once out of combat first")
+			return
+		end
+		install()
+	end
+	if not bankView then return end
+	local live = bankFrame()
+	if live and live:IsShown() then
+		gameBankShown = false
+		tuckGameBank(true)
+		bankView.dirty = true
+		bankView.win:Show()
+		if not InCombatLockdown() then bankView:Layout() else bankView:Repaint() end
+		return
+	end
+	if not memoryWin then return end
+	memoryWin:SetShown(not memoryWin:IsShown())
 end
 
 ---------------------------------------------------------------------------
@@ -1276,9 +1793,11 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 		tuckGameBank(true)
 		bankView.dirty = true
 		bankView.win:Show()
+		C_Timer.After(0.25, rememberBank)
 		return
 	end
 	if event == "BANKFRAME_CLOSED" then
+		rememberBank(true)
 		gameBankShown = true -- (so hiding ours doesn't close the bank again)
 		bankView.win:Hide()
 		tuckGameBank(false)
@@ -1300,5 +1819,6 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 		ns.BagWindowRepaint()
 		return
 	end
+	if bankFrame() and bankFrame():IsShown() then rememberBank() end
 	allChanged()
 end)
