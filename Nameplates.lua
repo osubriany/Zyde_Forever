@@ -28,10 +28,10 @@ local FLAT = "Interface\\Buttons\\WHITE8X8"
 local FONT = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
 local W, H = 120, 10          -- bar size
 local CAST_H = 8
-local AURA, AURA_MAX = 16, 5  -- debuff icon size, how many
+local AURA, AURA_MAX = 16, 8  -- debuff icon size, how many. Five was a full warrior set minus the longest one, so Demoralizing Shout came and went.
 -- Demoralizing Shout is 45 seconds. Dungeon plates do not keep it on the game's
--- debuff row, so the cast itself puts the icon up. One row stays, so the cast
--- bar under the debuffs does not get covered.
+-- debuff row, so the cast itself puts the icon up. The cast bar sits below two
+-- rows of debuffs, so it isn't covered.
 local DEMO_SECONDS = 45
 local demoSet = { [1160] = true, [6190] = true, [11554] = true, [11555] = true, [11556] = true, [25202] = true, [25203] = true, [47437] = true }
 local demoOn = {} -- [mob GUID] = when your shout on it runs out (only mobs it reached, see markDemo)
@@ -173,8 +173,11 @@ end
 -- Your debuffs through the game's aura container (clients with "secret" aura data, like Forever):
 -- the addon only says which auras and where; the game fills in the icon, stacks and timer itself,
 -- so it works in combat too, when addons may not read your target's auras. (Platynator does the
--- same.) Setting it up is refused in combat, so a plate built mid-fight gets it afterwards.
--- Without it: our own icons (out of combat) and the game's own debuff row (see updateAuras).
+-- same.) Setting it up is refused in combat. A plate first seen mid-fight used to skip it and
+-- fall back to the game's row, which keeps some of your debuffs and not others, so Demoralizing
+-- Shout showed on mobs you had seen before the pull and not on ones that appeared during it.
+-- The containers are built ahead of time, out of combat. Without one: our own icons, then the
+-- game's row (see updateAuras).
 ---------------------------------------------------------------------------
 local USE_CONTAINER = C_Secrets and C_Secrets.HasSecretRestrictions and safe(C_Secrets.HasSecretRestrictions) and true or false
 
@@ -306,8 +309,8 @@ local function build(plate)
 
 	-- Cast bar
 	f.cast = bar(f, CAST_H)
-	f.cast:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -(AURA + 11)) -- (below the debuff row)
-	f.cast:SetPoint("TOPRIGHT", f, "BOTTOMRIGHT", 0, -(AURA + 11))
+	f.cast:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -(AURA * 2 + 13)) -- (below two rows of debuffs)
+	f.cast:SetPoint("TOPRIGHT", f, "BOTTOMRIGHT", 0, -(AURA * 2 + 13))
 	f.cast.icon = f.cast:CreateTexture(nil, "OVERLAY")
 	f.cast.icon:SetSize(CAST_H + 4, CAST_H + 4)
 	f.cast.icon:SetPoint("RIGHT", f.cast, "LEFT", -2, 0)
@@ -412,6 +415,18 @@ local function build(plate)
 	frames[plate] = f
 	plate.zydePlate = f -- (for the quest mob glow in QuestMobs.lua)
 	return f
+end
+
+-- Every nameplate frame, before a unit is on it. Out of combat only.
+local function prewarmPlates()
+	if InCombatLockdown() then return end
+	for i = 1, 40 do
+		local plate = _G["NamePlate" .. i]
+		if plate and not (plate.IsForbidden and plate:IsForbidden()) then
+			local f = frames[plate] or build(plate)
+			if f.ac and not f.ac.ready then setupContainer(f.ac) end
+		end
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -1180,7 +1195,7 @@ ev:SetScript("OnEvent", function(_, event, unit)
 			local ok, m = pcall(QuestieLoader.ImportModule, QuestieLoader, "QuestieTooltips")
 			if ok and type(m) == "table" then TT = m end
 		end
-		for _, e in ipairs({ "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "UNIT_HEALTH", "UNIT_MAXHEALTH",
+		for _, e in ipairs({ "NAME_PLATE_CREATED", "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "UNIT_HEALTH", "UNIT_MAXHEALTH",
 			"UNIT_NAME_UPDATE", "UNIT_LEVEL", "UNIT_FACTION", "UNIT_FLAGS", "UNIT_CLASSIFICATION_CHANGED", "UNIT_AURA",
 			"UNIT_THREAT_SITUATION_UPDATE", "UNIT_THREAT_LIST_UPDATE", "QUEST_LOG_UPDATE", "UPDATE_SHAPESHIFT_FORM",
 			"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_TARGET_CHANGED", "RAID_TARGET_UPDATE", "INSTANCE_ENCOUNTER_ENGAGE_UNIT" }) do
@@ -1193,7 +1208,12 @@ ev:SetScript("OnEvent", function(_, event, unit)
 		ns.Plates.Every(2, function()
 			for _, f in pairs(skinned) do updateQuest(f) updateAuras(f) end
 		end)
+		prewarmPlates()
 		skinAll()
+		return
+	end
+	if event == "NAME_PLATE_CREATED" then
+		prewarmPlates()
 		return
 	end
 	if event == "NAME_PLATE_UNIT_ADDED" then
@@ -1226,6 +1246,7 @@ ev:SetScript("OnEvent", function(_, event, unit)
 	end
 	if event == "UPDATE_SHAPESHIFT_FORM" or event == "GROUP_ROSTER_UPDATE"
 		or event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_REGEN_DISABLED" then
+		if event == "PLAYER_REGEN_ENABLED" then prewarmPlates() end
 		for _, f in pairs(skinned) do
 			updateThreat(f)
 			if event == "PLAYER_REGEN_ENABLED" and f.ac and not f.useAC then
