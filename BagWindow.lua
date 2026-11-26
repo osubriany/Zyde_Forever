@@ -733,9 +733,18 @@ function View:Button(i)
 	local origClick = b:GetScript("OnClick")
 	if origClick then
 		b:SetScript("OnClick", function(self, button, ...)
-			-- (the secure button took this right-click; in a fight it's hidden, see useLayer,
-			-- and the slot's own click handles it as before)
-			if button == "RightButton" and use:IsVisible() then return end
+			-- Right-clicks never reach the slot's own click: run from here it's addon code, and
+			-- the game forbids it to use an item ("was blocked calling UseContainerItem()").
+			-- Out of a fight the secure button above takes them; in one it's hidden (useLayer),
+			-- so a right-click does nothing and says why, once a fight.
+			local aimingNow = button == "LeftButton" and SpellCanTargetItem and SpellCanTargetItem()
+			if button == "RightButton" or (aimingNow and InCombatLockdown()) then
+				if InCombatLockdown() and not self.empty and not ns.bagCombatTold then
+					ns.bagCombatTold = true
+					print("|cff66ccffZyde_Forever|r: items can't be used from the bag window in a fight - use your action bars or the ring")
+				end
+				return
+			end
 			return origClick(self, button, ...)
 		end)
 	end
@@ -824,6 +833,26 @@ local function placeUse(b, active)
 		use:SetAttribute("item2", key)
 		use:SetAttribute("*type2", "item")
 		use:SetAttribute("*item2", key)
+		use:SetAttribute("item1", key)
+		use:SetAttribute("*item1", key)
+	end
+	-- A spell waiting for an item (Feed Pet, a sharpening stone, a poison, Disenchant): the
+	-- left-click on the item has to be the secure button's too. Through the slot's own click
+	-- it's addon code, and the game forbids it ("was blocked calling UseContainerItem()").
+	local aiming = SpellCanTargetItem and SpellCanTargetItem() and true or false
+	if use.aiming ~= aiming then
+		use.aiming = aiming
+		if aiming then
+			use:SetAttribute("type1", "item")
+			use:SetAttribute("*type1", "item")
+			use:RegisterForClicks("LeftButtonDown", "LeftButtonUp", "RightButtonDown", "RightButtonUp")
+			if use.SetPassThroughButtons then use:SetPassThroughButtons("MiddleButton") end
+		else
+			use:SetAttribute("type1", nil)
+			use:SetAttribute("*type1", nil)
+			use:RegisterForClicks("RightButtonDown", "RightButtonUp")
+			if use.SetPassThroughButtons then use:SetPassThroughButtons("LeftButton", "MiddleButton") end
+		end
 	end
 	if use:GetFrameStrata() ~= "DIALOG" then use:SetFrameStrata("DIALOG") end
 	local lvl = (b:GetFrameLevel() or 1) + 20
@@ -832,6 +861,7 @@ local function placeUse(b, active)
 end
 local function refreshUses()
 	if InCombatLockdown() then return end
+	ns.bagCombatTold = nil -- (the "not in a fight" hint: once per fight)
 	local open = false
 	for _, v in pairs(views) do
 		if v.win and v.win:IsShown() then open = true break end
