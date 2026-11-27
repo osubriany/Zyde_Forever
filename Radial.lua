@@ -826,10 +826,13 @@ local function apply()
 			if current[i].kind == "item" and isBandage(current[i].id) then
 				where, whereName = bandageWhere(current[i].id)
 				if where then t, v = "item", where end
-			elseif current[i].kind == "item" then
-				bagBtn = containerButtonForItem(current[i].id)
 			end
-			if whereName and whereName ~= bandageSlotTold then
+			-- (Other items keep the secure item use. They went through
+			-- ContainerFrame<bag+1>Item<slot>, but those frames aren't tied to bags
+			-- that way - ContainerFrame1 is whichever bag opened first, and their
+			-- buttons count slots backwards - and with the Zyde bag window they're
+			-- never opened: a potion on the ring could use another item, or nothing.)
+			if whereName and not bandageSlotTold then -- (once: it moved on every bag change)
 				bandageSlotTold = whereName
 				print(P .. "bandage on the ring uses " .. whereName)
 			elseif current[i].kind == "item" and isBandage(current[i].id) and not where and not bandageMissingTold then
