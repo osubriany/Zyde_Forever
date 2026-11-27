@@ -700,6 +700,11 @@ end
 local function auctionHouseOpen()
 	return frameShown(AuctionHouseFrame) or frameShown(AuctionFrame)
 end
+-- The vendor window. IsShown can stay true after it closes, the same way the
+-- compose page does, so this uses the on-screen check.
+local function merchantOpen()
+	return frameShown(MerchantFrame)
+end
 -- The compose tab, and only while the mailbox window is actually open.
 -- Otherwise a right-click tries to attach the item and the game says a
 -- soulbound item cannot be mailed.
@@ -1131,8 +1136,9 @@ local function placeUse(b, active)
 	-- The secure button would use or equip the item instead.
 	local aimingNow = SpellCanTargetItem and SpellCanTargetItem()
 	local move = b.move
+	local atVendor = merchantOpen()
 	local handToUs = bankVisit() or auctionHouseOpen() or sendMailOpen()
-	if handToUs and not aimingNow and not (MerchantFrame and MerchantFrame:IsShown()) then
+	if not atVendor and handToUs and not aimingNow then
 		use.itemKey = nil
 		use:Hide()
 		if move then
@@ -1145,10 +1151,11 @@ local function placeUse(b, active)
 		return
 	end
 	if move and move:IsShown() then move:Hide() end
-	-- The game's own slot. Its click is the default: use, sell, auction, bandage.
-	local game = moveButton(bag, slot) or realContainerButton(bag, slot)
+	-- A scanned bag button often has no working right-click, so at a vendor the
+	-- secure button uses the slot itself. That is what sells it.
+	local game = (not atVendor) and (moveButton(bag, slot) or realContainerButton(bag, slot))
 	local where = bag .. " " .. slot
-	local key = where .. (game and " game" or " item")
+	local key = where .. (game and " game" or (atVendor and " vendor" or " item"))
 	if use.itemKey ~= key then
 		use.itemKey = key
 		use:SetAttribute("item2", nil)
@@ -1157,17 +1164,25 @@ local function placeUse(b, active)
 		use:SetAttribute("*item1", nil)
 		use:SetAttribute("clickbutton2", nil)
 		use:SetAttribute("*clickbutton2", nil)
+		use:SetAttribute("macrotext2", nil)
+		use:SetAttribute("*macrotext2", nil)
 		-- Left click while a spell wants an item (Feed Pet, a stone, a poison).
 		use:SetAttribute("item1", where)
 		use:SetAttribute("*item1", where)
 		if game then
-			-- The game's own slot. At a vendor it sells, at the auction house it
-			-- lists, and a bandage lets you pick a person.
+			-- The game's own slot. At the auction house it lists, and a bandage
+			-- lets you pick a person.
 			use:SetAttribute("forward", true)
 			use:SetAttribute("type2", "click")
 			use:SetAttribute("*type2", "click")
 			use:SetAttribute("clickbutton2", game)
 			use:SetAttribute("*clickbutton2", game)
+		elseif atVendor then
+			use:SetAttribute("forward", nil)
+			use:SetAttribute("type2", "macro")
+			use:SetAttribute("*type2", "macro")
+			use:SetAttribute("macrotext2", "/use " .. where)
+			use:SetAttribute("*macrotext2", "/use " .. where)
 		else
 			-- Right click only. A bare "type" would also fire if a left click landed here.
 			use:SetAttribute("forward", nil)
