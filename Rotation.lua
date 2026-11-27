@@ -445,6 +445,10 @@ local function score(spell, entry, f, ctx, index)
 	if u == false then return nil end
 	if spell.needUsable and u ~= true then return nil end
 	if f and f.cost > 0 and ctx.power and f.cost > ctx.power then return nil end
+	-- (hunters, below: the pet's head start - only a sting until it has the mob's attention;
+	-- low on mana - nothing that costs it but a melee strike, Mend Pet's mana is kept)
+	if ctx.headStart and spell.kind ~= "dot" and not spell.melee then return nil end
+	if ctx.mode == "dry" and f and f.cost > 0 and not spell.melee then return nil end
 
 	local gcd = spell.gcd or ctx.gcd
 	local time = math.max(gcd, f and f.cast or 0)
@@ -492,7 +496,7 @@ local function score(spell, entry, f, ctx, index)
 		dmg = dmg * math.min(ctx.enemies, spell.aoe[2])
 	end
 	if spell.kind == "reactive" then dmg = dmg * 1.5 end -- (a window that closes: use it)
-	return dmg / time
+	return dmg / time, dmg, f and f.cost or 0
 end
 
 ---------------------------------------------------------------------------
@@ -578,13 +582,16 @@ local function paladinPick(ctx, tg)
 end
 
 -- The best pick, and the health-gated one (execute kind) if any: pick, gatedPick, threshold.
-local function choose()
+-- opts (hunters): mode = "free" / "thrifty" (damage per mana counts too) / "dry" (no mana spent),
+-- headStart = true while the pet takes the mob's attention.
+local function choose(opts)
 	if not LIST then return nil end
 	local tg = plain(UnitGUID("target"))
 	local ctx = {
 		enemies = enemyCount(), ttk = timeToKill(), power = power(), cp = comboPoints(), form = formId(),
 		gcd = ENERGY_GCD[playerClass] or ((playerClass == "DRUID" and formId() == 1) and 1 or 1.5),
 		dots = tg and dots[tg],
+		mode = opts and opts.mode, headStart = opts and opts.headStart,
 	}
 	if playerClass == "PALADIN" then
 		local p = paladinPick(ctx, tg)
@@ -592,6 +599,7 @@ local function choose()
 	end
 	local share = targetShare()
 	local best, bestScore, gated, gatedScore, threshold
+	local cands = {}
 	for index, spell in ipairs(LIST) do
 		local entry = byName[spell.name]
 		if entry and spell.kind ~= "seal" and spell.kind ~= "judgement" then
@@ -608,10 +616,24 @@ local function choose()
 					end
 				end
 			else
-				local s = score(spell, entry, f, ctx, index)
-				if s and (not bestScore or s > bestScore) then best, bestScore = spell.name, s end
+				local s, dmg, cost = score(spell, entry, f, ctx, index)
+				if s then cands[#cands + 1] = { name = spell.name, s = s, dmg = dmg, cost = cost } end
 			end
 		end
+	end
+	-- Thrifty: a spell's score shrinks with how much less damage per mana it does than the
+	-- thriftiest one (free ones keep theirs).
+	if ctx.mode == "thrifty" then
+		local bestEff = 0
+		for _, c in ipairs(cands) do
+			if c.cost > 0 then bestEff = math.max(bestEff, c.dmg / c.cost) end
+		end
+		for _, c in ipairs(cands) do
+			if c.cost > 0 and bestEff > 0 then c.s = c.s * (c.dmg / c.cost) / bestEff end
+		end
+	end
+	for _, c in ipairs(cands) do
+		if not bestScore or c.s > bestScore then best, bestScore = c.name, c.s end
 	end
 	return best, gated, threshold
 end
@@ -625,16 +647,17 @@ root:SetFrameStrata("HIGH")
 root:SetAllPoints()
 root:EnableMouse(false)
 
-local function makeGlow(parent)
+local function makeGlow(parent, color)
+	color = color or BLUE
 	local g = CreateFrame("Frame", nil, parent)
 	g:EnableMouse(false)
 	g.tex = g:CreateTexture(nil, "OVERLAY")
 	g.tex:SetTexture(GLOW)
 	g.tex:SetBlendMode("ADD")
-	g.tex:SetVertexColor(BLUE[1], BLUE[2], BLUE[3])
+	g.tex:SetVertexColor(color[1], color[2], color[3])
 	g.tex:SetPoint("CENTER")
 	g.fill = g:CreateTexture(nil, "ARTWORK")
-	g.fill:SetColorTexture(BLUE[1], BLUE[2], BLUE[3], 0.22)
+	g.fill:SetColorTexture(color[1], color[2], color[3], 0.22)
 	g.fill:SetBlendMode("ADD")
 	local pulse = g:CreateAnimationGroup()
 	pulse:SetLooping("BOUNCE")
@@ -710,15 +733,22 @@ local function feedGates()
 	end
 end
 
-local shown = {}
+local hunterUpdate, hunterHide, hunterDebug -- (section 6, hunters)
+
 local function hideAll()
 	for _, g in ipairs({ plainGlow, aboveGlow, belowGlow }) do g:Hide() g.pulse:Stop() end
+	if hunterHide then hunterHide() end
 end
 
 local function update()
 	if not on() or not LIST then hideAll() return end
 	local hostile = plain(UnitExists("target")) and plain(UnitCanAttack("player", "target"))
 		and not plain(UnitIsDeadOrGhost("target"))
+	if playerClass == "HUNTER" and hunterUpdate then
+		for _, g in ipairs({ plainGlow, aboveGlow, belowGlow }) do g:Hide() g.pulse:Stop() end
+		hunterUpdate(hostile and true or false)
+		return
+	end
 	if not hostile then hideAll() return end
 	local pick, gatedPick, threshold = choose()
 	local pickBtn = pick and byName[pick] and byName[pick].button
@@ -736,6 +766,395 @@ local function update()
 		aboveGlow:Hide() aboveGlow.pulse:Stop()
 		belowGlow:Hide() belowGlow.pulse:Stop()
 		placeGlow(plainGlow, pickBtn)
+	end
+end
+
+---------------------------------------------------------------------------
+-- 6. Hunters: playing on your own means chain pulls, so the glows weigh more than damage.
+--   * Mana for the next pull: above 55% anything goes; 25-55% damage per mana counts too
+--     ("thrifty"); under 25% nothing that costs mana but a melee strike, keeping it for Mend
+--     Pet. (In a group: 30% and 10%.)
+--   * The pet first: its Attack button glows until it's on your target. On your own, nothing
+--     glows until the mob is fighting, then 2 seconds of stings only, so the pet has its
+--     attention before your big shots.
+--   * Threat: no glow while you're above your pet on the mob (ease off). Feign Death glows
+--     amber when the mob turns on you and your pet is up; your shots wait meanwhile.
+--   * Mend Pet glows green when your pet is under 40% in a fight (70% between fights: top it
+--     up for the next pull), unless the mob is nearly dead. Your shots wait meanwhile.
+--   * Danger: Bestial Wrath, Rapid Fire, Intimidation and your race's burst glow red when
+--     more than one mob is on you and your pet (3 in a group), an elite while on your own, a
+--     mob 3+ levels above you or a boss, your pet under 30% or you under 40%. Deterrence glows
+--     red when you're under 50% and the mob is on you.
+-- The game hides your mana and health (and maybe your pet's) from addons, so those checks are
+-- the game's own: a curve turns the hidden percent into how see-through a glow is
+-- (UnitHealthPercent / UnitPowerPercent with a step curve: 1 on one side of the line, 0 on the
+-- other). Where that gives nothing, a hidden status bar fed the number clips the glow instead,
+-- as the execute gates above do. Each glow sits in a stack of holders, one per condition, so
+-- it shows only when they're all on. /zyde rotationdebug says which way each check went.
+---------------------------------------------------------------------------
+do
+	local GREEN, RED, AMBER = { 0.3, 1, 0.35 }, { 1, 0.2, 0.15 }, { 1, 0.7, 0.1 }
+	local MANA = (Enum and Enum.PowerType and Enum.PowerType.Mana) or 0
+	local DEPTH = 5
+	local BIG = { "Bestial Wrath", "Rapid Fire", "Intimidation", "Blood Fury", "Berserking" }
+	local NEEDS_PET = { ["Bestial Wrath"] = true, ["Intimidation"] = true }
+
+	-- (/zyde rotationdebug curves off: status-bar gates only, to compare)
+	local function useCurves()
+		return not (ZydeForeverDB and ZydeForeverDB.rotationCurves == false)
+	end
+
+	-- Step curves, made once. points = { {x, y}, ... }. Each y is given at both ends of its stretch,
+	-- so it reads the same whether the game holds the last point or takes the nearest one.
+	local curves = {}
+	local function curve(key, points)
+		local c = curves[key]
+		if c ~= nil then return c or nil end
+		c = false
+		local step = Enum and Enum.LuaCurveType and Enum.LuaCurveType.Step
+		if step and C_CurveUtil and C_CurveUtil.CreateCurve then
+			local ok, made = pcall(function()
+				local k = C_CurveUtil.CreateCurve()
+				k:SetType(step)
+				for _, p in ipairs(points) do k:AddPoint(p[1], p[2]) end
+				return k
+			end)
+			if ok and made then c = made end
+		end
+		curves[key] = c
+		return c or nil
+	end
+	-- 1 under `cut` (below = true) or at/over it (below = false), else 0. Input is 0-1.
+	local function cutCurve(cut, below)
+		local a, b = below and 1 or 0, below and 0 or 1
+		return curve(("cut%.3f%s"):format(cut, below and "b" or "a"),
+			{ { 0, a }, { cut - 0.001, a }, { cut, b }, { 1, b } })
+	end
+
+	-- The holders. slots[id] = { wraps = { {a = alpha frame, c = clip frame, bar}, ... }, glow }
+	local slots, used = {}, {}
+	local hows = {} -- [check] = "plain" / "curve" / "gate" / "unknown" (for the debug)
+
+	local function slot(id, color)
+		local s = slots[id]
+		if s then return s end
+		s = { wraps = {} }
+		local parent = root
+		for i = 1, DEPTH do
+			local a = CreateFrame("Frame", nil, parent)
+			a:SetAllPoints(root)
+			local c = CreateFrame("Frame", nil, a)
+			c:SetAllPoints(root)
+			local bar = CreateFrame("StatusBar", nil, gateArea)
+			bar:SetStatusBarTexture(FLAT)
+			bar:SetStatusBarColor(0, 0, 0, 0)
+			bar:SetMinMaxValues(0, 1)
+			bar:SetValue(1)
+			s.wraps[i] = { a = a, c = c, bar = bar }
+			parent = c
+		end
+		s.glow = makeGlow(parent, color)
+		slots[id] = s
+		return s
+	end
+
+	local function unclip(w)
+		if not w.clipped then return end
+		w.clipped = false
+		w.c:SetClipsChildren(false)
+		w.c:ClearAllPoints()
+		w.c:SetAllPoints(root)
+	end
+
+	-- Clip to the part of the bar under (below) or over the fill edge, as gate() does.
+	local function clipTo(w, below)
+		local fill = w.bar:GetStatusBarTexture()
+		w.c:ClearAllPoints()
+		if below then
+			w.c:SetPoint("TOPLEFT", fill, "TOPRIGHT")
+			w.c:SetPoint("BOTTOMRIGHT", w.bar, "BOTTOMRIGHT")
+		else
+			w.c:SetPoint("TOPLEFT", w.bar, "TOPLEFT")
+			w.c:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT")
+		end
+		w.c:SetClipsChildren(true)
+		w.clipped = true
+	end
+
+	-- A unit's health (or power of `ptype`) share when the game shows it, and the raw numbers.
+	local function readShare(unit, ptype)
+		local cur, mx
+		if ptype then cur, mx = safe(UnitPower, unit, ptype), safe(UnitPowerMax, unit, ptype)
+		else cur, mx = safe(UnitHealth, unit), safe(UnitHealthMax, unit) end
+		local pc, pm = plain(cur), plain(mx)
+		if pc and pm and pm > 0 then return pc / pm, cur, mx end
+		return nil, cur, mx
+	end
+
+	-- Set one holder for a condition:
+	--   { kind = "share", unit, power = power type or nil, cut, below }  health / power under or over cut
+	--   { kind = "bool", v = a yes/no (maybe hidden), yes = alpha, no = alpha }
+	--   { kind = "threat", key, points = alpha for threat 0, 1, 2, 3 }  your threat on the target
+	-- fallback: the alpha when it can't be told. label: the check's name in the debug.
+	local function apply(w, cond, button)
+		unclip(w)
+		w.a:SetAlpha(1)
+		if not cond then return end
+		local how
+		if cond.kind == "share" then
+			local share, cur, mx = readShare(cond.unit, cond.power)
+			if share then
+				w.a:SetAlpha(((share < cond.cut) == cond.below) and 1 or 0)
+				how = "plain"
+			else
+				local k = useCurves() and cutCurve(cond.cut, cond.below)
+				local fn = cond.power and UnitPowerPercent or UnitHealthPercent
+				if k and fn then
+					local ok, v
+					if cond.power then ok, v = pcall(fn, cond.unit, cond.power, false, k)
+					else ok, v = pcall(fn, cond.unit, false, k) end
+					if ok and v ~= nil and pcall(w.a.SetAlpha, w.a, v) then how = "curve" end
+				end
+				if not how and cur ~= nil and mx ~= nil then
+					w.a:SetAlpha(1)
+					local okM = pcall(w.bar.SetMinMaxValues, w.bar, 0, mx)
+					local okV = pcall(w.bar.SetValue, w.bar, cur)
+					if okM and okV then
+						aimGate(w.bar, button, cond.cut)
+						clipTo(w, cond.below)
+						how = "gate"
+					end
+				end
+				if not how then w.a:SetAlpha(cond.fallback or 0) how = "unknown" end
+			end
+		elseif cond.kind == "bool" then
+			local v = cond.v
+			if not isSecret(v) then
+				w.a:SetAlpha(v and cond.yes or cond.no)
+				how = "plain"
+			elseif useCurves() and C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean then
+				local ok, a = pcall(C_CurveUtil.EvaluateColorValueFromBoolean, v, cond.yes, cond.no)
+				if ok and a ~= nil and pcall(w.a.SetAlpha, w.a, a) then how = "curve" end
+			end
+			if not how then w.a:SetAlpha(cond.fallback or 0) how = "unknown" end
+		elseif cond.kind == "threat" then
+			local pts = cond.points
+			local st = UnitThreatSituation and safe(UnitThreatSituation, "player", "target")
+			if not isSecret(st) then
+				w.a:SetAlpha(pts[(type(st) == "number" and st or 0) + 1] or pts[1]) -- (not on its list: as 0)
+				how = st and "plain" or "plain (not on its list)"
+			else
+				local k = useCurves() and curve("threat" .. cond.key,
+					{ { 0, pts[1] }, { 1, pts[2] }, { 2, pts[3] }, { 3, pts[4] } })
+				if k then
+					local ok, v = pcall(k.Evaluate, k, st)
+					if ok and v ~= nil and pcall(w.a.SetAlpha, w.a, v) then how = "curve" end
+				end
+				if not how then w.a:SetAlpha(cond.fallback or 1) how = "unknown" end
+			end
+		end
+		if cond.label then hows[cond.label] = how end
+	end
+
+	local function show(id, color, button, conds)
+		if not button then return end
+		local s = slot(id, color)
+		for i = 1, DEPTH do apply(s.wraps[i], conds and conds[i], button) end
+		placeGlow(s.glow, button)
+		used[id] = true
+	end
+
+	hunterHide = function()
+		for _, s in pairs(slots) do s.glow:Hide() s.glow.pulse:Stop() end
+	end
+
+	local function hideUnused()
+		for id, s in pairs(slots) do
+			if not used[id] then s.glow:Hide() s.glow.pulse:Stop() end
+		end
+	end
+
+	-- The pet bar's Attack button.
+	local function petAttackButton()
+		for i = 1, (NUM_PET_ACTION_SLOTS or 10) do
+			local name = plain(safe(GetPetActionInfo, i))
+			if name == "PET_ACTION_ATTACK" then
+				local b = _G["PetActionButton" .. i]
+				if b and b:IsVisible() then return b end
+			end
+		end
+		return nil
+	end
+
+	-- Mobs fighting you or your pet (nameplates).
+	local function foesOnUs()
+		local n = 0
+		for _, unit in ipairs(ns.Plates and ns.Plates.units() or {}) do
+			if plain(UnitCanAttack("player", unit)) and plain(UnitAffectingCombat(unit)) then
+				local mine = UnitThreatSituation and safe(UnitThreatSituation, "player", unit)
+				local pets = UnitThreatSituation and safe(UnitThreatSituation, "pet", unit)
+				local onMe = plain(UnitIsUnit(unit .. "target", "player"))
+				local onPet = plain(UnitIsUnit(unit .. "target", "pet"))
+				local hidden = isSecret(mine) or isSecret(pets)
+				if hidden or plain(mine) ~= nil or plain(pets) ~= nil or onMe or onPet then n = n + 1 end
+			end
+		end
+		return math.max(1, n)
+	end
+
+	-- Danger the addon can see for itself: adds, an elite on your own, a much higher level, a boss.
+	local function plainDanger(foes, solo)
+		local why = {}
+		local class = plain(UnitClassification("target"))
+		local mine, theirs = plain(UnitLevel("player")), plain(UnitLevel("target"))
+		if foes >= (solo and 2 or 3) then why[#why + 1] = foes .. " mobs on you" end
+		if solo and (class == "elite" or class == "rareelite") then why[#why + 1] = "elite" end
+		if class == "worldboss" or theirs == -1 then why[#why + 1] = "boss"
+		elseif mine and theirs and theirs >= mine + 3 then why[#why + 1] = "level " .. theirs end
+		return #why > 0, why
+	end
+
+	local info = {}
+	local function share(unit, cut, below, label, ptype)
+		return { kind = "share", unit = unit, power = ptype, cut = cut, below = below, label = label }
+	end
+
+	hunterUpdate = function(hostile)
+		wipe(used)
+		wipe(info)
+		local now = GetTime()
+		local solo = not plain(IsInGroup and IsInGroup())
+		local petUp = plain(UnitExists("pet")) and plain(UnitIsDeadOrGhost("pet")) == false or false
+		local fighting = InCombatLockdown()
+		local ttk = hostile and timeToKill() or 0
+		info.solo, info.petUp, info.ttk = solo, petUp, ttk
+
+		-- Mend Pet (green): in a fight or between them.
+		local mend = byName["Mend Pet"]
+		local channel = UnitChannelInfo and plain(UnitChannelInfo("player"))
+		local mendCut = fighting and 0.4 or 0.7
+		local mendOn = petUp and mend and not channel and ready("Mend Pet")
+			and not (fighting and hostile and ttk < 5) and true or false
+		if mendOn then show("mend", GREEN, mend.button, { share("pet", mendCut, true, "pet health") }) end
+		info.mend = mendOn and ("when your pet is under " .. mendCut * 100 .. "%")
+			or (not mend and "not on your bars" or "not now")
+		if not hostile then hideUnused() return end
+
+		-- The pet first: its Attack button until it's on your target.
+		local attack = petUp and petAttackButton()
+		if attack then
+			show("petattack", BLUE, attack, { { kind = "bool", v = UnitIsUnit("pettarget", "target"), yes = 0, no = 1,
+				fallback = 0, label = "pet on your target" } })
+		end
+
+		-- On your own: wait until the mob fights, then 2 seconds of stings only.
+		local guid = plain(UnitGUID("target"))
+		local eng = guid and engagedAt[guid]
+		local waiting = solo and petUp and plain(UnitAffectingCombat("target")) == false
+		local headStart = solo and petUp and eng and now - eng < 2 or false
+		info.waiting, info.headStart = waiting, headStart
+
+		local fd = byName["Feign Death"]
+		local fdReady = petUp and fd and ready("Feign Death") and true or false
+
+		-- Damage (blue): one pick per mana band, each shown only in its band.
+		if not waiting then
+			local hi, lo = solo and 0.55 or 0.3, solo and 0.25 or 0.1
+			local free = choose({ mode = "free", headStart = headStart })
+			local thrifty = choose({ mode = "thrifty", headStart = headStart })
+			local dry = choose({ mode = "dry", headStart = headStart })
+			info.picks = { free = free, thrifty = thrifty, dry = dry, hi = hi, lo = lo }
+			local extra = {}
+			-- (Mend Pet's turn: the shots wait)
+			if mendOn and fighting then extra[#extra + 1] = share("pet", mendCut, false, "pet health") end
+			-- (threat 1 = you're above your pet but it hasn't turned yet: ease off. 2-3 = it's on you:
+			-- Feign Death's turn when it's ready, else keep shooting.)
+			if petUp then
+				extra[#extra + 1] = { kind = "threat", key = fdReady and "easeFD" or "ease",
+					points = { 1, 0, fdReady and 0 or 1, fdReady and 0 or 1 }, fallback = 1, label = "threat" }
+			end
+			local function band(id, pick, conds)
+				if not pick or not byName[pick] then return end
+				local all = {}
+				for _, c in ipairs(conds) do all[#all + 1] = c end
+				for _, c in ipairs(extra) do all[#all + 1] = c end
+				show(id, BLUE, byName[pick].button, all)
+			end
+			if free == thrifty and thrifty == dry then
+				band("dmg", free, {})
+			elseif free == thrifty then
+				band("dmg1", free, { share("player", lo, false, "mana", MANA) })
+				band("dmg3", dry, { share("player", lo, true, "mana", MANA) })
+			else
+				band("dmg1", free, { share("player", hi, false, "mana", MANA) })
+				band("dmg2", thrifty, { share("player", lo, false, "mana", MANA), share("player", hi, true, "mana", MANA) })
+				band("dmg3", dry, { share("player", lo, true, "mana", MANA) })
+			end
+		end
+
+		-- Feign Death (amber) when the mob turns on you.
+		if fdReady and fighting then
+			show("fd", AMBER, fd.button, { { kind = "threat", key = "onMe", points = { 0, 0, 1, 1 }, fallback = 0,
+				label = "threat" } })
+		end
+
+		-- Danger (red): the big cooldowns.
+		if fighting and ttk >= 4 then
+			local danger, why = plainDanger(foesOnUs(), solo)
+			info.danger = danger and table.concat(why, ", ") or "none seen (your pet's and your health still decide)"
+			for _, name in ipairs(BIG) do
+				local e = byName[name]
+				if e and ready(name) and (petUp or not NEEDS_PET[name]) then
+					if danger then
+						show("big:" .. name, RED, e.button, {})
+					else
+						if petUp then show("bigPet:" .. name, RED, e.button, { share("pet", 0.3, true, "pet health") }) end
+						show("bigMe:" .. name, RED, e.button, { share("player", 0.4, true, "your health") })
+					end
+				end
+			end
+			local det = byName["Deterrence"]
+			if det and ready("Deterrence") then
+				show("det", RED, det.button, { share("player", 0.5, true, "your health"),
+					{ kind = "bool", v = UnitIsUnit("targettarget", "player"), yes = 1, no = 0, fallback = 0, label = "mob on you" } })
+			end
+		end
+		hideUnused()
+	end
+
+	-- What the hunter part sees, for /zyde rotationdebug.
+	hunterDebug = function(P)
+		local p = info.picks
+		print(P .. ("hunter: %s, pet %s, fight left ~%.0fs, curves %s"):format(info.solo and "on your own" or "in a group",
+			info.petUp and "up" or "not up", info.ttk or 0, useCurves() and "on" or "off (gates only)"))
+		if info.waiting then
+			print(P .. "  waiting for the mob to fight your pet (no damage glow yet)")
+		elseif p then
+			print(P .. ("  damage: %s above %d%% mana, %s %d-%d%%, %s under %d%%%s"):format(tostring(p.free), p.hi * 100,
+				tostring(p.thrifty), p.lo * 100, p.hi * 100, tostring(p.dry), p.lo * 100,
+				info.headStart and "   (pet's head start: stings only)" or ""))
+		end
+		print(P .. "  Mend Pet: " .. tostring(info.mend) .. "   danger: " .. tostring(info.danger or "not in a fight"))
+		local parts = {}
+		for label, how in pairs(hows) do parts[#parts + 1] = label .. " " .. tostring(how) end
+		table.sort(parts)
+		print(P .. "  checks read by: " .. (#parts > 0 and table.concat(parts, ", ") or "-"))
+		print(P .. ("  game has: CreateCurve %s, step curves %s, UnitHealthPercent %s, UnitPowerPercent %s, bool->value %s"):format(
+			tostring(C_CurveUtil and C_CurveUtil.CreateCurve ~= nil), tostring(Enum and Enum.LuaCurveType and Enum.LuaCurveType.Step ~= nil),
+			tostring(UnitHealthPercent ~= nil), tostring(UnitPowerPercent ~= nil),
+			tostring(C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean ~= nil)))
+		-- The raw answers (hidden ones may not print).
+		for _, q in ipairs({
+			{ "pet health %", function() return UnitHealthPercent("pet") end },
+			{ "your health %", function() return UnitHealthPercent("player") end },
+			{ "your mana %", function() return UnitPowerPercent("player", MANA) end },
+			{ "pet under 40% (curve)", function() return UnitHealthPercent("pet", false, cutCurve(0.4, true)) end },
+			{ "threat", function() return UnitThreatSituation("player", "target") end },
+		}) do
+			local ok, v = pcall(q[2])
+			local shown = ok and pcall(print, P .. "  " .. q[1] .. ":", v)
+			if not shown then print(P .. "  " .. q[1] .. ": " .. (ok and "hidden" or "not available")) end
+		end
 	end
 end
 
@@ -812,6 +1231,7 @@ function ns.RotationDebug()
 		tostring(pick), gatedPick and (" / under " .. math.floor(threshold * 100) .. "%: " .. gatedPick) or "",
 		enemyCount(), timeToKill(), targetShare() and (math.floor(targetShare() * 100) .. "%") or "hidden",
 		tostring(power()), tostring(comboPoints())))
+	if playerClass == "HUNTER" and hunterDebug then hunterDebug(P) end
 	local ks, parts = killStats(), {}
 	for _, kind in ipairs({ "normal", "elite", "boss" }) do
 		local s = ks[kind]

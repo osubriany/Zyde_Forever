@@ -225,7 +225,7 @@ local FEATURES = {
 	{ key = "rares", short = "flash + sound", label = "Rare announcer", desc = "When a rare or rare elite shows up (on a nameplate, as your target or mouseover, or on the minimap), its name flashes on screen, a line goes to chat and a sound plays. Each rare is announced once per 5 minutes. Rares you've just seen are also first for the \"Target nearest quest mob\" key" },
 	{ key = "questAlert", short = "glow on quest objects", label = "Quest object alert", desc = "Glow, ! and ping on nearby quest objects you pick up (not the loot of mobs you kill for a quest)" },
 	{ key = "questIcons", short = "icons over nodes", label = "Icons over nearby objects", desc = "The game's interact icons over herbs, ore and chests" },
-	{ key = "rotation", short = "best ability glows blue", label = "Ability highlight", desc = "In a fight, the action button that does the most damage right now glows blue. It weighs each spell's damage, damage over time, cooldown and cast time against how long the fight has left, how many enemies are on you, your mana/rage/energy and combo points. Execute-type moves take over at low health even while the game hides it. /zyde rotationdebug shows its numbers" },
+	{ key = "rotation", short = "best ability glows blue", label = "Ability highlight", desc = "In a fight, the action button that does the most damage right now glows blue. It weighs each spell's damage, damage over time, cooldown and cast time against how long the fight has left, how many enemies are on you, your mana/rage/energy and combo points. Execute-type moves take over at low health even while the game hides it. Hunters get more: the pet's Attack button until it's on your target, a short head start for it, shots that save mana for the next pull as you run low, no glow while you're above your pet on threat, Mend Pet in green, Feign Death in amber when the mob turns on you, and your big cooldowns in red when the fight is dangerous. /zyde rotationdebug shows its numbers" },
 	{ key = "pullLight", short = "healer mana light", label = "Pull traffic light", desc = "When you tank a dungeon or raid: a small traffic light for your healer's mana you can drag anywhere. GO (green) at 70% or more, careful (yellow) 30-70%, STOP (red) under 30%, with a mana bar, a drink countdown, and DEAD / OFFLINE. Works in combat. /zyde light to place it, /zyde healer <name> to pick the healer" },
 	{ key = "nodeGlow", short = "herbs, ore, chests", label = "Herb, ore and chest glow", desc = "A colored glow and icon on herbs (green) and ore (copper) you can gather with your professions, and on chests (gold), within 30 yards. Brighter on the one you face" },
 	{ key = "guildRoster", short = "class colors, levels, zones", label = "Guild member list", desc = "In the Guild & Communities window: online members' names in class colors, each member's level at the right (colored by how near your level), and their zone when you hover them" },
@@ -2631,6 +2631,7 @@ ns.ZydeCommands = {
 	{ cmd = "/zyde trackdebug", about = "Hunters: what auto tracking sees around you and which tracking it would pick." },
 	{ cmd = "/zyde flighttimer", about = "Flight timer: how many flight times it knows (add \"reset\" to put the panel back in the middle)." },
 	{ cmd = "/zyde rotationdebug", about = "Ability highlight: what it sees (enemies, time left, health) and each spell's numbers." },
+	{ cmd = "/zyde rotationdebug curves off|on", about = "Ability highlight (hunters): read hidden health and mana with status bars only, or through curves too (the default)." },
 	{ cmd = "/zyde evisdebug", about = "Rogues: the damage numbers behind the Eviscerate tile for your target." },
 	{ cmd = "/zyde mapnotes", about = "How many map markers you have. Alt-click the map to add one." },
 	{ cmd = "/zyde mapnotes clear", about = "Remove every marker on the map you have open." },
@@ -2841,6 +2842,9 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		if ns.FlightTimerCommand then ns.FlightTimerCommand(msg:match("reset")) end
 	elseif msg == "rotationdebug" then
 		if ns.RotationDebug then ns.RotationDebug() end
+	elseif msg == "rotationdebug curves off" or msg == "rotationdebug curves on" then
+		ZydeForeverDB.rotationCurves = (msg:match("on$") and nil) or false
+		print("|cff66ccffZyde_Forever|r: ability highlight " .. (msg:match("on$") and "reads hidden health and mana through curves where it can" or "uses hidden status bars only (no curves)"))
 	elseif msg == "evisdebug" then
 		if ns.EvisDebug then ns.EvisDebug() else print("|cff66ccffZyde_Forever|r: the Eviscerate tile is for rogues") end
 	elseif msg == "mapnotes" or msg == "mapnotes clear" then
