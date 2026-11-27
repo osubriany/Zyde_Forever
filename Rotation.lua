@@ -794,7 +794,8 @@ end
 --     on your own (or with Growl on in a group), else your group's tank. Feign Death glows
 --     amber when the mob turns on you; your shots wait meanwhile.
 --   * Multi-Shot: only while you're safely under the tank on every other mob fighting (up to 3)
---     and no mob that isn't fighting is in reach (it could pull it); else a one-target shot.
+--     and no mob that isn't fighting stands by your target (it could pull it; judged from the
+--     nameplates); else a one-target shot.
 --   * Mend Pet glows green when your pet is under 40% in a fight (70% between fights: top it
 --     up for the next pull), unless the mob is nearly dead. Your shots wait meanwhile.
 --   * Danger: Bestial Wrath, Rapid Fire, Intimidation and your race's burst glow red when
@@ -1078,20 +1079,39 @@ do
 		return out
 	end
 
-	-- A mob not fighting yet within Multi-Shot's reach of you (not a critter). The game doesn't
-	-- give mob positions, so whether it stands by your target can't be told: any in reach counts.
-	local function unpulledInReach()
+	-- A mob not fighting yet standing by your target (not a critter): Multi-Shot could hit it and
+	-- pull it. The game gives no mob positions, so "by your target" is read from the nameplates:
+	-- its plate within about 1.5 plate widths of your target's plate on screen (and in reach of
+	-- your shots). It used to be any such mob within 35 yards of you - nearly always one out in
+	-- the world, so Multi-Shot hardly ever glowed. No target plate to compare with: not blocked.
+	local NEAR_PLATES = 1.5
+	local function plateSpot(unit)
+		local plate = C_NamePlate and C_NamePlate.GetNamePlateForUnit and safe(C_NamePlate.GetNamePlateForUnit, unit)
+		if not plate or isSecret(plate) then return nil end
+		local x, y = safe(plate.GetCenter, plate)
+		local sc, w = safe(plate.GetEffectiveScale, plate), safe(plate.GetWidth, plate)
+		x, y, sc, w = plain(x), plain(y), plain(sc), plain(w)
+		if not (x and y and sc and w) then return nil end
+		return x * sc, y * sc, w * sc
+	end
+	local function unpulledByTarget()
+		local tx, ty, tw = plateSpot("target")
+		if not tx then return nil, "no target plate (not checked)" end
 		local e = byName["Multi-Shot"] or byName["Arcane Shot"]
 		for _, unit in ipairs(ns.Plates and ns.Plates.units() or {}) do
 			if plain(UnitCanAttack("player", unit)) and plain(UnitAffectingCombat(unit)) == false
-				and plain(UnitIsDead(unit)) ~= true and plain(UnitCreatureType(unit)) ~= "Critter" then
-				local near
-				if e and C_Spell and C_Spell.IsSpellInRange then near = verdict(safe(C_Spell.IsSpellInRange, e.id, unit)) end
-				if near == nil then near = verdict(safe(CheckInteractDistance, unit, 4)) end -- (about 28 yards)
-				if near then return plain(UnitName(unit)) or "a mob" end
+				and plain(UnitIsDead(unit)) ~= true and plain(UnitCreatureType(unit)) ~= "Critter"
+				and plain(UnitIsUnit(unit, "target")) ~= true then
+				local x, y = plateSpot(unit)
+				local close = x and math.sqrt((x - tx) ^ 2 + (y - ty) ^ 2) <= tw * NEAR_PLATES
+				local reach = true
+				if close and e and C_Spell and C_Spell.IsSpellInRange then
+					reach = verdict(safe(C_Spell.IsSpellInRange, e.id, unit)) ~= false
+				end
+				if close and reach then return plain(UnitName(unit)) or "a mob", "nameplates" end
 			end
 		end
-		return nil
+		return nil, "nameplates"
 	end
 
 	local info = {}
@@ -1169,7 +1189,8 @@ do
 				return all
 			end
 			local others = otherFoes(solo)
-			local unpulled = unpulledInReach()
+			local unpulled, plateCheck = unpulledByTarget()
+			info.plateCheck = plateCheck
 			info.others, info.unpulled = #others, unpulled
 			local function place(id, pick, conds, mode, noAoe)
 				if not pick or not byName[pick] then return end
@@ -1265,7 +1286,8 @@ do
 			if info.noSting then print(P .. "  under " .. DOT_CUT * 100 .. "% target health, instead of the sting: " .. info.noSting) end
 			if info.noMulti then
 				print(P .. ("  Multi-Shot: %d other mob(s) fighting%s; when one isn't safely held: %s"):format(info.others or 0,
-					info.unpulled and (", but " .. info.unpulled .. " isn't fighting and is in reach (no Multi-Shot)") or "",
+					info.unpulled and (", but " .. info.unpulled .. " isn't fighting and stands by your target (no Multi-Shot)")
+						or (" (mobs by your target: " .. tostring(info.plateCheck) .. ")"),
 					tostring(info.noMulti)))
 			end
 		end
