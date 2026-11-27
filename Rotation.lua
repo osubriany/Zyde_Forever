@@ -465,6 +465,27 @@ end
 ---------------------------------------------------------------------------
 -- 4. Scoring: damage it will really do / the time it takes
 ---------------------------------------------------------------------------
+-- Seconds left of your own damage over time spell (by name) on the target: from your casts, and from the
+-- target's debuffs when the game shows them (the longer of the two). nil when neither knows.
+-- (Only the casts before, and only when the tooltip said how long it lasts: a Rend whose tooltip
+-- didn't read never counted as ticking, and kept glowing over Heroic Strike.)
+local function dotLeft(name, ctx)
+	local t = ctx.dots and ctx.dots[name]
+	local left = t and (t - GetTime()) or nil
+	local get = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
+	local a = get and safe(get, "target", name, "HARMFUL|PLAYER")
+	if type(a) == "table" then
+		local exp = plain(a.expirationTime)
+		if type(exp) == "number" and exp > 0 then
+			local l = exp - GetTime()
+			if not left or l > left then left = l end
+		elseif exp == 0 then
+			left = math.max(left or 0, 99) -- (no end time given: it's on)
+		end
+	end
+	return left
+end
+
 local function score(spell, entry, f, ctx, index)
 	if spell.form and spell.form ~= ctx.form then return nil end
 	if cooldownLeft(spell.name, f) > 0.3 then return nil end
@@ -484,6 +505,10 @@ local function score(spell, entry, f, ctx, index)
 	local gcd = spell.gcd or ctx.gcd
 	local time = math.max(gcd, f and f.cast or 0)
 	local fallback = (40 - index) -- (no numbers in the tooltip: keep the class order)
+	if spell.kind == "dot" then
+		local left = dotLeft(spell.name, ctx)
+		if left and left > 1.5 then return nil end -- already ticking on this target
+	end
 	local dmg = 0
 	if f then
 		dmg = f.direct
@@ -1396,7 +1421,7 @@ do
 	---------------------------------------------------------------------------
 	-- 7. Warriors: what the fight needs, not only the hardest hit. Same holders as the hunter's,
 	-- so the game itself reads your hidden health, rage and the mob's health.
-	--   * Blue, damage: Heroic Strike and Cleave (rage dumps) only with 60%+ rage, else the best
+	--   * Blue, damage: Heroic Strike and Cleave (rage dumps) only with 50%+ rage, else the best
 	--     without them, so Mortal Strike, Bloodthirst, Overpower... aren't starved. Execute under
 	--     20%. Rend not on a mob under 30%. In a group and not tanking: no glow while you're
 	--     above the tank on threat.
@@ -1418,7 +1443,7 @@ do
 	-- shouts is counted from your casts: each mob next to you when you cast it.
 	---------------------------------------------------------------------------
 	local RAGE = (Enum and Enum.PowerType and Enum.PowerType.Rage) or 1
-	local DUMP_RAGE, LOW_RAGE = 0.6, 0.2
+	local DUMP_RAGE, LOW_RAGE = 0.5, 0.2
 	local winfo = {}
 	local marks = { thunder = {}, demo = {}, ham = {} } -- [kind][mob GUID] = when it runs out
 	local sunders = {} -- [mob GUID] = { n = stacks, ends = when they run out }
@@ -1622,7 +1647,8 @@ do
 			local alt = choose(o)
 			if alt and btn(alt) then show(id .. "low", BLUE, btn(alt), with(conds, share("target", DOT_CUT, true, "target health"))) end
 		end
-		if full == lean then
+		-- (nothing else to press: Heroic Strike at any rage)
+		if full == lean or not lean or not btn(lean) then
 			place("wdmg", full, with(base, exec), {})
 		else
 			place("wfull", full, with(base, exec, share("player", DUMP_RAGE, false, "rage", RAGE)), {})
@@ -1693,6 +1719,15 @@ do
 			useCurves() and "on" or "off (gates only)"))
 		print(P .. ("  damage: %s with %d%%+ rage, %s under it%s"):format(tostring(winfo.full), DUMP_RAGE * 100, tostring(winfo.lean),
 			winfo.gated and ("; under the execute line: " .. winfo.gated) or ""))
+		local tg = plain(UnitGUID("target"))
+		local parts = {}
+		for _, sp in ipairs(LIST or {}) do
+			if sp.kind == "dot" and byName[sp.name] then
+				local left = dotLeft(sp.name, { dots = tg and dots[tg] })
+				parts[#parts + 1] = sp.name .. " " .. (left and left > 0 and ("%.0fs left"):format(left) or "not on")
+			end
+		end
+		if #parts > 0 then print(P .. "  on your target: " .. table.concat(parts, ", ")) end
 		print(P .. ("  next to you: %s mob(s); without Demoralizing Shout %s, without Thunder Clap %s; Sunder on target %s; Battle Shout %s"):format(
 			tostring(winfo.near or "-"), tostring(winfo.lackDemo or "-"), tostring(winfo.lackThunder or "-"),
 			tostring(winfo.sunder or 0), winfo.shout and "up" or "missing"))
@@ -1742,9 +1777,17 @@ ev:SetScript("OnEvent", function(_, event, unit, _, spellID)
 			local entry = byName[name]
 			local f = entry and facts[entry.id]
 			if manaCost(plain(spellID)) > 0 then lastManaCast = now end
-			if tg and f and f.dotDur and f.dotDur > 0 then
+			-- (how long: the tooltip's "over N sec", else 12 s for a damage-over-time spell of
+			-- your class's list whose tooltip didn't say)
+			local length = f and f.dotDur and f.dotDur > 0 and f.dotDur or nil
+			if not length then
+				for _, sp in ipairs(LIST or {}) do
+					if sp.name == name and sp.kind == "dot" then length = 12 break end
+				end
+			end
+			if tg and length then
 				dots[tg] = dots[tg] or {}
-				dots[tg][name] = now + f.dotDur
+				dots[tg][name] = now + length
 			end
 		end
 		return
