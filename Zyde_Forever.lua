@@ -1929,7 +1929,10 @@ local CATEGORIES = {
 			{ group = "Questie", children = { "questMobs", "questieDrops" } },
 			"rares",
 		} },
-		{ "Bags & vendors", { "bagWindow", "sellJunk", "scrap", "vendor", "recipes" } },
+		{ "Bags & vendors", {
+			{ "bagWindow", children = {}, choosers = { "bagStacks", "bankStacks" } },
+			"sellJunk", "scrap", "vendor", "recipes",
+		} },
 		{ "Travel & gathering", {
 			"mapNotes", "flight", "flightTimer", "tracking", "fishing",
 			{ "mounts", children = {}, button = { label = "Choose", click = function() if ns.Mounts then ns.Mounts.Toggle() end end } },
@@ -2023,6 +2026,44 @@ local function buildOptions()
 				ZydeForeverDB = ZydeForeverDB or {}
 				ZydeForeverDB.radialUse = k == "click" and "click" or "hold"
 				if ns.Radial and ns.Radial.Apply then ns.Radial.Apply() end
+			end,
+			changed = function() return false end,
+		},
+		bagStacks = {
+			label = "Stacks", parent = "bagWindow", width = 120,
+			desc = "Your bags. Combined draws every stack of an item as one tile. Each slot keeps every bag slot as its own tile.",
+			options = function()
+				return {
+					{ key = "combined", label = "Combined", desc = "Stacks of the same item become one tile. Using or dragging it takes from the smallest stack." },
+					{ key = "slot", label = "Each slot", desc = "Every bag slot stays its own tile, with that slot's count on it." },
+				}
+			end,
+			get = function()
+				return (ZydeForeverDB and ZydeForeverDB.bagStacks == "slot") and "slot" or "combined"
+			end,
+			set = function(k)
+				ZydeForeverDB = ZydeForeverDB or {}
+				ZydeForeverDB.bagStacks = k == "slot" and "slot" or nil
+				if ns.BagWindowRestack then ns.BagWindowRestack() end
+			end,
+			changed = function() return false end,
+		},
+		bankStacks = {
+			label = "Bank", parent = "bagWindow", width = 120,
+			desc = "The bank window. Combined draws every stack of an item as one tile. Each slot keeps every bank slot as its own tile.",
+			options = function()
+				return {
+					{ key = "combined", label = "Combined", desc = "Stacks of the same item become one tile. Using or dragging it takes from the smallest stack." },
+					{ key = "slot", label = "Each slot", desc = "Every bank slot stays its own tile, with that slot's count on it." },
+				}
+			end,
+			get = function()
+				return (ZydeForeverDB and ZydeForeverDB.bankStacks == "slot") and "slot" or "combined"
+			end,
+			set = function(k)
+				ZydeForeverDB = ZydeForeverDB or {}
+				ZydeForeverDB.bankStacks = k == "slot" and "slot" or nil
+				if ns.BagWindowRestack then ns.BagWindowRestack() end
 			end,
 			changed = function() return false end,
 		},

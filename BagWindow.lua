@@ -426,6 +426,14 @@ local function stacks(info)
 	return (info.stackCount or 1) > 1
 end
 
+-- Combined (the default) draws every stack of an item as one tile. Each slot
+-- keeps that window's own slots, one tile each. Bags and the bank are
+-- separate choices in /zyde, under One bag window.
+local function separateSlots(which)
+	local key = which == "bank" and "bankStacks" or "bagStacks"
+	return ZydeForeverDB and ZydeForeverDB[key] == "slot"
+end
+
 -- How many slots Restack would free: for each item, the stacks it has now
 -- minus the fewest it could fit in (two stacks of 12 linen: 1 slot).
 -- tally: itemID -> { stacks, total, max }, filled by gather's single pass.
@@ -437,7 +445,14 @@ local function restackSavings(tally)
 	return saved
 end
 
-local function merge(list)
+local function merge(list, separate)
+	if separate then
+		for _, e in ipairs(list) do
+			e.slots = { { bag = e.bag, slot = e.slot } }
+			e.smallest = e.info and e.info.stackCount or 1
+		end
+		return list
+	end
 	local out, byID = {}, {}
 	for _, e in ipairs(list) do
 		local id = e.info and e.info.itemID
@@ -530,7 +545,7 @@ end
 -- Every filled slot of these bags, sorted into section -> group -> list.
 -- Also returns the free slots in ordinary bags, special-bag free counts, and
 -- one real empty slot when any shown bag still has room.
-local function gather(bags)
+local function gather(bags, which)
 	local out = {}
 	for _, sec in ipairs(SECTIONS) do out[sec] = {} end
 	local function add(sec, group, entry)
@@ -595,7 +610,7 @@ local function gather(bags)
 					if a.bag ~= b.bag then return a.bag < b.bag end
 					return a.slot < b.slot
 				end)
-				groups[g] = merge(list)
+				groups[g] = merge(list, separateSlots(which))
 			end
 		end
 	end
@@ -1384,7 +1399,7 @@ local specialMoves
 function View:Layout()
 	if InCombatLockdown() then self.dirty = true return end
 	self.dirty = false
-	local data, free, extra, reserve, slots, saved = gather(self.bags())
+	local data, free, extra, reserve, slots, saved = gather(self.bags(), self.stackKey)
 	if self.omitKeys and self.omitKeys() and data.General then data.General.Keys = nil end
 	self.free, self.extraFree, self.slots = free, extra, slots
 	self:SetTitle()
@@ -2054,7 +2069,7 @@ local closeBlizzard -- forward
 
 local function buildBags()
 	local v = newView({
-		frameName = "ZydeForeverBags", bags = shownBags, posKey = "bagPos",
+		frameName = "ZydeForeverBags", bags = shownBags, posKey = "bagPos", stackKey = "bags",
 		titleText = "Bags",
 		defaultPoint = { "BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -60, 110 },
 		bagRowShown = bagRowShown,
@@ -2215,6 +2230,15 @@ end
 -- The scrap list and the vendor advice call this when their picks change.
 function ns.BagWindowRepaint()
 	for _, v in pairs(views) do if v.win:IsShown() then v:Repaint() end end
+end
+
+-- The Stacks option changed. Lay the open windows out again so each slot
+-- shows, or the stacks fold back into one tile.
+function ns.BagWindowRestack()
+	for _, v in pairs(views) do
+		v.dirty = true
+		if v.win and v.win:IsShown() and not InCombatLockdown() then v:Layout() end
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -2537,7 +2561,7 @@ end
 
 local function buildBank()
 	local v = newView({
-		frameName = "ZydeForeverBank", bags = bankBags, posKey = "bankPos",
+		frameName = "ZydeForeverBank", bags = bankBags, posKey = "bankPos", stackKey = "bank",
 		titleText = "Bank",
 		defaultPoint = { "TOPLEFT", UIParent, "TOPLEFT", 20, -110 },
 		bagRowShown = function() return true end,
@@ -2670,7 +2694,7 @@ local function rememberBank(force)
 	if #bags == 0 then return end
 	local key = charKey()
 	if not key then return end
-	local data, free, extra, _, slots = gather(bags)
+	local data, free, extra, _, slots = gather(bags, "bank")
 	local items = {}
 	for _, sec in ipairs(SECTIONS) do
 		for group, list in pairs(data[sec] or {}) do
