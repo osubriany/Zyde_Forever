@@ -339,16 +339,22 @@ local function targetShare()
 	return nil
 end
 
--- Seconds the fight has left on your target.
+-- Seconds the fight has left on your target. ttkFromHealth: whether the last answer came from the
+-- mob's real health falling (not a guess from your kill times).
+local ttkFromHealth = false
 local function timeToKill()
 	local share = targetShare()
 	local now = GetTime()
+	ttkFromHealth = false
 	if share then
 		samples[#samples + 1] = { now, share }
 		while #samples > 2 and now - samples[1][1] > 10 do table.remove(samples, 1) end
 		local first = samples[1]
 		local rate = (first[2] - share) / math.max(0.1, now - first[1])
-		if rate > 0.001 then return share / rate end
+		if rate > 0.001 then
+			ttkFromHealth = true
+			return share / rate
+		end
 	end
 	-- Hidden, or too early to tell: how long your kills of this kind of mob take (learned, below;
 	-- a guess until you've made a few), less the time already spent on THIS mob. (It used to count
@@ -522,6 +528,8 @@ local function score(spell, entry, f, ctx, index)
 		return (lo + hi) / 2 / speed, (lo + hi) / 2, 0
 	end
 
+	-- A cast that would finish after the mob is dead (known from its real health): not worth it.
+	if ctx.ttkReal and f and f.cast > 0 and f.cast >= ctx.ttk then return nil end
 	local gcd = spell.gcd or ctx.gcd
 	local time = math.max(gcd, f and f.cast or 0)
 	local fallback = (40 - index) -- (no numbers in the tooltip: keep the class order)
@@ -679,6 +687,7 @@ local function choose(opts)
 		mode = opts and opts.mode, headStart = opts and opts.headStart, noDots = opts and opts.noDots,
 		noAoe = opts and opts.noAoe, noDump = opts and opts.noDump, thriftPow = opts and opts.thriftPow,
 	}
+	ctx.ttkReal = ttkFromHealth -- (set by the timeToKill() call above)
 	if playerClass == "PALADIN" then
 		local p = paladinPick(ctx, tg)
 		if p then return p end
@@ -2135,8 +2144,10 @@ do
 					if alt and btn(alt) then show(id .. "low", BLUE, btn(alt), with(all, share("target", DOT_CUT, true, "target health"))) end
 					return
 				end
-				if safeSolo and costOf(pick) > 0 then
-					-- (a nearly dead mob: no mana - the wand if it's on your bars)
+				if solo and not dangerNow and costOf(pick) > 0 then
+					-- (a nearly dead mob on your own, not a dangerous fight: no mana - the wand if
+					-- it's on your bars. It needed a Voidwalker tanking before, so with an Imp
+					-- Shadow Bolt still glowed on a dying mob.)
 					show(id, BLUE, btn(pick), with(all, share("target", FINISH_CUT, false, "target health")))
 					local alt = choose({ mode = "dry", headStart = headStart, noDots = true })
 					if alt and costOf(alt) == 0 and btn(alt) then
