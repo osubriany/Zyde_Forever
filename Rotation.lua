@@ -805,7 +805,7 @@ local function feedGates()
 	end
 end
 
-local classUpdate, classHide, classDebug -- (sections 6 and 7: hunters, warriors)
+local classUpdate, classHide, classDebug -- (sections 6-8: hunters, warriors, paladins)
 
 local function hideAll()
 	for _, g in ipairs({ plainGlow, aboveGlow, belowGlow }) do g:Hide() g.pulse:Stop() end
@@ -816,7 +816,7 @@ local function update()
 	if not on() or not LIST then hideAll() return end
 	local hostile = plain(UnitExists("target")) and plain(UnitCanAttack("player", "target"))
 		and not plain(UnitIsDeadOrGhost("target"))
-	if (playerClass == "HUNTER" or playerClass == "WARRIOR") and classUpdate then
+	if (playerClass == "HUNTER" or playerClass == "WARRIOR" or playerClass == "PALADIN") and classUpdate then
 		for _, g in ipairs({ plainGlow, aboveGlow, belowGlow }) do g:Hide() g.pulse:Stop() end
 		classUpdate(hostile and true or false)
 		return
@@ -1782,6 +1782,228 @@ do
 
 	if playerClass == "WARRIOR" then
 		classUpdate, classDebug = warriorUpdate, warriorDebug
+	end
+
+	---------------------------------------------------------------------------
+	-- 8. Paladins: the same holders (the game reads your hidden health and mana, and the mob's).
+	--   * Blue, damage: the seal and Judgement weave (paladinPick) first, then the best hit;
+	--     Hammer of Wrath under 20%. Under 40% mana on your own (25% in a group) damage per mana
+	--     counts too. In a group without Righteous Fury: no glow while you're above the tank.
+	--   * Green, staying alive: Flash of Light (else Holy Light) under 35% health in a fight with
+	--     20%+ mana, and under 60% between fights with 40%+ mana (a top-up beats eating); a Healing
+	--     Potion or Healthstone on your bars under 30% in a fight.
+	--   * Amber, upkeep and utility:
+	--       no Blessing on you (Kings, else Might, else Wisdom - the first on your bars)
+	--       no Aura on (Retribution, else Devotion, else Sanctity, else Concentration)
+	--       Purify / Cleanse when you have a poison or disease on you (Cleanse: magic too) the game shows
+	--       Hammer of Justice when your target is casting (it stuns, which stops the cast) or is a
+	--         humanoid under 30% on your own (they run)
+	--   * Red, danger: Divine Shield (else Divine Protection, else Blessing of Protection) under 20%
+	--     health with the mob on you, or under 35% in a dangerous fight - not with Forbearance on;
+	--     Lay on Hands under 15%; Hammer of Justice under 40% with the mob on you (a stun buys a
+	--     heal); Avenging Wrath and your race's burst in a dangerous fight.
+	---------------------------------------------------------------------------
+	local pinfo = {}
+	local forbearUntil = 0
+	local FORBEAR = { ["Divine Shield"] = true, ["Divine Protection"] = true, ["Blessing of Protection"] = true }
+
+	local palEv = CreateFrame("Frame")
+	if playerClass == "PALADIN" then palEv:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player") end
+	palEv:SetScript("OnEvent", function(_, _, _, _, spellID)
+		local name = spellName(plain(spellID) or 0)
+		if name and FORBEAR[name] then forbearUntil = GetTime() + 60 end
+	end)
+
+	local function firstOnBars(list)
+		for _, name in ipairs(list) do
+			if byName[name] then return name end
+		end
+		return nil
+	end
+
+	-- Your buffs when the game shows them: has(name pattern) or nil when hidden.
+	local function buffsVisible()
+		local buffs = ns.PlayerBuffs and ns.PlayerBuffs()
+		if not buffs or buffs.hidden then return nil end
+		return buffs.list or {}
+	end
+	local function hasBuff(list, pattern)
+		for _, a in ipairs(list) do
+			if type(a.name) == "string" and a.name:find(pattern) then return true end
+		end
+		return false
+	end
+
+	-- A poison / disease / magic effect on you the game shows (debuff type).
+	local function myDispellable()
+		local get = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+		if not get then return nil end
+		local found = {}
+		for i = 1, 40 do
+			local a = safe(get, "player", i, "HARMFUL")
+			if type(a) ~= "table" then break end
+			local kind = plain(a.dispelName)
+			if type(kind) == "string" then found[kind] = true end
+		end
+		return found
+	end
+
+	local function forbearance()
+		if forbearUntil > GetTime() then return true end
+		local list = buffsVisible()
+		if not list then return false end
+		local get = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
+		local a = get and safe(get, "player", "Forbearance", "HARMFUL")
+		return type(a) == "table"
+	end
+
+	local paladinUpdate = function(hostile)
+		wipe(used)
+		wipe(pinfo)
+		local solo = not plain(IsInGroup and IsInGroup())
+		local fighting = InCombatLockdown()
+		local list = buffsVisible()
+		local fury = list and hasBuff(list, "^Righteous Fury") or false
+		local tanking = not solo and fury
+		local ttk = hostile and timeToKill() or 0
+		pinfo.solo, pinfo.tanking, pinfo.ttk, pinfo.buffsShown = solo, tanking, ttk, list ~= nil
+
+		-- Healing (green).
+		local heal = byName["Flash of Light"] and "Flash of Light" or (byName["Holy Light"] and "Holy Light") or nil
+		local casting = (UnitCastingInfo and plain(UnitCastingInfo("player"))) or (UnitChannelInfo and plain(UnitChannelInfo("player")))
+		if heal and ready(heal) and not casting then
+			if fighting then
+				show("heal", GREEN, btn(heal), { share("player", 0.35, true, "your health"), share("player", 0.2, false, "mana", MANA) })
+			else
+				show("heal", GREEN, btn(heal), { share("player", 0.6, true, "your health"), share("player", 0.4, false, "mana", MANA) })
+			end
+		end
+		pinfo.heal = heal
+		if fighting then
+			for _, it in ipairs(healItems()) do
+				if itemReady(it.id) then
+					show("item", GREEN, it.button, { share("player", 0.3, true, "your health") })
+					pinfo.item = it.name
+					break
+				end
+			end
+		end
+
+		-- Upkeep (amber): Blessing, Aura (only when the game shows your buffs).
+		if list then
+			local blessing = firstOnBars({ "Blessing of Kings", "Blessing of Might", "Blessing of Wisdom" })
+			if blessing and not hasBuff(list, "Blessing of") and ready(blessing) then
+				show("bless", AMBER, btn(blessing), {})
+				pinfo.bless = "missing: " .. blessing
+			end
+			local aura = firstOnBars({ "Retribution Aura", "Devotion Aura", "Sanctity Aura", "Concentration Aura" })
+			if aura and not hasBuff(list, " Aura$") and ready(aura) then
+				show("aura", AMBER, btn(aura), {})
+				pinfo.aura = "missing: " .. aura
+			end
+		end
+		-- Purify / Cleanse.
+		local bad = myDispellable()
+		if bad then
+			local cleanse = byName["Cleanse"] and "Cleanse" or nil
+			local purify = byName["Purify"] and "Purify" or nil
+			local pick
+			if cleanse and (bad.Poison or bad.Disease or bad.Magic) then pick = cleanse
+			elseif purify and (bad.Poison or bad.Disease) then pick = purify end
+			if pick and ready(pick) then show("dispel", AMBER, btn(pick), {}) pinfo.dispel = pick end
+		end
+		if not hostile then hideUnused() return end
+
+		local foes = nearFoes()
+		local danger, why = plainDanger(solo)
+		pinfo.near, pinfo.danger = #foes, danger and table.concat(why, ", ") or nil
+
+		-- Damage (blue).
+		local base = {}
+		if not solo and not tanking then
+			base[#base + 1] = { kind = "threat", key = "ease", points = { 1, 0, 1, 1 }, fallback = 1, label = "threat" }
+		end
+		local line = solo and 0.4 or 0.25
+		local full, gated, threshold = choose({})
+		local thrifty = choose({ mode = "thrifty" })
+		pinfo.full, pinfo.thrifty, pinfo.gated, pinfo.line = full, thrifty, gated, line
+		local exec
+		if gated and btn(gated) then
+			show("pexec", BLUE, btn(gated), with(base, share("target", threshold, true, "target health")))
+			exec = share("target", threshold, false, "target health")
+		end
+		if full == thrifty or not thrifty or not btn(thrifty) then
+			if full and btn(full) then show("pdmg", BLUE, btn(full), with(base, exec)) end
+		else
+			if full and btn(full) then show("pfull", BLUE, btn(full), with(base, exec, share("player", line, false, "mana", MANA))) end
+			show("pthrift", BLUE, btn(thrifty), with(base, exec, share("player", line, true, "mana", MANA)))
+		end
+
+		if not fighting then hideUnused() return end
+
+		-- Hammer of Justice (amber): stop a cast, or a runner.
+		local hoj = byName["Hammer of Justice"] and ready("Hammer of Justice") and inRange(byName["Hammer of Justice"])
+		if hoj then
+			local castingT = (UnitCastingInfo and safe(UnitCastingInfo, "target")) or (UnitChannelInfo and safe(UnitChannelInfo, "target"))
+			if isSecret(castingT) or castingT then
+				show("hojCast", AMBER, btn("Hammer of Justice"), {})
+				pinfo.hoj = "your target is casting"
+			elseif solo and plain(UnitCreatureType("target")) == "Humanoid" then
+				show("hojRun", AMBER, btn("Hammer of Justice"), { share("target", 0.3, true, "target health") })
+			end
+		end
+
+		-- Danger (red).
+		local onYou = function()
+			return { kind = "bool", v = UnitIsUnit("targettarget", "player"), yes = 1, no = 0, fallback = 1, label = "mob on you" }
+		end
+		local bubble = firstOnBars({ "Divine Shield", "Divine Protection", "Blessing of Protection" })
+		local bubbleOk = bubble and ready(bubble) and not forbearance()
+		pinfo.bubble = bubble and (bubbleOk and (bubble .. " ready") or (bubble .. " not now (cooldown or Forbearance)")) or "none on your bars"
+		if bubbleOk then
+			show("bubble", RED, btn(bubble), { share("player", 0.2, true, "your health"), onYou() })
+			if danger then show("bubbleD", RED, btn(bubble), { share("player", 0.35, true, "your health") }) end
+		end
+		if byName["Lay on Hands"] and ready("Lay on Hands") then
+			show("loh", RED, btn("Lay on Hands"), { share("player", 0.15, true, "your health") })
+		end
+		if hoj then show("hojSave", RED, btn("Hammer of Justice"), { share("player", 0.4, true, "your health"), onYou() }) end
+		if danger and ttk >= 6 then
+			for _, name in ipairs({ "Avenging Wrath", "Blood Fury", "Berserking" }) do
+				if byName[name] and ready(name) then show("big:" .. name, RED, btn(name), {}) end
+			end
+		end
+		hideUnused()
+	end
+
+	local paladinDebug = function(P)
+		print(P .. ("paladin: %s%s, fight left ~%.0fs, curves %s, your buffs %s"):format(pinfo.solo and "on your own" or "in a group",
+			pinfo.tanking and " (Righteous Fury: you're the tank)" or "", pinfo.ttk or 0,
+			useCurves() and "on" or "off (gates only)", pinfo.buffsShown and "shown" or "hidden by the game"))
+		print(P .. ("  damage: %s with %d%%+ mana, %s under it%s"):format(tostring(pinfo.full), (pinfo.line or 0) * 100,
+			tostring(pinfo.thrifty), pinfo.gated and ("; under the execute line: " .. pinfo.gated) or ""))
+		print(P .. ("  heal: %s   item: %s   blessing: %s   aura: %s   dispel: %s   Hammer of Justice: %s"):format(
+			tostring(pinfo.heal or "none on your bars"), tostring(pinfo.item or "-"), tostring(pinfo.bless or "ok"),
+			tostring(pinfo.aura or "ok"), tostring(pinfo.dispel or "-"), tostring(pinfo.hoj or "-")))
+		print(P .. "  bubble: " .. tostring(pinfo.bubble or "-") .. "   next to you: " .. tostring(pinfo.near or "-")
+			.. "   danger: " .. tostring(pinfo.danger or "none seen (your health still decides)"))
+		local parts = {}
+		for label, how in pairs(hows) do parts[#parts + 1] = label .. " " .. tostring(how) end
+		table.sort(parts)
+		print(P .. "  checks read by: " .. (#parts > 0 and table.concat(parts, ", ") or "-"))
+		for _, q in ipairs({
+			{ "your health %", function() return UnitHealthPercent("player") end },
+			{ "your mana %", function() return UnitPowerPercent("player", MANA) end },
+			{ "target health %", function() return UnitHealthPercent("target") end },
+		}) do
+			local ok, v = pcall(q[2])
+			local shown = ok and pcall(print, P .. "  " .. q[1] .. ":", v)
+			if not shown then print(P .. "  " .. q[1] .. ": " .. (ok and "hidden" or "not available")) end
+		end
+	end
+
+	if playerClass == "PALADIN" then
+		classUpdate, classDebug = paladinUpdate, paladinDebug
 	end
 end
 
