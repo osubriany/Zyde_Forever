@@ -4,13 +4,14 @@
 --   Gear: weapons, armor, bags, ammo. Consumables: food & drink, potions,
 --   bandages, scrolls, other. Profession: trade goods by type, reagents, recipes.
 --   Items are real bag slots: right-click uses or sells, drag moves, shift-click
---   links. One empty slot stays at the top whenever a real bag slot is free, so
---   a drop or a split stack has somewhere to land. Folding a section does not
---   hide it. The title counts free slots (reagent bag, quiver... apart, in gray).
+--   links. While you drag an item, or the split-stack box is open, one empty
+--   slot appears at the bottom left under a New Item header, so the drop or
+--   the split has somewhere to land. The title counts free slots (reagent bag, quiver... apart, in gray).
 --   Alt-click an item to put it in Perma (or take it out). Click a heading to fold it.
 --   The title shows used/total (orange at 5 or fewer free, red and FULL when full).
---   Buttons: Restack (joins part stacks in the
---   real bags), Sell junk (at a vendor; junk also sells by itself there, see
+--   Buttons: Restack (joins part stacks, and moves an item into the reagent
+--   bag, quiver, or other special bag that takes it when that bag has room),
+--   Sell junk (at a vendor; junk also sells by itself there, see
 --   "Sell junk at vendors" in /zyde).
 --   At a banker the bank gets the same sorted window. A row of bank bags lets
 --   you buy the next slot and swap bags ("Game bank" brings the game's window back).
@@ -248,6 +249,9 @@ end
 -- until the bags, your level, skills or gear change.
 ---------------------------------------------------------------------------
 local scanCache = {}
+-- Item ids whose name was not loaded yet. The auction house fires this for
+-- every listing it loads; only an id we asked about is allowed to re-sort.
+local waitingIds = {}
 local getInfoAny = (C_Item and C_Item.GetItemInfo) or GetItemInfo
 local LOCKED_TEXT = LOCKED or "Locked"
 
@@ -270,7 +274,12 @@ local function scan(bag, slot, info)
 		end
 	end
 	local name, _, _, _, reqLevel, _, _, _, equipLoc, _, sellPrice, classID, _, bindType = ns.safe(getInfoAny, info.hyperlink or info.itemID)
-	if type(name) ~= "string" or ns.isSecret(name) then return c end -- not loaded yet: ask again next paint
+	if type(name) ~= "string" or ns.isSecret(name) then
+		-- Not loaded yet. Remember the id so the next info event can re-sort once.
+		local id = info.itemID
+		if not ns.isSecret(id) and type(id) == "number" then waitingIds[id] = true end
+		return c
+	end
 	c.sells = not ns.isSecret(sellPrice) and type(sellPrice) == "number" and sellPrice > 0 and not info.hasNoValue
 	local loc = (not ns.isSecret(equipLoc) and type(equipLoc) == "string") and equipLoc or ""
 	c.boe = not ns.isSecret(bindType) and bindType == 2 and loc ~= "" -- still unbound: checked at paint
@@ -443,10 +452,10 @@ local function merge(list)
 	return out
 end
 
--- One real empty slot, for a drop or a stack split. The window does not list
--- every empty slot; this one stays. An ordinary bag comes first (anything can
--- go there). A reagent bag, quiver, or other special bag is used only when
--- those are full. The keyring is never it: an empty key slot only holds keys.
+-- One real empty slot, for a drop or a stack split. It is only shown while an
+-- item is on the cursor, or the split-stack box is open. An ordinary bag comes
+-- first (anything can go there). A reagent bag, quiver, or other special bag
+-- is used only when those are full. The keyring is never it.
 local function isOrdinaryBag(bag, fam)
 	if isKeyring(bag) then return false end
 	if bag == REAGENT_BAG and HAS_REAGENT then return false end
@@ -715,7 +724,7 @@ function View:Button(i)
 	-- Right-click use cannot run from this addon button: the game blocks it as
 	-- tainted. A secure button sits on the slot and uses the item itself.
 	-- Left clicks pass through to this button, which still picks up and drops.
-	local use = CreateFrame("Button", nil, useLayer(), "SecureActionButtonTemplate")
+	local use = CreateFrame("Button", nil, useLayer(), "SecureActionButtonTemplate, SecureHandlerBaseTemplate")
 	use:SetSize(S, S)
 	-- The bag window is HIGH and toplevel, and its item buttons sit above that.
 	-- A HIGH button under them never sees the click. DIALOG is above the window.
@@ -728,6 +737,18 @@ function View:Button(i)
 	if use.SetMouseMotionEnabled then use:SetMouseMotionEnabled(false) end
 	if use.SetPassThroughButtons then use:SetPassThroughButtons("LeftButton", "MiddleButton") end
 	use:Hide()
+	-- One right-click, on the release, when this button hands the click to the game's bag slot.
+	-- That slot sells at a vendor, and for a bandage it lets you pick who to use it on.
+	SecureHandlerWrapScript(use, "PreClick", use, [[
+		if not self:GetAttribute("forward") then return end
+		if down then
+			self:SetAttribute("type2", nil)
+			self:SetAttribute("*type2", nil)
+		else
+			self:SetAttribute("type2", "click")
+			self:SetAttribute("*type2", "click")
+		end
+	]])
 	use.owner = b
 	b.use = use
 	local origClick = b:GetScript("OnClick")
@@ -782,6 +803,12 @@ local function cursorHolding()
 	local ok, has = pcall(CursorHasItem)
 	return ok and not ns.isSecret(has) and has
 end
+-- The drop slot is for putting something down: a dragged item, or a stack
+-- you are in the middle of splitting (the split box is open, cursor still empty).
+local function wantDropSlot()
+	if cursorHolding() then return true end
+	return StackSplitFrame and StackSplitFrame.IsShown and StackSplitFrame:IsShown() and true or false
+end
 local function refreshAltCovers()
 	local altDown = IsAltKeyDown()
 	if ns.isSecret(altDown) then altDown = false end
@@ -805,11 +832,21 @@ altWatch:SetScript("OnEvent", function(_, _, key)
 	if key == "LALT" or key == "RALT" then refreshAltCovers() end
 end)
 
+-- The game's own bag button for this slot. A secure click on it is a normal
+-- right-click: sell at a vendor, use a potion, or pick someone for a bandage.
+local function realContainerButton(bag, slot)
+	if type(bag) ~= "number" or type(slot) ~= "number" then return nil end
+	if bag < 0 or bag > (NUM_BAG_SLOTS or 4) then return nil end
+	local btn = _G["ContainerFrame" .. (bag + 1) .. "Item" .. slot]
+	if btn and btn.Click then return btn end
+end
+
 -- Keep each secure use-button over its slot. It is not a child of the bag
 -- window, so the window itself does not become protected.
 local function placeUse(b, active)
 	local use = b.use
 	if not use or InCombatLockdown() then return end
+	local merchant = MerchantFrame and MerchantFrame:IsShown() and true or false
 	if not active or b.empty or not b:IsShown() or not b:IsVisible() or cursorHolding() then
 		use:Hide()
 		return
@@ -825,16 +862,40 @@ local function placeUse(b, active)
 	if type(bag) ~= "number" and b:GetParent() and b:GetParent().GetID then bag = b:GetParent():GetID() end
 	local slot = b:GetID()
 	if ns.isSecret(bag) or ns.isSecret(slot) or type(bag) ~= "number" or type(slot) ~= "number" then return end
-	local key = bag .. " " .. slot
+	local real = realContainerButton(bag, slot)
+	-- At a vendor with no game button to sell through: step aside so this click equips nothing.
+	if merchant and not real then
+		use:Hide()
+		return
+	end
+	local where = bag .. " " .. slot
+	local key = where .. (real and " game" or " item")
 	if use.itemKey ~= key then
 		use.itemKey = key
-		-- Right click only. A bare "type" would also fire if a left click landed here.
-		use:SetAttribute("type2", "item")
-		use:SetAttribute("item2", key)
-		use:SetAttribute("*type2", "item")
-		use:SetAttribute("*item2", key)
-		use:SetAttribute("item1", key)
-		use:SetAttribute("*item1", key)
+		use:SetAttribute("item2", nil)
+		use:SetAttribute("*item2", nil)
+		use:SetAttribute("item1", nil)
+		use:SetAttribute("*item1", nil)
+		use:SetAttribute("clickbutton2", nil)
+		use:SetAttribute("*clickbutton2", nil)
+		-- Left click while a spell wants an item (Feed Pet, a stone, a poison).
+		use:SetAttribute("item1", where)
+		use:SetAttribute("*item1", where)
+		if real then
+			-- The game's own slot: sells at a vendor, and a bandage lets you pick a person.
+			use:SetAttribute("forward", true)
+			use:SetAttribute("type2", "click")
+			use:SetAttribute("*type2", "click")
+			use:SetAttribute("clickbutton2", real)
+			use:SetAttribute("*clickbutton2", real)
+		else
+			-- Right click only. A bare "type" would also fire if a left click landed here.
+			use:SetAttribute("forward", nil)
+			use:SetAttribute("type2", "item")
+			use:SetAttribute("*type2", "item")
+			use:SetAttribute("item2", where)
+			use:SetAttribute("*item2", where)
+		end
 	end
 	-- A spell waiting for an item (Feed Pet, a sharpening stone, a poison, Disenchant): the
 	-- left-click on the item has to be the secure button's too. Through the slot's own click
@@ -882,7 +943,17 @@ local function refreshUses()
 		end
 	end
 end
-altWatch:SetScript("OnUpdate", refreshUses)
+altWatch:SetScript("OnUpdate", function()
+	refreshUses()
+	-- The split box can open without the cursor changing. Show the drop slot then too.
+	local split = StackSplitFrame and StackSplitFrame:IsShown() and true or false
+	if split ~= altWatch.splitOpen then
+		altWatch.splitOpen = split
+		for _, v in pairs(views) do
+			if v.SyncDropSlot then v:SyncDropSlot() end
+		end
+	end
+end)
 
 function View:Label(i)
 	if self.labels[i] then return self.labels[i] end
@@ -1004,6 +1075,7 @@ end
 
 function View:ContentTop() return 34 + (self.bagRowShown and self.bagRowShown() and (S + 8) or 0) end
 
+local specialMoves
 function View:Layout()
 	if InCombatLockdown() then self.dirty = true return end
 	self.dirty = false
@@ -1011,42 +1083,18 @@ function View:Layout()
 	if self.omitKeys and self.omitKeys() and data.General then data.General.Keys = nil end
 	self.free, self.extraFree, self.slots = free, extra, slots
 	self:SetTitle()
-	-- Restack only shows when it would free something: "Restack +3".
+	-- "Restack +3": slots a click would free, from joining stacks and from
+	-- moving an item into the special bag that takes it.
 	local rb = self.win.restackBtn
 	if rb then
-		rb:SetText("Restack +" .. saved)
-		rb:SetShown(saved > 0)
+		local n = (saved or 0) + specialMoves(self.bags())
+		rb:SetText(n > 0 and ("Restack +" .. n) or "Restack")
+		rb:Show()
 		self.win.Flow()
 	end
 	local used, labelUsed, headUsed = 0, 0, 0
 	local y = 0
 	local content = self.win.content
-	-- Above the sections, and still there when a section is folded: one real
-	-- free slot, so a drop or a split has a place when the rest are hidden.
-	if reserve then
-		labelUsed = labelUsed + 1
-		local l = self:Label(labelUsed)
-		l:ClearAllPoints()
-		l:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
-		l:SetWidth(INNER_W)
-		l:SetText("Empty")
-		l:Show()
-		used = used + 1
-		local b = self:Button(used)
-		b:SetParent(self:Holder(reserve.bag))
-		b:SetFrameLevel((self.win:GetFrameLevel() or 1) + 4)
-		b:SetID(reserve.slot)
-		b.bagID = reserve.bag
-		b.empty = true
-		b.emptyTex, b.emptyCount, b.emptyOrdinary = reserve.tex, reserve.count, reserve.ordinary
-		b.slots = nil
-		b.perma = false
-		b:ClearAllPoints()
-		b:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(y + LABEL_H))
-		b:Show()
-		self:Paint(b)
-		y = y + LABEL_H + S + 10
-	end
 	for _, sec in ipairs(SECTIONS) do
 		local groups = data[sec]
 		local order = groupOrder(sec, groups)
@@ -1108,6 +1156,37 @@ function View:Layout()
 			end
 		end
 	end
+	-- Bottom left, only while dragging or splitting: a New Item header and one
+	-- real free slot. Kept in the pool either way so a fight can show it
+	-- without laying the window out again.
+	self.baseY = y
+	self.reserve = reserve
+	if reserve then
+		local h = self:DropHead()
+		h:ClearAllPoints()
+		h:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
+		used = used + 1
+		local b = self:Button(used)
+		b:SetParent(self:Holder(reserve.bag))
+		b:SetFrameLevel((self.win:GetFrameLevel() or 1) + 4)
+		b:SetID(reserve.slot)
+		b.bagID = reserve.bag
+		b.empty = true
+		b.emptyTex, b.emptyCount, b.emptyOrdinary = reserve.tex, reserve.count, reserve.ordinary
+		b.slots = nil
+		b.perma = false
+		b:ClearAllPoints()
+		b:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(y + HEAD_H))
+		self:Paint(b)
+		self.dropButton = b
+		local show = wantDropSlot()
+		h:SetShown(show)
+		b:SetShown(show)
+		if show then y = y + HEAD_H + S end
+	else
+		if self.dropHead then self.dropHead:Hide() end
+		self.dropButton = nil
+	end
 	self.used = used
 	for i = used + 1, #self.pool do self.pool[i]:Hide() end
 	for i = labelUsed + 1, #self.labels do self.labels[i]:Hide() end
@@ -1116,6 +1195,40 @@ function View:Layout()
 	self.win:SetHeight(y + self:ContentTop() + 2 + 34 + PAD)
 	refreshAltCovers()
 	refreshUses()
+end
+
+-- "New Item" is not a folding section. It only labels the drop slot.
+function View:DropHead()
+	if self.dropHead then return self.dropHead end
+	local h = CreateFrame("Frame", nil, self.win.content)
+	h:SetSize(INNER_W, HEAD_H - 4)
+	h.text = h:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	h.text:SetPoint("LEFT", 0, 0)
+	h.text:SetText("New Item")
+	h.line = h:CreateTexture(nil, "ARTWORK")
+	h.line:SetColorTexture(1, 0.82, 0, 0.25)
+	h.line:SetHeight(1)
+	h.line:SetPoint("LEFT", h.text, "RIGHT", 8, 0)
+	h.line:SetPoint("RIGHT")
+	h:Hide()
+	self.dropHead = h
+	return h
+end
+
+-- Show or hide the drop row without sorting again. Safe in a fight: the row
+-- was already built, and this frame is not protected.
+function View:SyncDropSlot()
+	if not self.win or not self.win:IsShown() then return end
+	if not self.dropButton or not self.reserve then return end
+	local show = wantDropSlot()
+	if self.dropHead:IsShown() == show and self.dropButton:IsShown() == show then return end
+	self.dropHead:SetShown(show)
+	self.dropButton:SetShown(show)
+	local y = self.baseY or 0
+	if show then y = y + HEAD_H + S end
+	self.win.content:SetHeight(math.max(10, y))
+	self.win:SetHeight(y + self:ContentTop() + 2 + 34 + PAD)
+	if not InCombatLockdown() then refreshUses() end
 end
 
 -- Bags changed: lay out again soon (or repaint only, in a fight).
@@ -1259,9 +1372,75 @@ local function newView(o)
 end
 
 ---------------------------------------------------------------------------
--- Restack: join part stacks of the same item in the real bags (two stacks of
--- 12 linen become one of 24), one move at a time, out of combat.
+-- Restack. Joins part stacks (two stacks of 12 linen become one of 24), and
+-- moves an item into the special bag that accepts it when that bag has a
+-- free slot: a reagent in the backpack, with room in the reagent bag.
+-- One move at a time, out of combat.
 ---------------------------------------------------------------------------
+local function itemFamily(itemID)
+	if ns.isSecret(itemID) or type(itemID) ~= "number" then return nil end
+	local fam
+	if C_Item and C_Item.GetItemFamily then fam = ns.safe(C_Item.GetItemFamily, itemID)
+	elseif GetItemFamily then fam = ns.safe(GetItemFamily, itemID) end
+	if ns.isSecret(fam) or type(fam) ~= "number" then return nil end
+	return fam
+end
+
+local function fitsSpecial(itemFam, bagFam)
+	if not itemFam or itemFam == 0 or not bagFam or bagFam == 0 then return false end
+	if not bit or not bit.band then return false end
+	return bit.band(itemFam, bagFam) ~= 0
+end
+
+local function bagFamilies(bags)
+	local fam = {}
+	for _, bag in ipairs(bags) do
+		local _, f = C_Container.GetContainerNumFreeSlots(bag)
+		if ns.isSecret(f) or type(f) ~= "number" then f = 0 end
+		fam[bag] = f
+	end
+	return fam
+end
+
+local function freeSlot(bag)
+	for slot = 1, numSlots(bag) do
+		if not slotTaken(bag, slot) then return slot end
+	end
+end
+
+-- How many items would move into a special bag that has room for them.
+function specialMoves(bags)
+	local fam = bagFamilies(bags)
+	local room = {}
+	for _, bag in ipairs(bags) do
+		if not isKeyring(bag) and fam[bag] ~= 0 then
+			local free = plainNum(C_Container.GetContainerNumFreeSlots(bag))
+			if free > 0 then room[bag] = free end
+		end
+	end
+	if not next(room) then return 0 end
+	local n = 0
+	for _, bag in ipairs(bags) do
+		if not isKeyring(bag) then
+			for slot = 1, numSlots(bag) do
+				local info = C_Container.GetContainerItemInfo(bag, slot)
+				local id = info and info.itemID
+				if id and not ns.isSecret(id) and not fitsSpecial(itemFamily(id), fam[bag]) then
+					local kind = itemFamily(id)
+					for dst, left in pairs(room) do
+						if left > 0 and fitsSpecial(kind, fam[dst]) then
+							room[dst] = left - 1
+							n = n + 1
+							break
+						end
+					end
+				end
+			end
+		end
+	end
+	return n
+end
+
 local restacking = false
 local function restack(bags)
 	if restacking then return end
@@ -1277,34 +1456,71 @@ local function restack(bags)
 		tries = tries + 1
 		if tries > 400 then finish("restack stopped (took too long)") return end
 		if InCombatLockdown() then finish("restack stopped for the fight") return end
+		local fam = bagFamilies(bags)
+		local function rank(bag, kind)
+			if fitsSpecial(kind, fam[bag]) then return 2 end
+			if (fam[bag] or 0) == 0 then return 1 end
+			return 0
+		end
+		local function move(srcBag, srcSlot, dstBag, dstSlot)
+			ClearCursor()
+			C_Container.PickupContainerItem(srcBag, srcSlot)
+			C_Container.PickupContainerItem(dstBag, dstSlot)
+			if GetCursorInfo() then ClearCursor() end
+			moves = moves + 1
+			C_Timer.After(0.2, step)
+		end
 		local byID, locked = {}, false
 		for _, bag in ipairs(bags) do
-			for slot = 1, numSlots(bag) do
-				local info = C_Container.GetContainerItemInfo(bag, slot)
-				if info and info.itemID then
-					if info.isLocked then locked = true end
-					local max = stackSize(info.itemID)
-					local n = info.stackCount or 1
-					if max and max > 1 and n < max then
-						byID[info.itemID] = byID[info.itemID] or {}
-						table.insert(byID[info.itemID], { bag = bag, slot = slot, n = n })
+			if not isKeyring(bag) then
+				for slot = 1, numSlots(bag) do
+					local info = C_Container.GetContainerItemInfo(bag, slot)
+					if info and info.itemID and not ns.isSecret(info.itemID) then
+						if info.isLocked then locked = true end
+						local max = stackSize(info.itemID)
+						local n = info.stackCount or 1
+						if max and max > 1 and n < max then
+							byID[info.itemID] = byID[info.itemID] or {}
+							table.insert(byID[info.itemID], { bag = bag, slot = slot, n = n })
+						end
 					end
 				end
 			end
 		end
 		-- The last move is still settling: wait for it.
 		if locked then C_Timer.After(0.15, step) return end
-		for _, list in pairs(byID) do
+		for id, list in pairs(byID) do
 			if #list > 1 then
-				table.sort(list, function(a, b) return a.n > b.n end)
+				local kind = itemFamily(id) or 0
+				-- The stack already in the reagent bag (or quiver) stays put.
+				-- The part stack in the normal bag is the one that moves.
+				table.sort(list, function(a, b)
+					local ra, rb = rank(a.bag, kind), rank(b.bag, kind)
+					if ra ~= rb then return ra > rb end
+					return a.n > b.n
+				end)
 				local dst, src = list[1], list[#list]
-				ClearCursor()
-				C_Container.PickupContainerItem(src.bag, src.slot)
-				C_Container.PickupContainerItem(dst.bag, dst.slot)
-				if GetCursorInfo() then ClearCursor() end
-				moves = moves + 1
-				C_Timer.After(0.2, step)
+				move(src.bag, src.slot, dst.bag, dst.slot)
 				return
+			end
+		end
+		for _, bag in ipairs(bags) do
+			if not isKeyring(bag) then
+				for slot = 1, numSlots(bag) do
+					local info = C_Container.GetContainerItemInfo(bag, slot)
+					local id = info and info.itemID
+					if id and not ns.isSecret(id) and not info.isLocked then
+						local kind = itemFamily(id)
+						if kind and kind ~= 0 and not fitsSpecial(kind, fam[bag]) then
+							for _, dst in ipairs(bags) do
+								if not isKeyring(dst) and fitsSpecial(kind, fam[dst]) then
+									local open = freeSlot(dst)
+									if open then move(bag, slot, dst, open) return end
+								end
+							end
+						end
+					end
+				end
 			end
 		end
 		finish(moves > 0 and ("restacked (" .. moves .. " moves)") or "nothing to restack")
@@ -1518,8 +1734,8 @@ local function buildBags()
 	v:PlaceContent()
 	paintBagSlots()
 
-	win.restackBtn = win.AddButton("Restack", 80, "Join part stacks",
-		"Puts part stacks of the same item together in your real bags. The number is how many slots that frees.",
+	win.restackBtn = win.AddButton("Restack", 80, "Restack",
+		"Joins part stacks of the same item, and moves an item into the bag that holds it (your reagent bag, a quiver, a soul bag) when that bag has a free slot. The number is how many slots that frees.",
 		function() restack(shownBags()) end)
 	win.sellJunk = win.AddButton("Sell junk", 70, "Sell your junk",
 		"Sells every gray item, and everything you marked as junk, that's worth something (never Perma). Only at a vendor.",
@@ -1798,8 +2014,8 @@ local function buildBank()
 	win.buySlot:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	win.buySlot:Hide()
 	v:PlaceContent()
-	win.restackBtn = win.AddButton("Restack", 80, "Join part stacks",
-		"Puts part stacks of the same item together in the bank. The number is how many slots that frees.",
+	win.restackBtn = win.AddButton("Restack", 80, "Restack",
+		"Joins part stacks of the same item, and moves an item into the bank bag that holds it when that bag has a free slot. The number is how many slots that frees.",
 		function() restack(bankBags()) end)
 	win.AddButton("Game bank", 80, "The game's bank window",
 		"Brings back the game's own bank window, to buy bank slots or bags. Close and reopen the bank to come back here.",
@@ -2398,6 +2614,9 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 	-- Picking an item up (or putting it down) shows or hides the Junk bar.
 	if event == "CURSOR_CHANGED" then
 		if bagsView and bagsView.win.UpdateJunkBar then bagsView.win.UpdateJunkBar() end
+		for _, v in pairs(views) do
+			if v.SyncDropSlot then v:SyncDropSlot() end
+		end
 		return
 	end
 	-- Junk sells by itself at a vendor, bag window or not.
@@ -2440,6 +2659,14 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 		-- What you can use, and what's an upgrade, may have changed: read the tooltips again.
 		wipe(scanCache)
 		-- (a full sort, not just a repaint: the Upgrades section may change)
+		allChanged()
+		return
+	end
+	if event == "GET_ITEM_INFO_RECEIVED" then
+		local itemID, success = isLogin, isReload
+		if ns.isSecret(itemID) or not waitingIds[itemID] then return end
+		waitingIds[itemID] = nil
+		if success == false then return end
 		allChanged()
 		return
 	end

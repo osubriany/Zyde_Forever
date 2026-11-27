@@ -364,6 +364,121 @@ local function coordsText()
 	return string.format("%.1f, %.1f", x * 100, y * 100)
 end
 
+-- The day/night icon on the corner. The game leaves it on the sun, so this
+-- sets the sun and the moon from the server clock: day, night, and a blend
+-- at dawn and dusk. Hovering it shows that clock.
+local SUN_ICON = "Interface\\Icons\\Spell_Fire_SunKey"
+local MOON_ICON = "Interface\\Icons\\Spell_Nature_MoonKey"
+local paintDiel
+
+local function gameHours()
+	if not GetGameTime then return nil end
+	local h, m = GetGameTime()
+	if isSecret(h) or isSecret(m) then return nil end
+	h, m = tonumber(h), tonumber(m)
+	if not h or not m then return nil end
+	return h, m
+end
+
+local function dayPhase(h, m)
+	local t = h + m / 60
+	if t >= 5 and t < 7 then return "Dawn" end
+	if t >= 17 and t < 19 then return "Dusk" end
+	if t >= 7 and t < 17 then return "Day" end
+	return "Night"
+end
+
+-- 1 at noon, 0 at midnight, with both icons up through dawn and dusk.
+local function sunShare(h, m)
+	local x = math.cos((h + m / 60 - 12) / 12 * math.pi)
+	return math.max(0, math.min(1, (x + 0.35) / 1.35))
+end
+
+local function hasArt(tex)
+	if not tex or not tex.GetTexture then return false end
+	local t = tex:GetTexture()
+	if isSecret(t) then return true end
+	return t ~= nil and t ~= "" and t ~= 0
+end
+
+local function iconArt(tex, path)
+	if not tex or not tex.SetTexture then return end
+	tex:SetTexture(path)
+	if tex.SetTexCoord then tex:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
+end
+
+local function bindDiel(frame)
+	if frame.zydeDiel then return frame.zydeDiel end
+	local sun, moon
+	local function consider(obj, name)
+		if type(name) ~= "string" or not obj or not obj.SetAlpha then return end
+		local n = name:lower()
+		if n:find("moon", 1, true) then moon = obj
+		elseif n:find("sun", 1, true) then sun = obj end
+	end
+	for _, key in ipairs({ "Sun", "sun", "SunTexture", "Moon", "moon", "MoonTexture" }) do
+		consider(frame[key], key)
+	end
+	for _, r in ipairs({ frame:GetRegions() }) do
+		consider(r, r.GetName and r:GetName())
+	end
+	if sun and not hasArt(sun) then iconArt(sun, SUN_ICON) end
+	if moon and not hasArt(moon) then iconArt(moon, MOON_ICON) end
+	if sun and not moon then
+		moon = frame:CreateTexture(nil, "ARTWORK")
+		moon:SetAllPoints(sun)
+		iconArt(moon, MOON_ICON)
+	elseif moon and not sun then
+		sun = frame:CreateTexture(nil, "ARTWORK")
+		sun:SetAllPoints(moon)
+		iconArt(sun, SUN_ICON)
+	elseif not sun and not moon then
+		sun = frame:CreateTexture(nil, "OVERLAY")
+		sun:SetPoint("CENTER")
+		sun:SetSize(18, 18)
+		iconArt(sun, SUN_ICON)
+		moon = frame:CreateTexture(nil, "OVERLAY")
+		moon:SetAllPoints(sun)
+		iconArt(moon, MOON_ICON)
+	end
+	frame.zydeDiel = { sun = sun, moon = moon }
+	if frame.EnableMouse then frame:EnableMouse(true) end
+	frame:HookScript("OnEnter", function(self)
+		local hh, mm = gameHours()
+		if not hh then return end
+		GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+		GameTooltip:AddLine("Server time", 1, 0.82, 0)
+		GameTooltip:AddLine(hour12(hh, mm) .. "  ·  " .. dayPhase(hh, mm), 1, 1, 1)
+		GameTooltip:Show()
+		self.zydeTipHour, self.zydeTipMin = hh, mm
+	end)
+	frame:HookScript("OnLeave", function() GameTooltip:Hide() end)
+	frame:HookScript("OnUpdate", function(self)
+		local hh, mm = gameHours()
+		if not hh or not self.zydeDiel then return end
+		local share = sunShare(hh, mm)
+		local art = self.zydeDiel
+		if art.sun then art.sun:SetAlpha(share) end
+		if art.moon then art.moon:SetAlpha(1 - share) end
+		local owner = GameTooltip.GetOwner and GameTooltip:GetOwner()
+		if GameTooltip:IsShown() and owner == self and (self.zydeTipHour ~= hh or self.zydeTipMin ~= mm) then
+			self.zydeTipHour, self.zydeTipMin = hh, mm
+			GameTooltip:ClearLines()
+			GameTooltip:AddLine("Server time", 1, 0.82, 0)
+			GameTooltip:AddLine(hour12(hh, mm) .. "  ·  " .. dayPhase(hh, mm), 1, 1, 1)
+			GameTooltip:Show()
+		end
+	end)
+	return frame.zydeDiel
+end
+
+function paintDiel()
+	if not on() then return end
+	local frame = MinimapCluster and MinimapCluster.DielFrame
+	if not frame or (frame.IsForbidden and frame:IsForbidden()) then return end
+	bindDiel(frame)
+end
+
 -- The second line: "44.2, 40.8  ·  6:40 AM" (coordinates in gray, time in white).
 local function paintTimes()
 	local stamp = date("*t")
@@ -678,6 +793,7 @@ local function layoutHeader()
 	placingHeader = false
 	badge((MinimapCluster and MinimapCluster.Tracking) or MiniMapTracking, "tracking")
 	badge(GameTimeFrame, "calendar")
+	if paintDiel then paintDiel() end
 end
 
 local mover = MinimapCluster or Minimap

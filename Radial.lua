@@ -1,6 +1,7 @@
 -- Zyde_Forever: a radial ring of your own spells, macros and items.
---   Hold the ring key: the ring opens around the cursor. Move the mouse toward
---   a slot and let go of the key to use it. Let go near the middle to cancel.
+--   Hold (the usual way): hold the ring key, move toward a slot, let go to use
+--   it. Let go near the middle to cancel. Click (Use, in /zyde): hold the key
+--   to show the ring, click a slot to use it, and let go of the key to close it.
 --   Set the key in Options > Keybindings > Zyde Forever > "Radial ring (hold)".
 --   /zyde ring (or the Set up button in /zyde) opens the setup window: drag a
 --   spell, macro or item onto a slot, right-click a slot to empty it.
@@ -125,6 +126,91 @@ local function labelOf(s)
 	return ""
 end
 
+-- Where an item sits, and the game's own bag button for that slot.
+-- A right click on that button uses it. For a bandage, that heals whoever you
+-- have selected. A left click only picks the item up.
+local function containerButtonForItem(itemID)
+	if type(itemID) ~= "number" or not C_Container or not C_Container.GetContainerNumSlots then return nil end
+	local last = NUM_BAG_SLOTS or 4
+	for bag = 0, last do
+		local n = C_Container.GetContainerNumSlots(bag) or 0
+		for slot = 1, n do
+			local info = C_Container.GetContainerItemInfo(bag, slot)
+			local id = type(info) == "table" and info.itemID or nil
+			if not ns.isSecret(id) and id == itemID then
+				local btn = _G["ContainerFrame" .. (bag + 1) .. "Item" .. slot]
+				if btn and btn.Click then return btn, bag, slot end
+				return nil, bag, slot
+			end
+		end
+	end
+end
+
+local function isBandage(id)
+	if type(id) ~= "number" then return false end
+	local getInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+	local classID, subID, subType
+	if getInstant then
+		local _, _, st, _, _, cid, sid = ns.safe(getInstant, id)
+		if not ns.isSecret(cid) then classID = cid end
+		if not ns.isSecret(sid) then subID = sid end
+		if type(st) == "string" and not ns.isSecret(st) then subType = st:lower() end
+	end
+	if classID == 0 and subID == 7 then return true end
+	if subType and subType:find("bandage", 1, true) then return true end
+	local getName = (C_Item and C_Item.GetItemName) or GetItemInfo
+	local name = getName and ns.safe(getName, id)
+	if type(name) == "string" and not ns.isSecret(name) and name:lower():find("bandage", 1, true) then return true end
+	local _, bag, slot = containerButtonForItem(id)
+	if type(bag) ~= "number" or type(slot) ~= "number" or not C_Container or not C_Container.GetContainerItemInfo then return false end
+	local info = C_Container.GetContainerItemInfo(bag, slot)
+	local link = type(info) == "table" and info.hyperlink
+	if type(link) ~= "string" or ns.isSecret(link) then return false end
+	local fromLink = link:match("%[(.-)%]")
+	return fromLink and fromLink:lower():find("bandage", 1, true) and true or false
+end
+
+-- Backpack, the four bags, and the profession bag. Bandages land in that last
+-- one, and it has no ContainerFrame button. A bag right-click still heals your
+-- target from there, through a secure "bag slot" use on the right button.
+local function plainCount(v)
+	if v == nil or ns.isSecret(v) or type(v) ~= "number" then return 0 end
+	return v
+end
+local function itemBags()
+	local list, seen = {}, {}
+	local function add(bag)
+		if type(bag) ~= "number" or seen[bag] then return end
+		seen[bag] = true
+		list[#list + 1] = bag
+	end
+	for bag = 0, (NUM_BAG_SLOTS or 4) do add(bag) end
+	if Enum and Enum.BagIndex then add(Enum.BagIndex.ReagentBag) end
+	add(REAGENTBAG_CONTAINER)
+	add(5)
+	return list
+end
+local function findItemSlot(itemID)
+	if type(itemID) ~= "number" or not C_Container or not C_Container.GetContainerNumSlots then return end
+	for _, bag in ipairs(itemBags()) do
+		local n = plainCount(C_Container.GetContainerNumSlots(bag))
+		for slot = 1, n do
+			local info = C_Container.GetContainerItemInfo(bag, slot)
+			if type(info) == "table" then
+				local id = info.itemID
+				if not ns.isSecret(id) and tonumber(id) == itemID then return bag, slot end
+			end
+		end
+	end
+end
+-- "bag slot", the same text the bag's right-click uses. The ring key has to be
+-- the right button too: a left-button press bandages you.
+local function bandageWhere(itemID)
+	local bag, slot = findItemSlot(itemID)
+	if type(bag) ~= "number" or type(slot) ~= "number" then return end
+	return bag .. " " .. slot, "bag " .. bag .. " slot " .. slot
+end
+
 -- The secure action for a slot: button type and the value its attribute takes.
 local function actionOf(s)
 	if s.kind == "spell" then return "spell", s.name or spellName(s.id) or s.id end
@@ -239,6 +325,10 @@ local function paintBackdrop(r)
 	look.hubEdge:SetVertexColor(cr, cg, cb, 0.5)
 end
 
+local function clickMode()
+	return ZydeForeverDB and ZydeForeverDB.radialUse == "click"
+end
+
 local icons = {}
 local function iconFrame(i)
 	if icons[i] then return icons[i] end
@@ -263,6 +353,8 @@ local function iconFrame(i)
 	-- Cooldown: the clock sweep with the seconds left, drawn by the game.
 	f.cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
 	f.cd:SetAllPoints()
+	f.cd:EnableMouse(false)
+	if f.cd.SetMouseClickEnabled then f.cd:SetMouseClickEnabled(false) end
 	if f.cd.SetSwipeTexture then pcall(f.cd.SetSwipeTexture, f.cd, CIRCLE) end
 	if f.cd.SetUseCircularEdge then pcall(f.cd.SetUseCircularEdge, f.cd, true) end
 	if f.cd.SetHideCountdownNumbers then f.cd:SetHideCountdownNumbers(false) end
@@ -270,6 +362,7 @@ local function iconFrame(i)
 	-- How many you have (food, drink, potions...), above the cooldown sweep.
 	local over = CreateFrame("Frame", nil, f)
 	over:SetAllPoints()
+	over:EnableMouse(false)
 	over:SetFrameLevel((f.cd:GetFrameLevel() or f:GetFrameLevel() or 1) + 2)
 	f.count = over:CreateFontString(nil, "OVERLAY")
 	if not f.count:SetFont("Fonts\\ARIALN.TTF", 13, "OUTLINE") then f.count:SetFontObject("NumberFontNormal") end
@@ -472,6 +565,19 @@ look:SetScript("OnShow", function(self)
 	self.opening = true
 	readyWait = 0
 	paintReady()
+	-- Click mode: the hit buttons are already at the finished spots. Snap the
+	-- icons there too, so a click lands on the picture.
+	if clickMode() then
+		self.opening = false
+		for i = 1, #current do
+			local f = icons[i]
+			if f and f.vx then
+				f:ClearAllPoints()
+				f:SetPoint("CENTER", look, "CENTER", f.vx * f.r, f.vy * f.r)
+				f:SetAlpha(1)
+			end
+		end
+	end
 end)
 look:SetScript("OnHide", function(self)
 	-- Let go on a slot: flash it where it was.
@@ -520,9 +626,10 @@ look:SetScript("OnUpdate", function(self, elapsed)
 end)
 
 ---------------------------------------------------------------------------
--- The key. Bound as CLICK ZydeForeverRadialKey:LeftButton.
+-- The key. Bound as CLICK ZydeForeverRadialKey:RightButton.
+-- A left-button press bandages you. The right button is what a bag click is.
 ---------------------------------------------------------------------------
-_G["BINDING_NAME_CLICK ZydeForeverRadialKey:LeftButton"] = "Radial ring (hold)"
+_G["BINDING_NAME_CLICK ZydeForeverRadialKey:RightButton"] = "Radial ring (hold)"
 local key = CreateFrame("Button", "ZydeForeverRadialKey", UIParent, "SecureActionButtonTemplate, SecureHandlerBaseTemplate")
 key:SetSize(1, 1)
 key:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -10, 10)
@@ -535,14 +642,20 @@ key:SetFrameRef("ui", UIParent)
 key:SetAttribute("on", true)
 key:SetAttribute("n", 0)
 key:SetAttribute("dead2", DEAD * DEAD)
+key:SetAttribute("mode", "hold")
+ring:SetFrameRef("key", key)
 -- No HookScript on this key (that taints it); the look follows the ring by itself.
+-- mode "click": the key only opens and closes the ring. A slot button uses the thing.
 SecureHandlerWrapScript(key, "OnClick", key, [[
 	self:SetAttribute("type", nil)
 	local ring = self:GetFrameRef("ring")
 	local ui = self:GetFrameRef("ui")
 	local n = self:GetAttribute("n") or 0
+	local click = self:GetAttribute("mode") == "click"
 	if down then
 		self:SetAttribute("typerelease", nil)
+		self:SetAttribute("typerelease2", nil)
+		self:SetAttribute("picked", nil)
 		self:SetAttribute("open", 0)
 		if not self:GetAttribute("on") or n == 0 or not ring or not ui then return end
 		local x, y = ui:GetMousePosition()
@@ -556,9 +669,23 @@ SecureHandlerWrapScript(key, "OnClick", key, [[
 		self:SetAttribute("open", 1)
 		return
 	end
-	if ring then ring:Hide() end
 	local pick
-	if self:GetAttribute("open") == 1 and ui then
+	if click then
+		self:SetAttribute("open", 0)
+		if ring then ring:Hide() end
+		-- A bandage click only remembers the slot. This release uses it, and
+		-- this release is the right button, so the bandage heals your target.
+		pick = self:GetAttribute("picked")
+		self:SetAttribute("picked", nil)
+		if not pick then
+			self:SetAttribute("typerelease", nil)
+			self:SetAttribute("typerelease2", nil)
+			return
+		end
+	else
+		if ring then ring:Hide() end
+	end
+	if not pick and self:GetAttribute("open") == 1 and ui then
 		local x, y = ui:GetMousePosition()
 		if x and y then
 			local dx = x * ui:GetWidth() - (self:GetAttribute("px") or 0)
@@ -574,27 +701,96 @@ SecureHandlerWrapScript(key, "OnClick", key, [[
 	end
 	self:SetAttribute("open", 0)
 	self:SetAttribute("spell", nil)
+	self:SetAttribute("spell2", nil)
 	self:SetAttribute("macro", nil)
+	self:SetAttribute("macro2", nil)
+	self:SetAttribute("macrotext", nil)
+	self:SetAttribute("macrotext2", nil)
 	self:SetAttribute("item", nil)
+	self:SetAttribute("item2", nil)
+	self:SetAttribute("unit", nil)
+	self:SetAttribute("unit2", nil)
 	if not pick then
 		self:SetAttribute("typerelease", nil)
+		self:SetAttribute("typerelease2", nil)
 		return
 	end
+	-- Same as a bag right-click: use the item. A bandage then heals whoever you
+	-- have selected. A left click would only pick the item up.
+	if self:GetAttribute("hasbag" .. pick) then
+		local bagBtn = self:GetFrameRef("bag" .. pick)
+		if bagBtn then
+			bagBtn:Click("RightButton", false)
+			self:SetAttribute("typerelease", nil)
+			return
+		end
+	end
 	local t = self:GetAttribute("t" .. pick)
+	local u = self:GetAttribute("u" .. pick)
+	if u then self:SetAttribute("unit", u) end
 	if t ~= "spell" and t ~= "macro" and t ~= "item" then
 		self:SetAttribute("typerelease", nil)
 		return
 	end
 	self:SetAttribute("typerelease", t)
-	self:SetAttribute(t, self:GetAttribute("v" .. pick))
+	self:SetAttribute("typerelease2", t)
+	local v = self:GetAttribute("v" .. pick)
+	if t == "macro" and self:GetAttribute("raw" .. pick) then
+		self:SetAttribute("macrotext", v)
+		self:SetAttribute("macrotext2", v)
+		return
+	end
+	self:SetAttribute(t, v)
+	self:SetAttribute(t .. "2", v)
 ]])
+
+-- Click mode: one secure button on each icon. They are children of the ring, so
+-- they show and hide with it. The key handler does not touch them.
+local slotBtns = {}
+for i = 1, MAX do
+	local b = CreateFrame("Button", nil, ring, "SecureActionButtonTemplate, SecureHandlerBaseTemplate")
+	b:SetSize(ICON + 14, ICON + 14)
+	b:SetFrameLevel((ring:GetFrameLevel() or 1) + 40)
+	b:RegisterForClicks("LeftButtonDown")
+	b:EnableMouse(false)
+	if b.SetMouseClickEnabled then b:SetMouseClickEnabled(false) end
+	b:Hide()
+	b.icon = b:CreateTexture(nil, "ARTWORK")
+	b.icon:SetAllPoints()
+	b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	-- Same as a bag right-click. A bandage heals whoever you have selected.
+	SecureHandlerWrapScript(b, "PreClick", b, [[
+		if not self:GetAttribute("hasbag") then return end
+		local bag = self:GetFrameRef("bag")
+		if not bag then return end
+		self:SetAttribute("type", nil)
+		self:SetAttribute("type1", nil)
+		bag:Click("RightButton", false)
+	]])
+	slotBtns[i] = b
+end
 
 ---------------------------------------------------------------------------
 -- Build the ring from the saved slots (out of combat only).
 ---------------------------------------------------------------------------
 local pending = false
+local bandageSlotTold, bandageMissingTold
+-- The saved key still says LeftButton. A left press bandages you. Move it to
+-- the right button once, which is the click a bag uses.
+local function migrateRadialBinding()
+	if InCombatLockdown() or not GetBindingKey or not SetBinding then return end
+	local old = "CLICK ZydeForeverRadialKey:LeftButton"
+	local newCmd = "CLICK ZydeForeverRadialKey:RightButton"
+	local a, b = GetBindingKey(old)
+	if not a then return end
+	SetBinding(a, newCmd)
+	if b then SetBinding(b, newCmd) end
+	if SaveBindings and GetCurrentBindingSet then SaveBindings(GetCurrentBindingSet()) end
+	print(P .. "the ring key now uses the right button, so a bandage can heal your target. Same key.")
+end
 local function apply()
 	if InCombatLockdown() then pending = true return end
+	migrateRadialBinding()
 	pending = false
 	wipe(current)
 	for _, s in ipairs(slots()) do
@@ -602,6 +798,13 @@ local function apply()
 	end
 	local n = #current
 	local r = radiusFor(n)
+	local clicking = clickMode()
+	-- Slot count first. The ring refuses to open when this is still 0, so a
+	-- later mistake in the click button must not skip it.
+	key:SetAttribute("n", n)
+	key:SetAttribute("on", on() and true or false)
+	key:SetAttribute("mode", clicking and "click" or "hold")
+	key:SetAttribute("radius", r)
 	look.name:ClearAllPoints()
 	look.name:SetPoint("TOP", look, "CENTER", 0, -(r + ICON * 0.8 + 8))
 	paintBackdrop(r)
@@ -618,18 +821,93 @@ local function apply()
 			f.tex:SetTexture(iconOf(current[i]))
 			f:Show()
 			local t, v = actionOf(current[i])
+			local bagBtn
+			local where, whereName
+			if current[i].kind == "item" and isBandage(current[i].id) then
+				where, whereName = bandageWhere(current[i].id)
+				if where then t, v = "item", where end
+			elseif current[i].kind == "item" then
+				bagBtn = containerButtonForItem(current[i].id)
+			end
+			if whereName and whereName ~= bandageSlotTold then
+				bandageSlotTold = whereName
+				print(P .. "bandage on the ring uses " .. whereName)
+			elseif current[i].kind == "item" and isBandage(current[i].id) and not where and not bandageMissingTold then
+				bandageMissingTold = true
+				print(P .. "that bandage is not in your bags, so the ring still uses it on you")
+			end
+			key:SetAttribute("hasbag" .. i, bagBtn and true or false)
+			key:SetAttribute("u" .. i, nil)
+			if bagBtn then key:SetFrameRef("bag" .. i, bagBtn) end
 			key:SetAttribute("vx" .. i, vx)
 			key:SetAttribute("vy" .. i, vy)
 			key:SetAttribute("t" .. i, t)
 			key:SetAttribute("v" .. i, v)
+			key:SetAttribute("raw" .. i, false)
+			local b = slotBtns[i]
+			b:SetAttribute("hasbag", bagBtn and true or false)
+			if bagBtn then b:SetFrameRef("bag", bagBtn) end
+			b:SetAttribute("type", nil)
+			b:SetAttribute("type1", nil)
+			b:SetAttribute("spell", nil)
+			b:SetAttribute("spell1", nil)
+			b:SetAttribute("item", nil)
+			b:SetAttribute("item1", nil)
+			b:SetAttribute("macro", nil)
+			b:SetAttribute("macro1", nil)
+			b:SetAttribute("macrotext", nil)
+			b:SetAttribute("macrotext1", nil)
+			b:SetAttribute("unit", nil)
+			b:SetAttribute("unit1", nil)
+			b:SetAttribute("attribute-name", nil)
+			b:SetAttribute("attribute-name1", nil)
+			b:SetAttribute("attribute-value", nil)
+			b:SetAttribute("attribute-value1", nil)
+			if where and clicking then
+				-- Remember which slot. The key release uses it, and that release
+				-- is the right button, the same click a bag uses.
+				b:SetAttribute("type", "attribute")
+				b:SetAttribute("type1", "attribute")
+				b:SetAttribute("attribute-frame", key)
+				b:SetAttribute("attribute-frame1", key)
+				b:SetAttribute("attribute-name", "picked")
+				b:SetAttribute("attribute-name1", "picked")
+				b:SetAttribute("attribute-value", i)
+				b:SetAttribute("attribute-value1", i)
+			elseif t and not bagBtn then
+				b:SetAttribute("type", t)
+				b:SetAttribute("type1", t)
+				b:SetAttribute(t, v)
+				b:SetAttribute(t .. "1", v)
+			end
+			b.icon:SetTexture(iconOf(current[i]))
+			b:ClearAllPoints()
+			b:SetPoint("CENTER", ring, "CENTER", vx * r, vy * r)
+			if b.SetMouseClickEnabled then b:SetMouseClickEnabled(clicking) end
+			b:EnableMouse(clicking)
+			if clicking then b:Show() else b:Hide() end
 		else
 			if f then f:Hide() end
 			key:SetAttribute("t" .. i, nil)
 			key:SetAttribute("v" .. i, nil)
+			key:SetAttribute("raw" .. i, false)
+			key:SetAttribute("hasbag" .. i, false)
+			key:SetAttribute("u" .. i, nil)
+			local b = slotBtns[i]
+			b:Hide()
+			b:SetAttribute("hasbag", false)
+			b:SetAttribute("unit", nil)
+			b:SetAttribute("unit1", nil)
+			b:SetAttribute("type", nil)
+			b:SetAttribute("type1", nil)
+			b:SetAttribute("attribute-name", nil)
+			b:SetAttribute("attribute-name1", nil)
 		end
 	end
-	key:SetAttribute("n", n)
-	key:SetAttribute("on", on() and true or false)
+	-- Big enough that the icon buttons sit inside the ring. A 2x2 ring never
+	-- receives a click out on the icon. Hold mode stays small, so it does not
+	-- cover the screen.
+	if clicking then ring:SetSize((r + ICON + 24) * 2, (r + ICON + 24) * 2) else ring:SetSize(2, 2) end
 	if not on() then ring:Hide() end
 	paintHover(nil)
 end
@@ -720,8 +998,7 @@ local function buildEditor()
 	f.help:SetPoint("TOPLEFT", 12, -32)
 	f.help:SetPoint("RIGHT", -12, 0)
 	f.help:SetJustifyH("LEFT")
-	f.help:SetText("Drag a spell, macro or item onto a slot. The + slot adds one. Right-click a slot to remove it.\n"
-		.. "In game: hold the key, move toward a slot, let go to use it.")
+	f.help:SetText("Drag a spell, macro or item onto a slot. The + slot adds one. Right-click a slot to remove it.")
 
 	f.center = CreateFrame("Frame", nil, f)
 	f.center:SetSize(2, 2)
@@ -819,8 +1096,12 @@ local function buildEditor()
 	f.combat:Hide()
 
 	f:SetScript("OnShow", function(self)
-		local k = GetBindingKey and GetBindingKey("CLICK ZydeForeverRadialKey:LeftButton")
+		local k = GetBindingKey and (GetBindingKey("CLICK ZydeForeverRadialKey:RightButton") or GetBindingKey("CLICK ZydeForeverRadialKey:LeftButton"))
 		self.bind:SetText(k and ("Key: |cffffffff" .. k .. "|r") or "|cffff6666No key yet: Keybindings > Zyde Forever|r")
+		self.help:SetText("Drag a spell, macro or item onto a slot. The + slot adds one. Right-click a slot to remove it.\n"
+			.. (clickMode()
+				and "In game: hold the key to show the ring and click a slot. A bandage heals when you let go of the key."
+				or "In game: hold the key, move toward a slot, let go to use it."))
 		refreshEditor()
 	end)
 	f:RegisterEvent("PLAYER_REGEN_DISABLED")
@@ -842,6 +1123,7 @@ ev:RegisterEvent("PLAYER_LOGIN")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
 ev:RegisterEvent("SPELLS_CHANGED")
 ev:RegisterEvent("UPDATE_MACROS")
+ev:RegisterEvent("BAG_UPDATE")
 ev:SetScript("OnEvent", function(_, event)
 	if event == "PLAYER_REGEN_ENABLED" and not pending then return end
 	apply()
@@ -849,4 +1131,4 @@ ev:SetScript("OnEvent", function(_, event)
 end)
 ns.OnFeatureChanged(function(k) if k == "radial" then apply() end end)
 
-ns.Radial = { ToggleEditor = toggleEditor }
+ns.Radial = { ToggleEditor = toggleEditor, Apply = apply }
