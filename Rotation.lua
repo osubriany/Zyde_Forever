@@ -261,6 +261,7 @@ end
 -- 3. The fight
 ---------------------------------------------------------------------------
 local lastCast = {} -- [spell name] = GetTime() of your last cast
+local lastManaCast = 0 -- your last spell that cost mana (mana comes back 5 seconds after it)
 local dots = {}     -- [target GUID] = { [spell name] = time it runs out }
 local samples = {}    -- your target's health over time (when the game shows it)
 local engagedAt = {}  -- [mob GUID] = when you started fighting it
@@ -1167,9 +1168,18 @@ do
 
 		-- Damage (blue): one pick per mana band, each shown only in its band.
 		if not waiting then
-			local hi, lo = solo and 0.55 or 0.3, solo and 0.25 or 0.1
+			-- On your own and safe (your pet holds it, nothing dangerous), mana is for the next
+			-- pull too: thrifty from 70%, dry under 35%. And once your mana is coming back (no
+			-- mana spent for 5 seconds), under 70% nothing that costs mana unless the fight has
+			-- over 12 seconds left: your pet and Auto Shot finish it, and the next drink is shorter.
+			local safeSolo = solo and petTanks and not plainDanger(foesOnUs(), solo)
+			local regen = now - lastManaCast >= 5
+			local hold = safeSolo and regen and fighting and ttk < 12
+			local hi, lo
+			if solo then hi, lo = safeSolo and 0.7 or 0.55, safeSolo and 0.35 or 0.25 else hi, lo = 0.3, 0.1 end
+			info.safeSolo, info.regen, info.hold = safeSolo, regen, hold
 			local free = choose({ mode = "free", headStart = headStart })
-			local thrifty = choose({ mode = "thrifty", headStart = headStart })
+			local thrifty = choose({ mode = hold and "dry" or "thrifty", headStart = headStart })
 			local dry = choose({ mode = "dry", headStart = headStart })
 			info.picks = { free = free, thrifty = thrifty, dry = dry, hi = hi, lo = lo }
 			local extra = {}
@@ -1237,7 +1247,7 @@ do
 				band("dmg3", dry, { share("player", lo, true, "mana", MANA) }, "dry")
 			else
 				band("dmg1", free, { share("player", hi, false, "mana", MANA) }, "free")
-				band("dmg2", thrifty, { share("player", lo, false, "mana", MANA), share("player", hi, true, "mana", MANA) }, "thrifty")
+				band("dmg2", thrifty, { share("player", lo, false, "mana", MANA), share("player", hi, true, "mana", MANA) }, hold and "dry" or "thrifty")
 				band("dmg3", dry, { share("player", lo, true, "mana", MANA) }, "dry")
 			end
 		end
@@ -1280,6 +1290,9 @@ do
 		if info.waiting then
 			print(P .. "  waiting for the mob to fight your pet (no damage glow yet)")
 		elseif p then
+			print(P .. ("  mana: %s, %s%s"):format(info.safeSolo and "on your own and safe (careful bands)" or "normal bands",
+				info.regen and ("coming back (nothing cast for " .. math.floor(GetTime() - lastManaCast) .. "s)") or "not coming back yet (cast in the last 5s)",
+				info.hold and " - holding it: under 70% only free hits while the fight has under 12s left" or ""))
 			print(P .. ("  damage: %s above %d%% mana, %s %d-%d%%, %s under %d%%%s"):format(tostring(p.free), p.hi * 100,
 				tostring(p.thrifty), p.lo * 100, p.hi * 100, tostring(p.dry), p.lo * 100,
 				info.headStart and "   (pet's head start: stings only)" or ""))
@@ -1345,6 +1358,7 @@ ev:SetScript("OnEvent", function(_, event, unit, _, spellID)
 			if name == "Judgement" and tg and sealName == CRUSADER and sealUntil > now then crusaderOn[tg] = now + 10 end
 			local entry = byName[name]
 			local f = entry and facts[entry.id]
+			if f and f.cost and f.cost > 0 then lastManaCast = now end
 			if tg and f and f.dotDur and f.dotDur > 0 then
 				dots[tg] = dots[tg] or {}
 				dots[tg][name] = now + f.dotDur
