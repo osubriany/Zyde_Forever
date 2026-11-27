@@ -299,7 +299,10 @@ local function enemyCount()
 		if attack and fighting then
 			local threat = UnitThreatSituation and plain(UnitThreatSituation("player", unit))
 			local onMe = plain(UnitIsUnit(unit .. "target", "player"))
-			if (threat and threat > 0) or onMe or threat == nil then n = n + 1 end
+			-- (and mobs only your pet is fighting: they were left out, so Multi-Shot looked worse)
+			local petThreat = UnitThreatSituation and plain(UnitThreatSituation("pet", unit))
+			local onPet = plain(UnitIsUnit(unit .. "target", "pet"))
+			if (threat and threat > 0) or onMe or threat == nil or petThreat ~= nil or onPet then n = n + 1 end
 		end
 	end
 	return math.max(1, n)
@@ -456,6 +459,7 @@ local function score(spell, entry, f, ctx, index)
 	-- low on mana - nothing that costs it but a melee strike, Mend Pet's mana is kept)
 	if ctx.headStart and spell.kind ~= "dot" and not spell.melee then return nil end
 	if ctx.noDots and spell.kind == "dot" then return nil end
+	if ctx.noAoe and spell.aoe then return nil end
 	if ctx.mode == "dry" and f and f.cost > 0 and not spell.melee then return nil end
 
 	local gcd = spell.gcd or ctx.gcd
@@ -600,6 +604,7 @@ local function choose(opts)
 		gcd = ENERGY_GCD[playerClass] or ((playerClass == "DRUID" and formId() == 1) and 1 or 1.5),
 		dots = tg and dots[tg],
 		mode = opts and opts.mode, headStart = opts and opts.headStart, noDots = opts and opts.noDots,
+		noAoe = opts and opts.noAoe,
 	}
 	if playerClass == "PALADIN" then
 		local p = paladinPick(ctx, tg)
@@ -785,8 +790,11 @@ end
 --   * The pet first: its Attack button glows until it's on your target. On your own, nothing
 --     glows until the mob is fighting, then 2 seconds of stings only, so the pet has its
 --     attention before your big shots.
---   * Threat: no glow while you're above your pet on the mob (ease off). Feign Death glows
---     amber when the mob turns on you and your pet is up; your shots wait meanwhile.
+--   * Threat: no glow while you're above the tank on the mob (ease off). The tank is your pet
+--     on your own (or with Growl on in a group), else your group's tank. Feign Death glows
+--     amber when the mob turns on you; your shots wait meanwhile.
+--   * Multi-Shot: only while you're safely under the tank on every other mob fighting (up to 3)
+--     and no mob that isn't fighting is in reach (it could pull it); else a one-target shot.
 --   * Mend Pet glows green when your pet is under 40% in a fight (70% between fights: top it
 --     up for the next pull), unless the mob is nearly dead. Your shots wait meanwhile.
 --   * Danger: Bestial Wrath, Rapid Fire, Intimidation and your race's burst glow red when
@@ -803,15 +811,35 @@ end
 do
 	local GREEN, RED, AMBER = { 0.3, 1, 0.35 }, { 1, 0.2, 0.15 }, { 1, 0.7, 0.1 }
 	local MANA = (Enum and Enum.PowerType and Enum.PowerType.Mana) or 0
-	local DEPTH = 5
+	local DEPTH = 8 -- (mana 2, Mend Pet, threat, sting or 3 other mobs for Multi-Shot)
 	local BIG = { "Bestial Wrath", "Rapid Fire", "Intimidation", "Blood Fury", "Berserking" }
 	local NEEDS_PET = { ["Bestial Wrath"] = true, ["Intimidation"] = true }
 	-- A sting only on a mob above this much health (the game's hidden number, through a curve):
 	-- under it, the next best shot instead. (After Feign Death a nearly dead mob looked fresh.)
 	local DOT_CUT = 0.3
-	local isDot = {}
+	local isDot, isAoe = {}, {}
 	for _, spell in ipairs(LIST or {}) do
 		if spell.kind == "dot" then isDot[spell.name] = true end
+		if spell.aoe and spell.aoe[2] > 1 then isAoe[spell.name] = true end
+	end
+
+	-- Your pet's Growl on autocast: true / false, nil when it isn't on the pet bar. Off (or no pet
+	-- tanking) in a group means your group's tank holds the mobs.
+	local GROWL_IDS = { [2649] = true, [14916] = true, [14917] = true, [14918] = true,
+		[14919] = true, [14920] = true, [14921] = true }
+	local function growlOn()
+		local growl = spellName(2649)
+		for i = 1, (NUM_PET_ACTION_SLOTS or 10) do
+			local r = { safe(GetPetActionInfo, i) }
+			local name = plain(r[1])
+			-- (newer clients: ..., autoCastEnabled (6), spellID (7); older: one more field before)
+			local spellID, auto
+			if type(r[7]) == "number" then spellID, auto = r[7], r[6] else auto = r[7] end
+			if (spellID and GROWL_IDS[spellID]) or (name and growl and name == growl) then
+				return plain(auto) and true or false
+			end
+		end
+		return nil
 	end
 
 	-- (/zyde rotationdebug curves off: status-bar gates only, to compare)
@@ -954,7 +982,7 @@ do
 			if not how then w.a:SetAlpha(cond.fallback or 0) how = "unknown" end
 		elseif cond.kind == "threat" then
 			local pts = cond.points
-			local st = UnitThreatSituation and safe(UnitThreatSituation, "player", "target")
+			local st = UnitThreatSituation and safe(UnitThreatSituation, "player", cond.unit or "target")
 			if not isSecret(st) then
 				w.a:SetAlpha(pts[(type(st) == "number" and st or 0) + 1] or pts[1]) -- (not on its list: as 0)
 				how = st and "plain" or "plain (not on its list)"
@@ -1029,6 +1057,43 @@ do
 		return #why > 0, why
 	end
 
+	-- Mobs Multi-Shot could hit besides your target: up to 3 fighting nameplates (on your own,
+	-- only ones fighting you or your pet; in a group, any in a fight).
+	local function otherFoes(solo)
+		local out = {}
+		for _, unit in ipairs(ns.Plates and ns.Plates.units() or {}) do
+			if #out >= 3 then break end
+			if plain(UnitCanAttack("player", unit)) and plain(UnitAffectingCombat(unit))
+				and plain(UnitIsDead(unit)) ~= true and plain(UnitIsUnit(unit, "target")) ~= true then
+				local ours = not solo
+				if solo then
+					local mine = UnitThreatSituation and safe(UnitThreatSituation, "player", unit)
+					local pets = UnitThreatSituation and safe(UnitThreatSituation, "pet", unit)
+					ours = isSecret(mine) or isSecret(pets) or plain(mine) ~= nil or plain(pets) ~= nil
+						or plain(UnitIsUnit(unit .. "target", "player")) or plain(UnitIsUnit(unit .. "target", "pet"))
+				end
+				if ours then out[#out + 1] = unit end
+			end
+		end
+		return out
+	end
+
+	-- A mob not fighting yet within Multi-Shot's reach of you (not a critter). The game doesn't
+	-- give mob positions, so whether it stands by your target can't be told: any in reach counts.
+	local function unpulledInReach()
+		local e = byName["Multi-Shot"] or byName["Arcane Shot"]
+		for _, unit in ipairs(ns.Plates and ns.Plates.units() or {}) do
+			if plain(UnitCanAttack("player", unit)) and plain(UnitAffectingCombat(unit)) == false
+				and plain(UnitIsDead(unit)) ~= true and plain(UnitCreatureType(unit)) ~= "Critter" then
+				local near
+				if e and C_Spell and C_Spell.IsSpellInRange then near = verdict(safe(C_Spell.IsSpellInRange, e.id, unit)) end
+				if near == nil then near = verdict(safe(CheckInteractDistance, unit, 4)) end -- (about 28 yards)
+				if near then return plain(UnitName(unit)) or "a mob" end
+			end
+		end
+		return nil
+	end
+
 	local info = {}
 	local function share(unit, cut, below, label, ptype)
 		return { kind = "share", unit = unit, power = ptype, cut = cut, below = below, label = label }
@@ -1062,15 +1127,23 @@ do
 				fallback = 0, label = "pet on your target" } })
 		end
 
-		-- On your own: wait until the mob fights, then 2 seconds of stings only.
+		-- Who holds the mobs: your pet (on your own, or Growl on in a group) or your group's tank
+		-- (in a group with Growl off, or no pet). Threat is weighed against whoever it is.
+		local growl = petUp and growlOn()
+		local petTanks = petUp and (solo or growl == true) or false
+		local groupTank = not solo and not petTanks
+		local tanked = petTanks or groupTank
+		info.tank = petTanks and "your pet" or (groupTank and "your group's tank" .. (petUp and " (Growl off)" or "") or "nobody (no pet)")
+
+		-- With a tank: wait until the mob fights, then 2 seconds of stings only.
 		local guid = plain(UnitGUID("target"))
 		local eng = guid and engagedAt[guid]
-		local waiting = solo and petUp and plain(UnitAffectingCombat("target")) == false
-		local headStart = solo and petUp and eng and now - eng < 2 or false
+		local waiting = tanked and plain(UnitAffectingCombat("target")) == false
+		local headStart = tanked and eng and now - eng < 2 or false
 		info.waiting, info.headStart = waiting, headStart
 
 		local fd = byName["Feign Death"]
-		local fdReady = petUp and fd and ready("Feign Death") and true or false
+		local fdReady = tanked and fd and ready("Feign Death") and true or false
 
 		-- Damage (blue): one pick per mana band, each shown only in its band.
 		if not waiting then
@@ -1082,9 +1155,9 @@ do
 			local extra = {}
 			-- (Mend Pet's turn: the shots wait)
 			if mendOn and fighting then extra[#extra + 1] = share("pet", mendCut, false, "pet health") end
-			-- (threat 1 = you're above your pet but it hasn't turned yet: ease off. 2-3 = it's on you:
+			-- (threat 1 = you're above the tank but it hasn't turned yet: ease off. 2-3 = it's on you:
 			-- Feign Death's turn when it's ready, else keep shooting.)
-			if petUp then
+			if tanked then
 				extra[#extra + 1] = { kind = "threat", key = fdReady and "easeFD" or "ease",
 					points = { 1, 0, fdReady and 0 or 1, fdReady and 0 or 1 }, fallback = 1, label = "threat" }
 			end
@@ -1095,15 +1168,45 @@ do
 				if last then all[#all + 1] = last end
 				return all
 			end
-			local function band(id, pick, conds, mode)
+			local others = otherFoes(solo)
+			local unpulled = unpulledInReach()
+			info.others, info.unpulled = #others, unpulled
+			local function place(id, pick, conds, mode, noAoe)
 				if not pick or not byName[pick] then return end
 				if not isDot[pick] then show(id, BLUE, byName[pick].button, joined(conds)) return end
 				-- a sting: only while the mob has some life in it; else the best without one
 				show(id, BLUE, byName[pick].button, joined(conds, share("target", DOT_CUT, false, "target health")))
-				local alt = choose({ mode = mode, headStart = headStart, noDots = true })
+				local alt = choose({ mode = mode, headStart = headStart, noDots = true, noAoe = noAoe })
 				info.noSting = alt
 				if alt and byName[alt] then
 					show(id .. "low", BLUE, byName[alt].button, joined(conds, share("target", DOT_CUT, true, "target health")))
+				end
+			end
+			local function band(id, pick, conds, mode)
+				if not pick or not byName[pick] then return end
+				if not isAoe[pick] then place(id, pick, conds, mode) return end
+				-- Multi-Shot hits the mobs around your target. Not with a mob that isn't fighting in
+				-- reach (it could pull it); with others fighting, only while you're safely under
+				-- the tank on every one of them (threat 0, read by the game) - else the best shot
+				-- that hits one mob.
+				local alt = choose({ mode = mode, headStart = headStart, noAoe = true })
+				info.noMulti = alt
+				if unpulled then place(id, alt, conds, mode, true) return end
+				if #others == 0 or not tanked then place(id, pick, conds, mode) return end
+				local held = {}
+				for _, c in ipairs(conds) do held[#held + 1] = c end
+				for _, unit in ipairs(others) do
+					held[#held + 1] = { kind = "threat", unit = unit, key = "held", points = { 1, 0, 0, 0 }, fallback = 0,
+						label = "threat on the other mobs" }
+				end
+				place(id, pick, held, mode)
+				-- (any one not held: the single-target shot, one overlay per mob)
+				for i, unit in ipairs(others) do
+					local c2 = {}
+					for _, c in ipairs(conds) do c2[#c2 + 1] = c end
+					c2[#c2 + 1] = { kind = "threat", unit = unit, key = "loose", points = { 0, 1, 1, 1 }, fallback = 1,
+						label = "threat on the other mobs" }
+					place(id .. "loose" .. i, alt, c2, mode, true)
 				end
 			end
 			if free == thrifty and thrifty == dry then
@@ -1151,8 +1254,8 @@ do
 	-- What the hunter part sees, for /zyde rotationdebug.
 	hunterDebug = function(P)
 		local p = info.picks
-		print(P .. ("hunter: %s, pet %s, fight left ~%.0fs, curves %s"):format(info.solo and "on your own" or "in a group",
-			info.petUp and "up" or "not up", info.ttk or 0, useCurves() and "on" or "off (gates only)"))
+		print(P .. ("hunter: %s, pet %s, tank: %s, fight left ~%.0fs, curves %s"):format(info.solo and "on your own" or "in a group",
+			info.petUp and "up" or "not up", tostring(info.tank or "-"), info.ttk or 0, useCurves() and "on" or "off (gates only)"))
 		if info.waiting then
 			print(P .. "  waiting for the mob to fight your pet (no damage glow yet)")
 		elseif p then
@@ -1160,6 +1263,11 @@ do
 				tostring(p.thrifty), p.lo * 100, p.hi * 100, tostring(p.dry), p.lo * 100,
 				info.headStart and "   (pet's head start: stings only)" or ""))
 			if info.noSting then print(P .. "  under " .. DOT_CUT * 100 .. "% target health, instead of the sting: " .. info.noSting) end
+			if info.noMulti then
+				print(P .. ("  Multi-Shot: %d other mob(s) fighting%s; when one isn't safely held: %s"):format(info.others or 0,
+					info.unpulled and (", but " .. info.unpulled .. " isn't fighting and is in reach (no Multi-Shot)") or "",
+					tostring(info.noMulti)))
+			end
 		end
 		local guid = plain(UnitGUID("target"))
 		local list = guid and dots[guid]
