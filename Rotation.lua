@@ -817,7 +817,8 @@ end
 --   * Mend Pet glows green when your pet is under 40% in a fight (70% between fights: top it
 --     up for the next pull), unless the mob is nearly dead. Your shots wait meanwhile.
 --   * Danger: Bestial Wrath, Rapid Fire, Intimidation and your race's burst glow red when
---     more than one mob is on you and your pet (3 in a group), an elite while on your own, a
+--     3+ mobs are on you and your pet (on your own: 2 when one of them is on you), an elite
+--     while on your own, a
 --     mob 3+ levels above you or a boss, your pet under 30% or you under 40%. Deterrence glows
 --     red when you're under 50% and the mob is on you.
 -- The game hides your mana and health (and maybe your pet's) from addons, so those checks are
@@ -838,7 +839,7 @@ do
 	local DOT_CUT = 0.3
 	-- On your own and safe, nothing that costs mana on a mob under this much health (it's about to
 	-- die or running away): your pet and Auto Shot finish it.
-	local FINISH_CUT = 0.2
+	local FINISH_CUT = 0.25
 	local function costOf(name)
 		local e = byName[name]
 		return e and manaCost(e.id) or 0
@@ -1056,8 +1057,9 @@ do
 	end
 
 	-- Mobs fighting you or your pet (nameplates).
+	-- Mobs fighting you or your pet, and how many of those are on you.
 	local function foesOnUs()
-		local n = 0
+		local n, onYou = 0, 0
 		for _, unit in ipairs(ns.Plates and ns.Plates.units() or {}) do
 			if plain(UnitCanAttack("player", unit)) and plain(UnitAffectingCombat(unit)) then
 				local mine = UnitThreatSituation and safe(UnitThreatSituation, "player", unit)
@@ -1068,18 +1070,26 @@ do
 				-- (a mob whose threat the game hides counted as yours: any other fight nearby made
 				-- two "on you", the fight dangerous, and the mana saving switched itself off. Now only
 				-- one that's on you or your pet, you're on the list of, or is your target counts.)
-				if plain(mine) ~= nil or plain(pets) ~= nil or onMe or onPet or isTarget then n = n + 1 end
+				if plain(mine) ~= nil or plain(pets) ~= nil or onMe or onPet or isTarget then
+					n = n + 1
+					local st = plain(mine)
+					if onMe or st == 2 or st == 3 then onYou = onYou + 1 end
+				end
 			end
 		end
-		return math.max(1, n)
+		return math.max(1, n), onYou
 	end
 
 	-- Danger the addon can see for itself: adds, an elite on your own, a much higher level, a boss.
-	local function plainDanger(foes, solo)
+	-- On your own, two mobs are only danger when one is on you: two your pet holds is a normal
+	-- pull (it counted as danger, which switched the mana saving off).
+	local function plainDanger(solo)
+		local foes, onYou = foesOnUs()
 		local why = {}
 		local class = plain(UnitClassification("target"))
 		local mine, theirs = plain(UnitLevel("player")), plain(UnitLevel("target"))
-		if foes >= (solo and 2 or 3) then why[#why + 1] = foes .. " mobs on you" end
+		if foes >= 3 then why[#why + 1] = foes .. " mobs on you and your pet"
+		elseif solo and foes >= 2 and onYou >= 1 then why[#why + 1] = foes .. " mobs, one on you" end
 		if solo and (class == "elite" or class == "rareelite") then why[#why + 1] = "elite" end
 		if class == "worldboss" or theirs == -1 then why[#why + 1] = "boss"
 		elseif mine and theirs and theirs >= mine + 3 then why[#why + 1] = "level " .. theirs end
@@ -1199,7 +1209,7 @@ do
 			-- pull too: thrifty from 70%, dry under 35%. And once your mana is coming back (no
 			-- mana spent for 5 seconds), under 70% nothing that costs mana unless the fight has
 			-- over 12 seconds left: your pet and Auto Shot finish it, and the next drink is shorter.
-			local dangerNow, dangerWhy = plainDanger(foesOnUs(), solo)
+			local dangerNow, dangerWhy = plainDanger(solo)
 			local safeSolo = solo and petTanks and not dangerNow
 			info.safeWhy = (not solo and "in a group") or (not petTanks and "your pet isn't holding it")
 				or (dangerNow and table.concat(dangerWhy, ", ")) or nil
@@ -1236,7 +1246,7 @@ do
 				if not pick or not byName[pick] then return end
 				if not isDot[pick] then
 					if not (safeSolo and costOf(pick) > 0) then show(id, BLUE, byName[pick].button, joined(conds)) return end
-					-- (on your own and safe: only while the mob has over 20% health, read by the game;
+					-- (on your own and safe: only while the mob has over 25% health, read by the game;
 					-- under it a free hit if one's in reach, else nothing - Auto Shot)
 					show(id, BLUE, byName[pick].button, joined(conds, share("target", FINISH_CUT, false, "target health")))
 					local alt = choose({ mode = "dry", headStart = headStart, noDots = true, noAoe = noAoe })
@@ -1302,7 +1312,7 @@ do
 
 		-- Danger (red): the big cooldowns.
 		if fighting and ttk >= 4 then
-			local danger, why = plainDanger(foesOnUs(), solo)
+			local danger, why = plainDanger(solo)
 			info.danger = danger and table.concat(why, ", ") or "none seen (your pet's and your health still decide)"
 			for _, name in ipairs(BIG) do
 				local e = byName[name]
