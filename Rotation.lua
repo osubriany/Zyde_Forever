@@ -346,9 +346,16 @@ local function watchTarget()
 	local guid = plain(UnitGUID("target"))
 	if not guid then return end
 	local now = GetTime()
-	if not engagedAt[guid] and plain(UnitAffectingCombat("target")) then engagedAt[guid] = now end
+	local fightingNow = plain(UnitAffectingCombat("target"))
+	if not engagedAt[guid] and fightingNow then engagedAt[guid] = now end
 	local started = engagedAt[guid]
-	if started and not recorded[guid] and plain(UnitIsDead("target")) == true then
+	local dead = plain(UnitIsDead("target"))
+	-- A live mob out of combat has reset (it ran home, healed): it's a fresh fight next time.
+	if started and fightingNow == false and dead == false then
+		engagedAt[guid], dots[guid] = nil, nil
+		return
+	end
+	if started and not recorded[guid] and dead == true then
 		recorded[guid] = true
 		local took = now - started
 		if took >= 2 and took <= 300 then
@@ -448,6 +455,7 @@ local function score(spell, entry, f, ctx, index)
 	-- (hunters, below: the pet's head start - only a sting until it has the mob's attention;
 	-- low on mana - nothing that costs it but a melee strike, Mend Pet's mana is kept)
 	if ctx.headStart and spell.kind ~= "dot" and not spell.melee then return nil end
+	if ctx.noDots and spell.kind == "dot" then return nil end
 	if ctx.mode == "dry" and f and f.cost > 0 and not spell.melee then return nil end
 
 	local gcd = spell.gcd or ctx.gcd
@@ -591,7 +599,7 @@ local function choose(opts)
 		enemies = enemyCount(), ttk = timeToKill(), power = power(), cp = comboPoints(), form = formId(),
 		gcd = ENERGY_GCD[playerClass] or ((playerClass == "DRUID" and formId() == 1) and 1 or 1.5),
 		dots = tg and dots[tg],
-		mode = opts and opts.mode, headStart = opts and opts.headStart,
+		mode = opts and opts.mode, headStart = opts and opts.headStart, noDots = opts and opts.noDots,
 	}
 	if playerClass == "PALADIN" then
 		local p = paladinPick(ctx, tg)
@@ -798,6 +806,13 @@ do
 	local DEPTH = 5
 	local BIG = { "Bestial Wrath", "Rapid Fire", "Intimidation", "Blood Fury", "Berserking" }
 	local NEEDS_PET = { ["Bestial Wrath"] = true, ["Intimidation"] = true }
+	-- A sting only on a mob above this much health (the game's hidden number, through a curve):
+	-- under it, the next best shot instead. (After Feign Death a nearly dead mob looked fresh.)
+	local DOT_CUT = 0.3
+	local isDot = {}
+	for _, spell in ipairs(LIST or {}) do
+		if spell.kind == "dot" then isDot[spell.name] = true end
+	end
 
 	-- (/zyde rotationdebug curves off: status-bar gates only, to compare)
 	local function useCurves()
@@ -1073,22 +1088,33 @@ do
 				extra[#extra + 1] = { kind = "threat", key = fdReady and "easeFD" or "ease",
 					points = { 1, 0, fdReady and 0 or 1, fdReady and 0 or 1 }, fallback = 1, label = "threat" }
 			end
-			local function band(id, pick, conds)
-				if not pick or not byName[pick] then return end
+			local function joined(conds, last)
 				local all = {}
 				for _, c in ipairs(conds) do all[#all + 1] = c end
 				for _, c in ipairs(extra) do all[#all + 1] = c end
-				show(id, BLUE, byName[pick].button, all)
+				if last then all[#all + 1] = last end
+				return all
+			end
+			local function band(id, pick, conds, mode)
+				if not pick or not byName[pick] then return end
+				if not isDot[pick] then show(id, BLUE, byName[pick].button, joined(conds)) return end
+				-- a sting: only while the mob has some life in it; else the best without one
+				show(id, BLUE, byName[pick].button, joined(conds, share("target", DOT_CUT, false, "target health")))
+				local alt = choose({ mode = mode, headStart = headStart, noDots = true })
+				info.noSting = alt
+				if alt and byName[alt] then
+					show(id .. "low", BLUE, byName[alt].button, joined(conds, share("target", DOT_CUT, true, "target health")))
+				end
 			end
 			if free == thrifty and thrifty == dry then
-				band("dmg", free, {})
+				band("dmg", free, {}, "free")
 			elseif free == thrifty then
-				band("dmg1", free, { share("player", lo, false, "mana", MANA) })
-				band("dmg3", dry, { share("player", lo, true, "mana", MANA) })
+				band("dmg1", free, { share("player", lo, false, "mana", MANA) }, "free")
+				band("dmg3", dry, { share("player", lo, true, "mana", MANA) }, "dry")
 			else
-				band("dmg1", free, { share("player", hi, false, "mana", MANA) })
-				band("dmg2", thrifty, { share("player", lo, false, "mana", MANA), share("player", hi, true, "mana", MANA) })
-				band("dmg3", dry, { share("player", lo, true, "mana", MANA) })
+				band("dmg1", free, { share("player", hi, false, "mana", MANA) }, "free")
+				band("dmg2", thrifty, { share("player", lo, false, "mana", MANA), share("player", hi, true, "mana", MANA) }, "thrifty")
+				band("dmg3", dry, { share("player", lo, true, "mana", MANA) }, "dry")
 			end
 		end
 
@@ -1133,6 +1159,14 @@ do
 			print(P .. ("  damage: %s above %d%% mana, %s %d-%d%%, %s under %d%%%s"):format(tostring(p.free), p.hi * 100,
 				tostring(p.thrifty), p.lo * 100, p.hi * 100, tostring(p.dry), p.lo * 100,
 				info.headStart and "   (pet's head start: stings only)" or ""))
+			if info.noSting then print(P .. "  under " .. DOT_CUT * 100 .. "% target health, instead of the sting: " .. info.noSting) end
+		end
+		local guid = plain(UnitGUID("target"))
+		local list = guid and dots[guid]
+		if list then
+			local parts = {}
+			for name, ends in pairs(list) do parts[#parts + 1] = ("%s %.0fs"):format(name, math.max(0, ends - GetTime())) end
+			print(P .. "  ticking on your target: " .. (#parts > 0 and table.concat(parts, ", ") or "-"))
 		end
 		print(P .. "  Mend Pet: " .. tostring(info.mend) .. "   danger: " .. tostring(info.danger or "not in a fight"))
 		local parts = {}
@@ -1191,11 +1225,24 @@ ev:SetScript("OnEvent", function(_, event, unit, _, spellID)
 	if event == "UNIT_HEALTH" then feedGates() watchTarget() return end
 	if event == "PLAYER_REGEN_DISABLED" then return end
 	if event == "PLAYER_REGEN_ENABLED" then
-		watchTarget() -- (the last kill, before the fight's notes are cleared)
-		wipe(dots)
+		watchTarget() -- (the last kill)
 		wipe(samples)
-		wipe(engagedAt)
-		wipe(recorded)
+		-- Leaving combat doesn't end the fight with a mob: Feign Death drops you out while it keeps
+		-- fighting your pet. Wiping the notes here made it look fresh, with no sting on it. So only
+		-- the run-out ones go: stings that have ended, mobs from over 5 minutes ago.
+		local now = GetTime()
+		for guid, list in pairs(dots) do
+			for name, ends in pairs(list) do
+				if ends <= now then list[name] = nil end
+			end
+			if next(list) == nil then dots[guid] = nil end
+		end
+		for guid, at in pairs(engagedAt) do
+			if now - at > 300 then engagedAt[guid] = nil end
+		end
+		for guid in pairs(recorded) do
+			if not engagedAt[guid] then recorded[guid] = nil end
+		end
 	end
 	if event == "PLAYER_TARGET_CHANGED" then wipe(samples) feedGates() return end
 	if event == "SPELLS_CHANGED" or event == "PLAYER_EQUIPMENT_CHANGED" then wipe(facts) end
