@@ -69,14 +69,14 @@ local CLASSES = {
 		{ name = "Whirlwind", kind = "direct", aoe = { 2, 4 } },
 		{ name = "Thunder Clap", kind = "direct", aoe = { 2, 4 } },
 		{ name = "Cleave", kind = "direct", aoe = { 2, 2 }, dump = true },
-		{ name = "Rend", kind = "dot" },
+		{ name = "Rend", kind = "dot", bleed = true },
 		{ name = "Slam", kind = "filler" },
 		{ name = "Heroic Strike", kind = "filler", dump = true },
 	},
 	ROGUE = {
 		{ name = "Riposte", kind = "reactive", needUsable = true },
 		{ name = "Eviscerate", kind = "finisher" },
-		{ name = "Rupture", kind = "finisher", dotFinisher = true },
+		{ name = "Rupture", kind = "finisher", dotFinisher = true, bleed = true },
 		{ name = "Blade Flurry", kind = "direct", aoe = { 2, 2 } },
 		{ name = "Ghostly Strike", kind = "builder" },
 		{ name = "Hemorrhage", kind = "builder" },
@@ -134,8 +134,8 @@ local CLASSES = {
 	},
 	DRUID = {
 		{ name = "Ferocious Bite", kind = "finisher", form = 1 },
-		{ name = "Rip", kind = "finisher", dotFinisher = true, form = 1 },
-		{ name = "Rake", kind = "dot", form = 1, gcd = 1 },
+		{ name = "Rip", kind = "finisher", dotFinisher = true, form = 1, bleed = true },
+		{ name = "Rake", kind = "dot", form = 1, gcd = 1, bleed = true },
 		{ name = "Shred", kind = "builder", form = 1, needUsable = true },
 		{ name = "Claw", kind = "builder", form = 1 },
 		{ name = "Swipe", kind = "direct", aoe = { 2, 3 }, form = 5 },
@@ -488,6 +488,11 @@ end
 
 local function score(spell, entry, f, ctx, index)
 	if spell.form and spell.form ~= ctx.form then return nil end
+	-- (bleeds don't work on elementals or mechanical mobs)
+	if spell.bleed then
+		local ct = plain(UnitCreatureType("target"))
+		if ct == "Elemental" or ct == "Mechanical" then return nil end
+	end
 	if cooldownLeft(spell.name, f) > 0.3 then return nil end
 	if not inRange(entry, spell) then return nil end
 	local u = usable(entry)
@@ -545,6 +550,15 @@ local function score(spell, entry, f, ctx, index)
 		local lo, hi = UnitDamage("player")
 		lo, hi = plain(lo), plain(hi)
 		if lo and hi then dmg = dmg + (lo + hi) / 2 end
+	end
+	-- Warriors: a cast (Slam, unless Forever's tooltip shows it instant) holds your swing for its
+	-- cast time - take off the auto-attack damage that's lost. (It ranked over Rend on its full
+	-- weapon hit alone.)
+	if playerClass == "WARRIOR" and f and f.cast > 0 and dmg > 0 then
+		local speed = UnitAttackSpeed and plain(UnitAttackSpeed("player"))
+		local lo, hi = UnitDamage("player")
+		lo, hi = plain(lo), plain(hi)
+		if speed and speed > 0 and lo and hi then dmg = math.max(1, dmg - (lo + hi) / 2 * math.min(1, f.cast / speed)) end
 	end
 	if dmg <= 0 then dmg = fallback end
 	if spell.aoe then
@@ -648,7 +662,7 @@ local function choose(opts)
 		gcd = ENERGY_GCD[playerClass] or ((playerClass == "DRUID" and formId() == 1) and 1 or 1.5),
 		dots = tg and dots[tg],
 		mode = opts and opts.mode, headStart = opts and opts.headStart, noDots = opts and opts.noDots,
-		noAoe = opts and opts.noAoe, noDump = opts and opts.noDump,
+		noAoe = opts and opts.noAoe, noDump = opts and opts.noDump, thriftPow = opts and opts.thriftPow,
 	}
 	if playerClass == "PALADIN" then
 		local p = paladinPick(ctx, tg)
@@ -686,7 +700,8 @@ local function choose(opts)
 			if c.cost > 0 then bestEff = math.max(bestEff, c.dmg / c.cost) end
 		end
 		for _, c in ipairs(cands) do
-			if c.cost > 0 and bestEff > 0 then c.s = c.s * (c.dmg / c.cost) / bestEff end
+			-- (thriftPow under 1 softens it: warriors weigh rage per damage, but less than mana)
+			if c.cost > 0 and bestEff > 0 then c.s = c.s * ((c.dmg / c.cost) / bestEff) ^ (ctx.thriftPow or 1) end
 		end
 	end
 	for _, c in ipairs(cands) do
@@ -1631,8 +1646,24 @@ do
 		if not solo and not tanking then
 			base[#base + 1] = { kind = "threat", key = "ease", points = { 1, 0, 1, 1 }, fallback = 1, label = "threat" }
 		end
-		local full, gated, threshold = choose({})
-		local lean = choose({ noDump = true })
+		-- Rage per damage weighs in (softened), and Rend goes first on a mob that will live through
+		-- most of it (it ranked under Slam and Heroic Strike on damage per press alone).
+		local THRIFT = { mode = "thrifty", thriftPow = 0.5 }
+		local full, gated, threshold = choose(THRIFT)
+		local lean = choose({ mode = "thrifty", thriftPow = 0.5, noDump = true })
+		local rend = byName["Rend"]
+		if rend then
+			local tgNow = plain(UnitGUID("target"))
+			local rf = facts[rend.id]
+			local length = (rf and rf.dotDur > 0) and rf.dotDur or 12
+			local left = dotLeft("Rend", { dots = tgNow and dots[tgNow] })
+			local ct = plain(UnitCreatureType("target"))
+			local bleeds = ct ~= "Elemental" and ct ~= "Mechanical"
+			if bleeds and ready("Rend") and inRange(rend) and not (left and left > 1.5) and ttk >= length * 0.7 then
+				full, lean = "Rend", "Rend"
+				winfo.rendFirst = true
+			end
+		end
 		winfo.full, winfo.lean, winfo.gated = full, lean, gated
 		local exec
 		if gated and btn(gated) then
@@ -1643,7 +1674,7 @@ do
 			if not pick or not btn(pick) then return end
 			if not isDot[pick] then show(id, BLUE, btn(pick), conds) return end
 			show(id, BLUE, btn(pick), with(conds, share("target", DOT_CUT, false, "target health")))
-			local o = { noDots = true, noDump = opts and opts.noDump }
+			local o = { mode = "thrifty", thriftPow = 0.5, noDots = true, noDump = opts and opts.noDump }
 			local alt = choose(o)
 			if alt and btn(alt) then show(id .. "low", BLUE, btn(alt), with(conds, share("target", DOT_CUT, true, "target health"))) end
 		end
@@ -1717,6 +1748,7 @@ do
 		print(P .. ("warrior: %s, stance %s%s, fight left ~%.0fs, curves %s"):format(winfo.solo and "on your own" or "in a group",
 			tostring(winfo.stance), winfo.tanking and " (you're the tank)" or "", winfo.ttk or 0,
 			useCurves() and "on" or "off (gates only)"))
+		if winfo.rendFirst then print(P .. "  Rend first: not on the mob, and the fight should outlast most of it") end
 		print(P .. ("  damage: %s with %d%%+ rage, %s under it%s"):format(tostring(winfo.full), DUMP_RAGE * 100, tostring(winfo.lean),
 			winfo.gated and ("; under the execute line: " .. winfo.gated) or ""))
 		local tg = plain(UnitGUID("target"))
