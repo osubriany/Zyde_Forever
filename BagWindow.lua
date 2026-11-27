@@ -983,11 +983,19 @@ end)
 -- right-click: sell at a vendor, use a potion, or pick someone for a bandage.
 -- At a banker that same click moves the item, because the button passes the
 -- open bank. Named slots only exist for the old bag frames.
-local function realContainerButton(bag, slot)
-	if type(bag) ~= "number" or type(slot) ~= "number" then return nil end
-	if bag < 0 or bag > (NUM_BAG_SLOTS or 4) then return nil end
-	local btn = _G["ContainerFrame" .. (bag + 1) .. "Item" .. slot]
-	if btn and btn.Click then return btn end
+-- A bandage in this slot? (Consumable, subclass 7, or "Bandage" in its name.)
+local function isBandageSlot(bag, slot)
+	local info = C_Container and C_Container.GetContainerItemInfo and ns.safe(C_Container.GetContainerItemInfo, bag, slot)
+	local id = type(info) == "table" and info.itemID
+	if ns.isSecret(id) or type(id) ~= "number" then return false end
+	local getInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+	if getInstant then
+		local _, _, _, _, _, classID, subID = ns.safe(getInstant, id)
+		if not ns.isSecret(classID) and not ns.isSecret(subID) and classID == 0 and subID == 7 then return true end
+	end
+	local link = info.hyperlink
+	if type(link) == "string" and not ns.isSecret(link) and link:lower():find("bandage", 1, true) then return true end
+	return false
 end
 
 -- At a banker, a right-click moves the item. The game's own slot button does
@@ -1166,9 +1174,21 @@ local function placeUse(b, active)
 		return
 	end
 	if move and move:IsShown() then move:Hide() end
-	-- A scanned bag button often has no working right-click, so at a vendor the
-	-- secure button uses the slot itself. That is what sells it.
-	local game = (not atVendor) and (moveButton(bag, slot) or realContainerButton(bag, slot))
+	-- Right-click uses the slot itself through this secure button (food, drink, scrolls,
+	-- potions; at a vendor that sells it). Only a bandage goes through the game's own slot
+	-- button, so you can pick who it heals - and only when that button is on screen and is
+	-- this very slot. (Every right-click went to the game's button before, found as
+	-- ContainerFrame<bag+1>Item<slot>: those frames aren't tied to bags that way, and with
+	-- this window they're never opened, so the click landed on a hidden, stale button and
+	-- nothing was used.)
+	local game
+	if not atVendor and isBandageSlot(bag, slot) then
+		local g = moveButton(bag, slot)
+		if g and g.IsVisible and g:IsVisible() then
+			local gb, gs = buttonBagSlot(g)
+			if gb == bag and gs == slot then game = g end
+		end
+	end
 	local where = bag .. " " .. slot
 	local key = where .. (game and " game" or (atVendor and " vendor" or " item"))
 	if use.itemKey ~= key then
