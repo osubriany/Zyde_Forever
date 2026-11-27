@@ -743,9 +743,13 @@ root:SetFrameStrata("HIGH")
 root:SetAllPoints()
 root:EnableMouse(false)
 
+local allGlows = {} -- every glow made, for the API at the end of this file
+local apiTick      -- (set there)
 local function makeGlow(parent, color)
 	color = color or BLUE
 	local g = CreateFrame("Frame", nil, parent)
+	g.color = color
+	allGlows[#allGlows + 1] = g
 	g:EnableMouse(false)
 	g.tex = g:CreateTexture(nil, "OVERLAY")
 	g.tex:SetTexture(GLOW)
@@ -768,6 +772,7 @@ end
 
 local function placeGlow(g, button)
 	if not button then g:Hide() g.pulse:Stop() return end
+	g.button = button
 	g:ClearAllPoints()
 	g:SetAllPoints(button)
 	local w = button:GetWidth()
@@ -2303,6 +2308,125 @@ ev:SetScript("OnEvent", function(_, event, unit, _, spellID)
 	end)
 end)
 
+---------------------------------------------------------------------------
+-- API for other addons: what the ability highlight suggests right now (read only).
+--
+--   local api = ZydeForeverAPI
+--   api.version                      -- 1
+--   api.GetSuggestions()             -- a list, best first (blue damage, then green, amber, red):
+--     { spell   = "Shadow Bolt",     -- the spell / item / macro spell on the button
+--       icon    = 136197,            -- its texture
+--       key     = "CTRL-1",          -- the key bound to that button (nil when none)
+--       keyText = "Ctrl-1",          -- the same, as the game prints it
+--       role    = "damage",          -- "damage" (blue), "heal" (green), "upkeep" (amber), "danger" (red)
+--       color   = { r, g, b },       -- the glow's colour
+--       button  = <the action button>,
+--       holder  = <frame> }          -- see below
+--   api.RegisterCallback(fn)         -- fn(list) whenever the list changes
+--   api.UnregisterCallback(fn)
+--
+-- Some suggestions hang on numbers the game hides from addons (your health and mana, the mob's
+-- health): the game itself shows or hides those glows, and the list holds every glow that MAY be
+-- showing. To show your own frame exactly when Zyde's glow shows, parent it to `holder`: its
+-- see-through-ness follows the same hidden checks. (With /zyde rotationdebug curves off, a check
+-- can clip to the button's spot instead, which a frame elsewhere won't follow.)
+---------------------------------------------------------------------------
+do
+	local ORDER = { damage = 1, heal = 2, upkeep = 3, danger = 4 }
+	local function roleOf(color)
+		if color == BLUE then return "damage" end
+		if not color then return "damage" end
+		local r, g, b = color[1], color[2], color[3]
+		if g > 0.9 and r < 0.5 then return "heal" end
+		if r > 0.9 and g < 0.3 then return "danger" end
+		if r > 0.9 and g >= 0.5 then return "upkeep" end
+		return "damage"
+	end
+
+	-- The binding command of an action button.
+	local BIND = {
+		ActionButton = "ACTIONBUTTON", MultiBarBottomLeftButton = "MULTIACTIONBAR1BUTTON",
+		MultiBarBottomRightButton = "MULTIACTIONBAR2BUTTON", MultiBarRightButton = "MULTIACTIONBAR3BUTTON",
+		MultiBarLeftButton = "MULTIACTIONBAR4BUTTON", MultiBar5Button = "MULTIACTIONBAR5BUTTON",
+		MultiBar6Button = "MULTIACTIONBAR6BUTTON", MultiBar7Button = "MULTIACTIONBAR7BUTTON",
+		MultiBar8Button = "MULTIACTIONBAR8BUTTON", PetActionButton = "BONUSACTIONBUTTON",
+	}
+	local function keyOf(b)
+		local cmd = b.commandName or b.bindingAction
+		local name = b.GetName and b:GetName()
+		if type(cmd) ~= "string" and type(name) == "string" then
+			local pre, n = name:match("^(.-)(%d+)$")
+			if pre and BIND[pre] then cmd = BIND[pre] .. n end
+		end
+		local key = type(cmd) == "string" and GetBindingKey and plain(GetBindingKey(cmd)) or nil
+		if not key and type(name) == "string" and GetBindingKey then key = plain(GetBindingKey("CLICK " .. name .. ":LeftButton")) end
+		if type(key) ~= "string" then return nil, nil end
+		local text = GetBindingText and plain(GetBindingText(key, "KEY_")) or key
+		return key, text
+	end
+
+	-- What's on a button: name, icon.
+	local function whatOn(b)
+		local name = b.GetName and b:GetName()
+		if type(name) == "string" and name:find("^PetActionButton") then
+			local pname, tex = safe(GetPetActionInfo, b:GetID())
+			pname, tex = plain(pname), plain(tex)
+			if type(pname) == "string" and _G[pname] then pname = _G[pname] end -- (PET_ACTION_ATTACK -> "Attack")
+			return pname, tex
+		end
+		local a = actionOf(b)
+		if not a then return nil end
+		local kind, id = safe(GetActionInfo, a)
+		kind, id = plain(kind), plain(id)
+		local tex = plain(safe(GetActionTexture, a))
+		if kind == "macro" and GetMacroSpell then id = plain(safe(GetMacroSpell, id)) kind = id and "spell" end
+		if kind == "spell" and type(id) == "number" then return spellName(id), tex end
+		if kind == "item" and type(id) == "number" then
+			local n = C_Item and C_Item.GetItemNameByID and plain(safe(C_Item.GetItemNameByID, id))
+			if not n and GetItemInfo then n = plain(safe(GetItemInfo, id)) end
+			return n, tex
+		end
+		return nil, tex
+	end
+
+	local current, callbacks, lastSig = {}, {}, ""
+	local function build()
+		local out = {}
+		for _, g in ipairs(allGlows) do
+			if g:IsShown() and g.button then
+				local spell, icon = whatOn(g.button)
+				local key, keyText = keyOf(g.button)
+				local c = g.color or BLUE
+				out[#out + 1] = { spell = spell, icon = icon, key = key, keyText = keyText, role = roleOf(c),
+					color = { c[1], c[2], c[3] }, button = g.button, holder = g:GetParent() }
+			end
+		end
+		table.sort(out, function(x, y)
+			if ORDER[x.role] ~= ORDER[y.role] then return ORDER[x.role] < ORDER[y.role] end
+			return tostring(x.spell) < tostring(y.spell)
+		end)
+		return out
+	end
+
+	local function tick()
+		local list = build()
+		local parts = {}
+		for i, e in ipairs(list) do parts[i] = tostring(e.spell) .. "|" .. tostring(e.key) .. "|" .. e.role end
+		local sig = table.concat(parts, ";")
+		current = list
+		if sig == lastSig then return end
+		lastSig = sig
+		for fn in pairs(callbacks) do pcall(fn, list) end
+	end
+	apiTick = tick
+
+	ZydeForeverAPI = ZydeForeverAPI or {}
+	ZydeForeverAPI.version = 1
+	ZydeForeverAPI.GetSuggestions = function() return current end
+	ZydeForeverAPI.RegisterCallback = function(fn) if type(fn) == "function" then callbacks[fn] = true end end
+	ZydeForeverAPI.UnregisterCallback = function(fn) callbacks[fn] = nil end
+end
+
 local wait = 0
 root:SetScript("OnUpdate", function(_, dt)
 	wait = wait + dt
@@ -2310,6 +2434,7 @@ root:SetScript("OnUpdate", function(_, dt)
 	wait = 0
 	if on() then watchTarget() end
 	update()
+	if apiTick then apiTick() end
 end)
 
 ns.OnFeatureChanged(function(key) if key == "rotation" then update() end end)
@@ -2324,6 +2449,10 @@ function ns.RotationDebug()
 		enemyCount(), #(ns.Plates and ns.Plates.units() or {}), timeToKill(), targetShare() and (math.floor(targetShare() * 100) .. "%") or "hidden",
 		tostring(power()), tostring(comboPoints())))
 	if classDebug then classDebug(P) end
+	local api = ZydeForeverAPI and ZydeForeverAPI.GetSuggestions and ZydeForeverAPI.GetSuggestions() or {}
+	local parts = {}
+	for _, e in ipairs(api) do parts[#parts + 1] = tostring(e.spell) .. " (" .. tostring(e.key or "no key") .. ", " .. e.role .. ")" end
+	print(P .. "API (ZydeForeverAPI.GetSuggestions): " .. (#parts > 0 and table.concat(parts, ", ") or "nothing glowing"))
 	local ks, parts = killStats(), {}
 	for _, kind in ipairs({ "normal", "elite", "boss" }) do
 		local s = ks[kind]
