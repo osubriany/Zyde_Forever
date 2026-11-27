@@ -200,7 +200,7 @@ local FEATURES = {
 	{ key = "autoTrack", class = "HUNTER", short = "tracking picks itself", label = "Auto tracking", desc = "Turns on the tracking for the kind of enemy most around you (Beasts, Humanoids, Undead, Demons, Elementals, Giants, Dragonkin), counting your target and quest mobs most. Switches out of combat only, at most every 10 seconds, and only when a new kind clearly leads. Leaves it alone for 2 minutes after you pick a tracking yourself, and while Find Herbs, Find Minerals or Find Treasure is on. /zyde trackdebug shows what it sees (hunters)" },
 	{ key = "petCare", class = "HUNTER", short = "feed, call, Growl", label = "Hunter pet care", desc = "Keys to feed your pet the right food and to call or revive it, with reminders when it's hungry or missing, and a Growl autocast reminder: off in a group, on when solo (hunters)" },
 	{ key = "markerWheel", short = "marks on the target", label = "Target markers", desc = "Hold the marker key and two rows of four icons show just under your cursor. Top: skull, X, square, moon. Bottom: triangle, diamond, circle, star. The red button removes the mark on your target. The gold ALL button removes every mark. Clicking the icon already on your target removes that mark too. Click a different icon to change it. Letting go hides the icons. World markers stay a separate key: press it to show or hide the squares, drag the title to move them, click a square, then the ground. The last square clears those." },
-	{ key = "radial", short = "your spells in a ring", label = "Radial ring", desc = "Hold the Radial ring key (Keybindings > Zyde Forever) and a ring of your own spells, macros and items opens around the cursor. Move toward one and let go of the key to use it; let go in the middle to cancel. Works in combat. Set up puts things on it (or /zyde ring)" },
+	{ key = "radial", short = "your spells in a ring", label = "Radial ring", desc = "A ring of your own spells, macros and items. Hold: hold the Radial ring key (Keybindings > Zyde Forever), move toward a slot, and let go to use it. Click: hold the key to show the ring, click a slot to use it, and let go of the key to close it. Pick which with Use. Let go in the middle to cancel, in Hold. Works in combat. Set up puts things on it (or /zyde ring)" },
 	{ key = "hideBars", short = "cleaner action bars", label = "Hide Blizzard bar art", desc = "Hides the action bar art and the bag bar", reload = true },
 	{ key = "hideMicroMenu", short = "game menu buttons", label = "Hide micro menu", desc = "Hides the row of small game menu buttons (character, spellbook, talents, quest log, social, game menu...). Their keybinds still work", reload = true },
 	{ key = "xp", short = "compact XP display", label = "XP readout", desc = "Small draggable XP % with rested XP, time to level and tooltip (replaces the XP bar)", reload = true },
@@ -214,6 +214,7 @@ local FEATURES = {
 	{ key = "barTidy", short = "short keys, no empty slots", label = "Tidy action bars", desc = "Short keybind labels on action buttons (a-1 becomes A1, Mouse Button 4 becomes M4) and empty slots hidden - they show again while you drag a spell or item" },
 	{ key = "gear", short = "borders, item levels", label = "Character screen gear", desc = "Rarity borders and item levels; a green arrow when your bags hold an upgrade for a slot (scored by GearAdvisor if loaded), empty slots quiet gray unless your bags can fill them, and your average item level in the header", reload = true },
 	{ key = "fishing", short = "one-key fishing", label = "One Button Fishing", desc = "Same key casts and reels in (set the key in Keybindings)" },
+	{ key = "mounts", short = "random favorite mount", label = "Favorite mounts", desc = "A key summons a random mount from the ones you tick with Choose. Tick none and it uses every mount you know. It skips the mount you are already on when you know another. Set the key in Keybindings > Zyde Forever: Random favorite mount" },
 	{ key = "buttonBag", short = "one button, a key for the rest", label = "Minimap button bag", desc = "Gathers the other addon buttons on the minimap onto one button. Click that button to spread them out. Drag it around the minimap to move it. Hold Buttons at cursor (Options > Keybindings > Zyde Forever) to open tradeskills, the game menu, and those buttons at the mouse" },
 	{ key = "minimap", short = "zone and local time", label = "Minimap", desc = "A few looks for the minimap: Round, Gilded, or Square. Drag the map to move it. The zone name sits under it, with your local time below. Off while SexyMap is loaded", conflict = "SexyMap" },
 	{ key = "mapSkin", short = "the map in Zyde's look", label = "World map look", desc = "The world map in Zyde's look: a flat dark frame with a gold title and square buttons, flat tabs along the top (purple for the map you're on), and a dark quest list with flat headings. The map, its icons and pins are unchanged. Off until you tick it", defaultOff = true, reload = true },
@@ -1915,7 +1916,7 @@ local CATEGORIES = {
 			{ "minimap", children = {}, choosers = { "minimapLook" } },
 			"mapSkin",
 			"buttonBag", "gear",
-			{ "radial", children = {}, button = { label = "Set up", click = function() if ns.Radial then ns.Radial.ToggleEditor() end end } },
+			{ "radial", children = {}, choosers = { "radialUse" }, button = { label = "Set up", click = function() if ns.Radial then ns.Radial.ToggleEditor() end end } },
 		} },
 		{ "Hunter", { "ammo", "petCare", "autoTrack" } },
 		{ "Groups", { "lfg", "guildRoster", "markerWheel", "pullLight" } },
@@ -1928,8 +1929,14 @@ local CATEGORIES = {
 			{ group = "Questie", children = { "questMobs", "questieDrops" } },
 			"rares",
 		} },
-		{ "Bags & vendors", { "bagWindow", "sellJunk", "scrap", "vendor", "recipes" } },
-		{ "Travel & gathering", { "mapNotes", "flight", "flightTimer", "tracking", "fishing" } },
+		{ "Bags & vendors", {
+			{ "bagWindow", children = {}, choosers = { "bagStacks", "bankStacks" } },
+			"sellJunk", "scrap", "vendor", "recipes",
+		} },
+		{ "Travel & gathering", {
+			"mapNotes", "flight", "flightTimer", "tracking", "fishing",
+			{ "mounts", children = {}, button = { label = "Choose", click = function() if ns.Mounts then ns.Mounts.Toggle() end end } },
+		} },
 	},
 }
 
@@ -2001,6 +2008,63 @@ local function buildOptions()
 			options = function() return ns.MinimapLook and ns.MinimapLook.LOOKS or {} end,
 			get = function() return ns.MinimapLook and ns.MinimapLook.Get() or "round" end,
 			set = function(k) if ns.MinimapLook then ns.MinimapLook.Set(k) end end,
+			changed = function() return false end,
+		},
+		radialUse = {
+			label = "Use", parent = "radial", width = 110,
+			desc = "Hold uses whatever you let go of the key over. Click shows the ring only while the key is held, and a slot runs when you click it.",
+			options = function()
+				return {
+					{ key = "hold", label = "Hold", desc = "Hold the key, move toward a slot, and let go to use it. Let go in the middle to cancel." },
+					{ key = "click", label = "Click", desc = "Hold the key to show the ring. Click a slot to use it. Let go of the key to close it." },
+				}
+			end,
+			get = function()
+				return (ZydeForeverDB and ZydeForeverDB.radialUse == "click") and "click" or "hold"
+			end,
+			set = function(k)
+				ZydeForeverDB = ZydeForeverDB or {}
+				ZydeForeverDB.radialUse = k == "click" and "click" or "hold"
+				if ns.Radial and ns.Radial.Apply then ns.Radial.Apply() end
+			end,
+			changed = function() return false end,
+		},
+		bagStacks = {
+			label = "Stacks", parent = "bagWindow", width = 120,
+			desc = "Your bags. Combined draws every stack of an item as one tile. Each slot keeps every bag slot as its own tile.",
+			options = function()
+				return {
+					{ key = "combined", label = "Combined", desc = "Stacks of the same item become one tile. Using or dragging it takes from the smallest stack." },
+					{ key = "slot", label = "Each slot", desc = "Every bag slot stays its own tile, with that slot's count on it." },
+				}
+			end,
+			get = function()
+				return (ZydeForeverDB and ZydeForeverDB.bagStacks == "slot") and "slot" or "combined"
+			end,
+			set = function(k)
+				ZydeForeverDB = ZydeForeverDB or {}
+				ZydeForeverDB.bagStacks = k == "slot" and "slot" or nil
+				if ns.BagWindowRestack then ns.BagWindowRestack() end
+			end,
+			changed = function() return false end,
+		},
+		bankStacks = {
+			label = "Bank", parent = "bagWindow", width = 120,
+			desc = "The bank window. Combined draws every stack of an item as one tile. Each slot keeps every bank slot as its own tile.",
+			options = function()
+				return {
+					{ key = "combined", label = "Combined", desc = "Stacks of the same item become one tile. Using or dragging it takes from the smallest stack." },
+					{ key = "slot", label = "Each slot", desc = "Every bank slot stays its own tile, with that slot's count on it." },
+				}
+			end,
+			get = function()
+				return (ZydeForeverDB and ZydeForeverDB.bankStacks == "slot") and "slot" or "combined"
+			end,
+			set = function(k)
+				ZydeForeverDB = ZydeForeverDB or {}
+				ZydeForeverDB.bankStacks = k == "slot" and "slot" or nil
+				if ns.BagWindowRestack then ns.BagWindowRestack() end
+			end,
 			changed = function() return false end,
 		},
 		playerAuras = {

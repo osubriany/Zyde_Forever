@@ -35,6 +35,7 @@ HunterTracking.lua
 NpcKeys.lua
 MarkerWheel.lua
 Radial.lua
+Mounts.lua
 BagWindow.lua
 MapNotes.lua
 MapSkin.lua

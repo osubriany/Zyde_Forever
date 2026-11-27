@@ -12,13 +12,17 @@
 	</Binding>
 	<Binding name="CLICK ZydeForeverWorldMarkerKey:LeftButton" category="Zyde Forever">
 	</Binding>
-	<Binding name="CLICK ZydeForeverRadialKey:LeftButton" category="Zyde Forever">
+	<Binding name="CLICK ZydeForeverRadialKey:RightButton" category="Zyde Forever">
 		-- Hold: the radial ring (Radial.lua). Let go over a slot to use it.
+		-- Right button, same as a bag right-click, so a bandage heals your target.
 	</Binding>
 	<Binding name="CLICK ZydeForeverButtonBagKey:LeftButton" category="Zyde Forever">
 	</Binding>
 	<Binding name="CLICK LevelPlannerItemButton:LeftButton" category="Zyde Forever">
 		-- Level planner: uses the current quest's item (secure button LevelPlannerItemButton)
+	</Binding>
+	<Binding name="CLICK ZydeForeverMountKey:LeftButton" category="Zyde Forever">
+		-- Summons a random favorite mount (Mounts.lua).
 	</Binding>
 	<Binding name="CLICK LevelPlannerTargetNPC:LeftButton" category="Zyde Forever">
 		-- Level planner: targets the next step's NPC and stars it (secure button LevelPlannerTargetNPC)
