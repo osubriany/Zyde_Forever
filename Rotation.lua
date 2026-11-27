@@ -68,10 +68,10 @@ local CLASSES = {
 		{ name = "Shield Slam", kind = "direct" },
 		{ name = "Whirlwind", kind = "direct", aoe = { 2, 4 } },
 		{ name = "Thunder Clap", kind = "direct", aoe = { 2, 4 } },
-		{ name = "Cleave", kind = "direct", aoe = { 2, 2 } },
+		{ name = "Cleave", kind = "direct", aoe = { 2, 2 }, dump = true },
 		{ name = "Rend", kind = "dot" },
 		{ name = "Slam", kind = "filler" },
-		{ name = "Heroic Strike", kind = "filler" },
+		{ name = "Heroic Strike", kind = "filler", dump = true },
 	},
 	ROGUE = {
 		{ name = "Riposte", kind = "reactive", needUsable = true },
@@ -478,6 +478,7 @@ local function score(spell, entry, f, ctx, index)
 	if ctx.headStart and spell.kind ~= "dot" and not spell.melee then return nil end
 	if ctx.noDots and spell.kind == "dot" then return nil end
 	if ctx.noAoe and spell.aoe then return nil end
+	if ctx.noDump and spell.dump then return nil end -- (warriors: Heroic Strike / Cleave, rage dumps)
 	if ctx.mode == "dry" and f and f.cost > 0 and not spell.melee then return nil end
 
 	local gcd = spell.gcd or ctx.gcd
@@ -622,7 +623,7 @@ local function choose(opts)
 		gcd = ENERGY_GCD[playerClass] or ((playerClass == "DRUID" and formId() == 1) and 1 or 1.5),
 		dots = tg and dots[tg],
 		mode = opts and opts.mode, headStart = opts and opts.headStart, noDots = opts and opts.noDots,
-		noAoe = opts and opts.noAoe,
+		noAoe = opts and opts.noAoe, noDump = opts and opts.noDump,
 	}
 	if playerClass == "PALADIN" then
 		local p = paladinPick(ctx, tg)
@@ -764,20 +765,20 @@ local function feedGates()
 	end
 end
 
-local hunterUpdate, hunterHide, hunterDebug -- (section 6, hunters)
+local classUpdate, classHide, classDebug -- (sections 6 and 7: hunters, warriors)
 
 local function hideAll()
 	for _, g in ipairs({ plainGlow, aboveGlow, belowGlow }) do g:Hide() g.pulse:Stop() end
-	if hunterHide then hunterHide() end
+	if classHide then classHide() end
 end
 
 local function update()
 	if not on() or not LIST then hideAll() return end
 	local hostile = plain(UnitExists("target")) and plain(UnitCanAttack("player", "target"))
 		and not plain(UnitIsDeadOrGhost("target"))
-	if playerClass == "HUNTER" and hunterUpdate then
+	if (playerClass == "HUNTER" or playerClass == "WARRIOR") and classUpdate then
 		for _, g in ipairs({ plainGlow, aboveGlow, belowGlow }) do g:Hide() g.pulse:Stop() end
-		hunterUpdate(hostile and true or false)
+		classUpdate(hostile and true or false)
 		return
 	end
 	if not hostile then hideAll() return end
@@ -1034,7 +1035,7 @@ do
 		used[id] = true
 	end
 
-	hunterHide = function()
+	classHide = function()
 		for _, s in pairs(slots) do s.glow:Hide() s.glow.pulse:Stop() end
 	end
 
@@ -1157,7 +1158,7 @@ do
 		return { kind = "share", unit = unit, power = ptype, cut = cut, below = below, label = label }
 	end
 
-	hunterUpdate = function(hostile)
+	classUpdate = function(hostile)
 		wipe(used)
 		wipe(info)
 		local now = GetTime()
@@ -1338,7 +1339,7 @@ do
 	end
 
 	-- What the hunter part sees, for /zyde rotationdebug.
-	hunterDebug = function(P)
+	classDebug = function(P)
 		local p = info.picks
 		print(P .. ("hunter: %s, pet %s, tank: %s, fight left ~%.0fs, curves %s"):format(info.solo and "on your own" or "in a group",
 			info.petUp and "up" or "not up", tostring(info.tank or "-"), info.ttk or 0, useCurves() and "on" or "off (gates only)"))
@@ -1390,6 +1391,330 @@ do
 			local shown = ok and pcall(print, P .. "  " .. q[1] .. ":", v)
 			if not shown then print(P .. "  " .. q[1] .. ": " .. (ok and "hidden" or "not available")) end
 		end
+	end
+
+	---------------------------------------------------------------------------
+	-- 7. Warriors: what the fight needs, not only the hardest hit. Same holders as the hunter's,
+	-- so the game itself reads your hidden health, rage and the mob's health.
+	--   * Blue, damage: Heroic Strike and Cleave (rage dumps) only with 60%+ rage, else the best
+	--     without them, so Mortal Strike, Bloodthirst, Overpower... aren't starved. Execute under
+	--     20%. Rend not on a mob under 30%. In a group and not tanking: no glow while you're
+	--     above the tank on threat.
+	--   * Green, staying alive: Victory Rush when it's up and you're under 80%; a Healing Potion
+	--     or Healthstone on your bars when you're under 30% in a fight.
+	--   * Amber, the fight's upkeep:
+	--       Battle Shout missing (also before a pull, with a hostile target)
+	--       Demoralizing Shout when a mob next to you lacks it and it's worth it: 2+ mobs on you,
+	--         an elite, a dangerous fight, or you're tanking (not on one nearly dead mob)
+	--       Thunder Clap when 2+ mobs are next to you and one lacks it (or you're tanking a tough one)
+	--       Hamstring on a humanoid under 30% on your own (they run) - once
+	--       Sunder Armor while tanking in a group, until 5 stacks
+	--       Bloodrage under 20% rage while you're over 50% health
+	--   * Red, danger: Shield Wall and Last Stand under 35% health with a mob on you; Intimidating
+	--     Shout with 3+ next to you and you under 50%; Retaliation with 3+ next to you (2 in a
+	--     dangerous fight); Recklessness, Death Wish and your race's burst in a dangerous fight or
+	--     under 40% health (not with the mob nearly over).
+	-- "Next to you" is the game's ~10 yard check, which Forever answers in a fight. Who has the
+	-- shouts is counted from your casts: each mob next to you when you cast it.
+	---------------------------------------------------------------------------
+	local RAGE = (Enum and Enum.PowerType and Enum.PowerType.Rage) or 1
+	local DUMP_RAGE, LOW_RAGE = 0.6, 0.2
+	local winfo = {}
+	local marks = { thunder = {}, demo = {}, ham = {} } -- [kind][mob GUID] = when it runs out
+	local sunders = {} -- [mob GUID] = { n = stacks, ends = when they run out }
+	local shoutUntil = 0
+
+	local function near(unit)
+		return plain(safe(CheckInteractDistance, unit, 3)) == true
+	end
+
+	-- Mobs in a fight within ~10 yards: { {unit, guid}, ... } (your target first when it's one).
+	local function nearFoes()
+		local out, seen = {}, {}
+		local function add(unit)
+			local guid = plain(UnitGUID(unit))
+			if not guid or seen[guid] then return end
+			if plain(UnitCanAttack("player", unit)) and plain(UnitAffectingCombat(unit))
+				and plain(UnitIsDead(unit)) ~= true and near(unit) then
+				seen[guid] = true
+				out[#out + 1] = { unit = unit, guid = guid }
+			end
+		end
+		add("target")
+		for _, unit in ipairs(ns.Plates and ns.Plates.units() or {}) do add(unit) end
+		return out
+	end
+
+	-- How many mobs next to you don't have it (or it runs out in 1.5 s).
+	local function lacking(kind, foes)
+		local n, now, list = 0, GetTime(), marks[kind]
+		for _, f in ipairs(foes) do
+			if not list[f.guid] or list[f.guid] - now < 1.5 then n = n + 1 end
+		end
+		return n
+	end
+
+	local function thunderTime(id)
+		local sub = C_Spell and C_Spell.GetSpellSubtext and plain(safe(C_Spell.GetSpellSubtext, id))
+		local rank = type(sub) == "string" and tonumber(sub:match("(%d+)"))
+		if not rank then return 30 end
+		return math.min(30, 10 + (rank - 1) * 4) -- (10 s at rank 1, 4 more each rank)
+	end
+
+	local castEv = CreateFrame("Frame")
+	if playerClass == "WARRIOR" then
+		castEv:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+		castEv:RegisterEvent("PLAYER_REGEN_ENABLED")
+	end
+	castEv:SetScript("OnEvent", function(_, event, _, _, spellID)
+		local now = GetTime()
+		if event == "PLAYER_REGEN_ENABLED" then
+			for _, list in pairs(marks) do
+				for guid, ends in pairs(list) do if ends <= now then list[guid] = nil end end
+			end
+			for guid, s in pairs(sunders) do if s.ends <= now then sunders[guid] = nil end end
+			return
+		end
+		local id = plain(spellID)
+		local name = id and spellName(id)
+		if not name then return end
+		local tg = plain(UnitGUID("target"))
+		if name == "Thunder Clap" or name == "Demoralizing Shout" then
+			local kind = name == "Thunder Clap" and "thunder" or "demo"
+			local length = kind == "thunder" and thunderTime(id) or 30
+			for _, f in ipairs(nearFoes()) do marks[kind][f.guid] = now + length end
+		elseif name == "Battle Shout" then
+			shoutUntil = now + 120
+		elseif name == "Hamstring" and tg then
+			marks.ham[tg] = now + 15
+		elseif name == "Sunder Armor" and tg then
+			local s = sunders[tg]
+			if not s or s.ends <= now then s = { n = 0 } sunders[tg] = s end
+			s.n, s.ends = math.min(5, s.n + 1), now + 30
+		end
+	end)
+
+	local function battleShoutUp()
+		local buffs = ns.PlayerBuffs and ns.PlayerBuffs()
+		if buffs and not buffs.hidden then
+			for _, a in ipairs(buffs.list or {}) do
+				if a.name == "Battle Shout" then return true end
+			end
+			return false
+		end
+		return shoutUntil > GetTime()
+	end
+
+	local function stanceName()
+		local i = GetShapeshiftForm and plain(GetShapeshiftForm())
+		if not i or i == 0 then return nil end
+		local _, _, _, id = safe(GetShapeshiftFormInfo, i)
+		id = plain(id)
+		return id and spellName(id)
+	end
+
+	-- Healing items on your bars (looked up every 2 seconds).
+	local HEAL_ITEMS = { "Healing Potion", "Healthstone", "Healing Draught" }
+	local healCache, healAt = {}, -10
+	local function healItems()
+		local now = GetTime()
+		if now - healAt < 2 then return healCache end
+		healAt = now
+		wipe(healCache)
+		for _, prefix in ipairs(BAR_PREFIXES) do
+			for i = 1, 12 do
+				local b = _G[prefix .. i]
+				local a = b and b:IsVisible() and actionOf(b)
+				if a then
+					local kind, id = safe(GetActionInfo, a)
+					kind, id = plain(kind), plain(id)
+					if kind == "item" and type(id) == "number" then
+						local name = C_Item and C_Item.GetItemNameByID and plain(safe(C_Item.GetItemNameByID, id))
+						if not name and GetItemInfo then name = plain(safe(GetItemInfo, id)) end
+						if type(name) == "string" then
+							for _, w in ipairs(HEAL_ITEMS) do
+								if name:find(w, 1, true) then healCache[#healCache + 1] = { button = b, id = id, name = name } break end
+							end
+						end
+					end
+				end
+			end
+		end
+		return healCache
+	end
+	local function itemReady(id)
+		local count = plain(safe((C_Item and C_Item.GetItemCount) or GetItemCount, id))
+		if type(count) ~= "number" or count <= 0 then return false end
+		local s, d
+		if C_Container and C_Container.GetItemCooldown then s, d = safe(C_Container.GetItemCooldown, id)
+		elseif GetItemCooldown then s, d = safe(GetItemCooldown, id) end
+		s, d = plain(s), plain(d)
+		if s and d and s > 0 and d > 1.5 and s + d - GetTime() > 0.5 then return false end
+		return true
+	end
+
+	local function btn(name) return byName[name] and byName[name].button end
+	local function with(list, ...)
+		local out = {}
+		for _, c in ipairs(list) do out[#out + 1] = c end
+		for i = 1, select("#", ...) do
+			local c = select(i, ...)
+			if c then out[#out + 1] = c end
+		end
+		return out
+	end
+
+	local warriorUpdate = function(hostile)
+		wipe(used)
+		wipe(winfo)
+		local solo = not plain(IsInGroup and IsInGroup())
+		local fighting = InCombatLockdown()
+		local stance = stanceName()
+		local tanking = not solo and stance ~= nil and stance:find("Defensive", 1, true) ~= nil
+		local ttk = hostile and timeToKill() or 0
+		winfo.solo, winfo.stance, winfo.tanking, winfo.ttk = solo, stance, tanking, ttk
+
+		-- Battle Shout (amber): missing, in a fight or with a hostile target before it.
+		local shoutUp = battleShoutUp()
+		winfo.shout = shoutUp
+		if not shoutUp and (fighting or hostile) and byName["Battle Shout"] and ready("Battle Shout") then
+			show("bshout", AMBER, btn("Battle Shout"), {})
+		end
+		-- Victory Rush (green) when you're hurt; a healing item (green) under 30% in a fight.
+		if byName["Victory Rush"] and ready("Victory Rush") then
+			show("vr", GREEN, btn("Victory Rush"), { share("player", 0.8, true, "your health") })
+		end
+		if fighting then
+			for _, it in ipairs(healItems()) do
+				if itemReady(it.id) then
+					show("heal", GREEN, it.button, { share("player", 0.3, true, "your health") })
+					winfo.heal = it.name
+					break
+				end
+			end
+		end
+		if not hostile then hideUnused() return end
+
+		local foes = nearFoes()
+		local danger, why = plainDanger(solo)
+		local class = plain(UnitClassification("target"))
+		local tough = danger or class == "elite" or class == "rareelite" or class == "worldboss"
+		winfo.near, winfo.danger = #foes, danger and table.concat(why, ", ") or nil
+
+		-- Damage (blue).
+		local base = {}
+		if not solo and not tanking then
+			base[#base + 1] = { kind = "threat", key = "ease", points = { 1, 0, 1, 1 }, fallback = 1, label = "threat" }
+		end
+		local full, gated, threshold = choose({})
+		local lean = choose({ noDump = true })
+		winfo.full, winfo.lean, winfo.gated = full, lean, gated
+		local exec
+		if gated and btn(gated) then
+			show("wexec", BLUE, btn(gated), with(base, share("target", threshold, true, "target health")))
+			exec = share("target", threshold, false, "target health")
+		end
+		local function place(id, pick, conds, opts)
+			if not pick or not btn(pick) then return end
+			if not isDot[pick] then show(id, BLUE, btn(pick), conds) return end
+			show(id, BLUE, btn(pick), with(conds, share("target", DOT_CUT, false, "target health")))
+			local o = { noDots = true, noDump = opts and opts.noDump }
+			local alt = choose(o)
+			if alt and btn(alt) then show(id .. "low", BLUE, btn(alt), with(conds, share("target", DOT_CUT, true, "target health"))) end
+		end
+		if full == lean then
+			place("wdmg", full, with(base, exec), {})
+		else
+			place("wfull", full, with(base, exec, share("player", DUMP_RAGE, false, "rage", RAGE)), {})
+			place("wlean", lean, with(base, exec, share("player", DUMP_RAGE, true, "rage", RAGE)), { noDump = true })
+		end
+
+		if not fighting then hideUnused() return end
+
+		-- Upkeep (amber).
+		local lackDemo, lackThunder = lacking("demo", foes), lacking("thunder", foes)
+		winfo.lackDemo, winfo.lackThunder = lackDemo, lackThunder
+		if ttk >= 8 and lackDemo > 0 and byName["Demoralizing Shout"] and ready("Demoralizing Shout") then
+			if #foes >= 2 then
+				show("demo", AMBER, btn("Demoralizing Shout"), {})
+			elseif tough or tanking then
+				show("demo", AMBER, btn("Demoralizing Shout"), { share("target", DOT_CUT, false, "target health") })
+			end
+		end
+		if lackThunder > 0 and byName["Thunder Clap"] and ready("Thunder Clap")
+			and (#foes >= 2 or (tanking and tough)) then
+			show("thunder", AMBER, btn("Thunder Clap"), {})
+		end
+		local tg = plain(UnitGUID("target"))
+		local humanoid = plain(UnitCreatureType("target")) == "Humanoid"
+		if solo and humanoid and tg and not (marks.ham[tg] and marks.ham[tg] > GetTime())
+			and byName["Hamstring"] and ready("Hamstring") and inRange(byName["Hamstring"]) then
+			show("ham", AMBER, btn("Hamstring"), { share("target", 0.3, true, "target health") })
+		end
+		local s = tg and sunders[tg]
+		local stacks = (s and s.ends > GetTime()) and s.n or 0
+		winfo.sunder = stacks
+		if tanking and ttk >= 10 and (stacks < 5 or (s.ends - GetTime()) < 5)
+			and byName["Sunder Armor"] and ready("Sunder Armor") then
+			show("sunder", AMBER, btn("Sunder Armor"), {})
+		end
+		if byName["Bloodrage"] and ready("Bloodrage") then
+			show("bloodrage", AMBER, btn("Bloodrage"), { share("player", LOW_RAGE, true, "rage", RAGE),
+				share("player", 0.5, false, "your health") })
+		end
+
+		-- Danger (red).
+		for _, name in ipairs({ "Shield Wall", "Last Stand" }) do
+			if byName[name] and ready(name) then
+				show("def:" .. name, RED, btn(name), { share("player", 0.35, true, "your health"),
+					{ kind = "bool", v = UnitIsUnit("targettarget", "player"), yes = 1, no = 0, fallback = 1, label = "mob on you" } })
+			end
+		end
+		if #foes >= 3 and byName["Intimidating Shout"] and ready("Intimidating Shout") then
+			show("ishout", RED, btn("Intimidating Shout"), { share("player", 0.5, true, "your health") })
+		end
+		if (#foes >= 3 or (danger and #foes >= 2)) and byName["Retaliation"] and ready("Retaliation") then
+			show("retal", RED, btn("Retaliation"), {})
+		end
+		if ttk >= 6 then
+			for _, name in ipairs({ "Recklessness", "Death Wish", "Blood Fury", "Berserking" }) do
+				if byName[name] and ready(name) then
+					if danger then show("big:" .. name, RED, btn(name), {})
+					else show("bigMe:" .. name, RED, btn(name), { share("player", 0.4, true, "your health") }) end
+				end
+			end
+		end
+		hideUnused()
+	end
+
+	local warriorDebug = function(P)
+		print(P .. ("warrior: %s, stance %s%s, fight left ~%.0fs, curves %s"):format(winfo.solo and "on your own" or "in a group",
+			tostring(winfo.stance), winfo.tanking and " (you're the tank)" or "", winfo.ttk or 0,
+			useCurves() and "on" or "off (gates only)"))
+		print(P .. ("  damage: %s with %d%%+ rage, %s under it%s"):format(tostring(winfo.full), DUMP_RAGE * 100, tostring(winfo.lean),
+			winfo.gated and ("; under the execute line: " .. winfo.gated) or ""))
+		print(P .. ("  next to you: %s mob(s); without Demoralizing Shout %s, without Thunder Clap %s; Sunder on target %s; Battle Shout %s"):format(
+			tostring(winfo.near or "-"), tostring(winfo.lackDemo or "-"), tostring(winfo.lackThunder or "-"),
+			tostring(winfo.sunder or 0), winfo.shout and "up" or "missing"))
+		print(P .. "  danger: " .. tostring(winfo.danger or "none seen (your health still decides)")
+			.. "   healing item: " .. tostring(winfo.heal or (#healItems() > 0 and healItems()[1].name) or "none on your bars"))
+		local parts = {}
+		for label, how in pairs(hows) do parts[#parts + 1] = label .. " " .. tostring(how) end
+		table.sort(parts)
+		print(P .. "  checks read by: " .. (#parts > 0 and table.concat(parts, ", ") or "-"))
+		for _, q in ipairs({
+			{ "your health %", function() return UnitHealthPercent("player") end },
+			{ "your rage %", function() return UnitPowerPercent("player", RAGE) end },
+			{ "target health %", function() return UnitHealthPercent("target") end },
+		}) do
+			local ok, v = pcall(q[2])
+			local shown = ok and pcall(print, P .. "  " .. q[1] .. ":", v)
+			if not shown then print(P .. "  " .. q[1] .. ": " .. (ok and "hidden" or "not available")) end
+		end
+	end
+
+	if playerClass == "WARRIOR" then
+		classUpdate, classDebug = warriorUpdate, warriorDebug
 	end
 end
 
@@ -1480,7 +1805,7 @@ function ns.RotationDebug()
 		tostring(pick), gatedPick and (" / under " .. math.floor(threshold * 100) .. "%: " .. gatedPick) or "",
 		enemyCount(), #(ns.Plates and ns.Plates.units() or {}), timeToKill(), targetShare() and (math.floor(targetShare() * 100) .. "%") or "hidden",
 		tostring(power()), tostring(comboPoints())))
-	if playerClass == "HUNTER" and hunterDebug then hunterDebug(P) end
+	if classDebug then classDebug(P) end
 	local ks, parts = killStats(), {}
 	for _, kind in ipairs({ "normal", "elite", "boss" }) do
 		local s = ks[kind]
