@@ -1463,9 +1463,9 @@ function ns.RotationDebug()
 	local P = "|cff66ccffZyde_Forever|r: "
 	if not LIST then print(P .. "no ability list for your class yet") return end
 	local pick, gatedPick, threshold = choose()
-	print(P .. ("pick: %s%s   enemies: %d   time left: %.0fs   target health: %s   power: %s   combo: %s"):format(
+	print(P .. ("pick: %s%s   enemies: %d (of %d nameplates seen)   time left: %.0fs   target health: %s   power: %s   combo: %s"):format(
 		tostring(pick), gatedPick and (" / under " .. math.floor(threshold * 100) .. "%: " .. gatedPick) or "",
-		enemyCount(), timeToKill(), targetShare() and (math.floor(targetShare() * 100) .. "%") or "hidden",
+		enemyCount(), #(ns.Plates and ns.Plates.units() or {}), timeToKill(), targetShare() and (math.floor(targetShare() * 100) .. "%") or "hidden",
 		tostring(power()), tostring(comboPoints())))
 	if playerClass == "HUNTER" and hunterDebug then hunterDebug(P) end
 	local ks, parts = killStats(), {}
@@ -1487,10 +1487,12 @@ function ns.RotationDebug()
 		local e = byName[spell.name]
 		if e then
 			local f = facts[e.id]
-			print(("  %s: %s; range: game says %s, counted %s"):format(spell.name,
+			local left = cooldownLeft(spell.name, f)
+			print(("  %s: %s; range: game says %s, counted %s; %s"):format(spell.name,
 				f and ("hit %.0f, dot %.0f/%ss, cd %ss, cast %ss, cost %s"):format(
 				f.direct, f.dot, f.dotDur, f.cd, f.cast, f.cost) or "no tooltip numbers",
-				tostring(rangeOf(e)), inRange(e, spell) and "in reach" or "OUT of reach"))
+				tostring(rangeOf(e)), inRange(e, spell) and "in reach" or "OUT of reach",
+				left > 0.3 and ("ready in %.0fs"):format(left) or "ready"))
 		end
 	end
 end
