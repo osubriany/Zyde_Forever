@@ -819,6 +819,14 @@ do
 	-- A sting only on a mob above this much health (the game's hidden number, through a curve):
 	-- under it, the next best shot instead. (After Feign Death a nearly dead mob looked fresh.)
 	local DOT_CUT = 0.3
+	-- On your own and safe, nothing that costs mana on a mob under this much health (it's about to
+	-- die or running away): your pet and Auto Shot finish it.
+	local FINISH_CUT = 0.2
+	local function costOf(name)
+		local e = byName[name]
+		local fx = e and facts[e.id]
+		return fx and fx.cost or 0
+	end
 	local isDot, isAoe = {}, {}
 	for _, spell in ipairs(LIST or {}) do
 		if spell.kind == "dot" then isDot[spell.name] = true end
@@ -1204,7 +1212,19 @@ do
 			info.others, info.unpulled = #others, unpulled
 			local function place(id, pick, conds, mode, noAoe)
 				if not pick or not byName[pick] then return end
-				if not isDot[pick] then show(id, BLUE, byName[pick].button, joined(conds)) return end
+				if not isDot[pick] then
+					if not (safeSolo and costOf(pick) > 0) then show(id, BLUE, byName[pick].button, joined(conds)) return end
+					-- (on your own and safe: only while the mob has over 20% health, read by the game;
+					-- under it a free hit if one's in reach, else nothing - Auto Shot)
+					show(id, BLUE, byName[pick].button, joined(conds, share("target", FINISH_CUT, false, "target health")))
+					local alt = choose({ mode = "dry", headStart = headStart, noDots = true, noAoe = noAoe })
+					if alt and costOf(alt) > 0 then alt = nil end
+					info.finish = alt or "Auto Shot (nothing glows)"
+					if alt and byName[alt] then
+						show(id .. "end", BLUE, byName[alt].button, joined(conds, share("target", FINISH_CUT, true, "target health")))
+					end
+					return
+				end
 				-- a sting: only while the mob has some life in it; else the best without one
 				show(id, BLUE, byName[pick].button, joined(conds, share("target", DOT_CUT, false, "target health")))
 				local alt = choose({ mode = mode, headStart = headStart, noDots = true, noAoe = noAoe })
@@ -1296,6 +1316,7 @@ do
 			print(P .. ("  damage: %s above %d%% mana, %s %d-%d%%, %s under %d%%%s"):format(tostring(p.free), p.hi * 100,
 				tostring(p.thrifty), p.lo * 100, p.hi * 100, tostring(p.dry), p.lo * 100,
 				info.headStart and "   (pet's head start: stings only)" or ""))
+			if info.finish then print(P .. "  under " .. FINISH_CUT * 100 .. "% target health (on your own, safe): " .. info.finish) end
 			if info.noSting then print(P .. "  under " .. DOT_CUT * 100 .. "% target health, instead of the sting: " .. info.noSting) end
 			if info.noMulti then
 				print(P .. ("  Multi-Shot: %d other mob(s) fighting%s; when one isn't safely held: %s"):format(info.others or 0,
