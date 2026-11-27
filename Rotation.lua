@@ -51,12 +51,14 @@ local CLASSES = {
 		{ name = "Curse of Agony", kind = "dot" },
 		{ name = "Immolate", kind = "dot" },
 		{ name = "Siphon Life", kind = "dot" },
-		{ name = "Death Coil", kind = "direct" },
 		{ name = "Conflagrate", kind = "direct", needUsable = true },
 		{ name = "Hellfire", kind = "direct", aoe = { 3, 10 } },
 		{ name = "Rain of Fire", kind = "direct", aoe = { 3, 10 } },
 		{ name = "Searing Pain", kind = "filler" },
 		{ name = "Shadow Bolt", kind = "filler" },
+		-- (your wand: only when saving mana - thrifty and dry - see score; Death Coil is a
+		-- danger button, section 9)
+		{ name = "Shoot", kind = "filler", wand = true },
 	},
 	WARRIOR = {
 		{ name = "Execute", kind = "execute", threshold = 0.2 },
@@ -328,8 +330,13 @@ end
 
 local function targetShare()
 	local h, m = plain(UnitHealth("target")), plain(UnitHealthMax("target"))
-	if not h or not m or m <= 0 then return nil end
-	return h / m
+	if h and m and m > 0 then return h / m end
+	-- (Forever may give the percent as a plain number while it hides the health itself: then
+	-- the fight's length comes from the mob's real health, not from your past kills. Your
+	-- debug printed it as a number; whether it's hidden is checked here.)
+	local p = UnitHealthPercent and plain(safe(UnitHealthPercent, "target"))
+	if type(p) == "number" and p >= 0 and p <= 1 then return p end
+	return nil
 end
 
 -- Seconds the fight has left on your target.
@@ -506,6 +513,14 @@ local function score(spell, entry, f, ctx, index)
 	if ctx.noAoe and spell.aoe then return nil end
 	if ctx.noDump and spell.dump then return nil end -- (warriors: Heroic Strike / Cleave, rage dumps)
 	if ctx.mode == "dry" and f and f.cost > 0 and not spell.melee then return nil end
+	-- A wand (Shoot): free, so only while saving mana; scored on its real damage per second.
+	if spell.wand then
+		if ctx.mode ~= "thrifty" and ctx.mode ~= "dry" then return nil end
+		local speed, lo, hi = UnitRangedDamage and UnitRangedDamage("player")
+		speed, lo, hi = plain(speed), plain(lo), plain(hi)
+		if not (speed and lo and hi) or speed <= 0 then return nil end
+		return (lo + hi) / 2 / speed, (lo + hi) / 2, 0
+	end
 
 	local gcd = spell.gcd or ctx.gcd
 	local time = math.max(gcd, f and f.cast or 0)
@@ -805,7 +820,7 @@ local function feedGates()
 	end
 end
 
-local classUpdate, classHide, classDebug -- (sections 6-8: hunters, warriors, paladins)
+local classUpdate, classHide, classDebug -- (sections 6-9: hunters, warriors, paladins, warlocks)
 
 local function hideAll()
 	for _, g in ipairs({ plainGlow, aboveGlow, belowGlow }) do g:Hide() g.pulse:Stop() end
@@ -816,7 +831,7 @@ local function update()
 	if not on() or not LIST then hideAll() return end
 	local hostile = plain(UnitExists("target")) and plain(UnitCanAttack("player", "target"))
 		and not plain(UnitIsDeadOrGhost("target"))
-	if (playerClass == "HUNTER" or playerClass == "WARRIOR" or playerClass == "PALADIN") and classUpdate then
+	if (playerClass == "HUNTER" or playerClass == "WARRIOR" or playerClass == "PALADIN" or playerClass == "WARLOCK") and classUpdate then
 		for _, g in ipairs({ plainGlow, aboveGlow, belowGlow }) do g:Hide() g.pulse:Stop() end
 		classUpdate(hostile and true or false)
 		return
@@ -2004,6 +2019,201 @@ do
 
 	if playerClass == "PALADIN" then
 		classUpdate, classDebug = paladinUpdate, paladinDebug
+	end
+
+	---------------------------------------------------------------------------
+	-- 9. Warlocks: chain pulls on your own, like the hunter's.
+	--   * The pet first: its Attack button glows until it's on your target. With your Voidwalker
+	--     tanking on your own, nothing glows until the mob fights, then 2 seconds of damage over
+	--     time only; no glow while you're above it on threat.
+	--   * Blue, damage, by mana: above 55% anything; 25-55% damage per mana counts and your wand
+	--     joins in; under 25% your wand only. On your own and safe (Voidwalker holding it, no
+	--     danger): 70% and 35%, and once your mana is coming back (nothing cast for 5 s) under
+	--     70%, wand only unless the fight has over 12 s left. A mob under 25% gets no mana spell
+	--     when you're safe: your dots, pet and wand finish it. Damage over time isn't cast on a
+	--     mob under 30%.
+	--   * Amber, mana: Life Tap under 35% mana while you're over 65% health in a fight; between
+	--     fights under 60% mana and over 80% health (then eat). Demon Armor / Demon Skin missing.
+	--   * Green, staying alive: Drain Life under 40% health in a fight; Health Funnel when your
+	--     pet is under 35% (you over 50%); a Healthstone / Healing Potion under 30%.
+	--   * Red, danger: Death Coil under 35% with the mob on you; Howl of Terror with 2+ next to
+	--     you and you under 50%; your race's burst in a dangerous fight.
+	---------------------------------------------------------------------------
+	local linfo = {}
+	local TANK_PETS = { Voidwalker = true, Felguard = true }
+
+	local warlockUpdate = function(hostile)
+		wipe(used)
+		wipe(linfo)
+		local now = GetTime()
+		local solo = not plain(IsInGroup and IsInGroup())
+		local fighting = InCombatLockdown()
+		local petUp = plain(UnitExists("pet")) and plain(UnitIsDeadOrGhost("pet")) == false or false
+		local family = petUp and plain(UnitCreatureFamily and UnitCreatureFamily("pet"))
+		local petTanks = petUp and solo and family ~= nil and TANK_PETS[family] or false
+		local ttk = hostile and timeToKill() or 0
+		local channel = UnitChannelInfo and plain(UnitChannelInfo("player"))
+		linfo.solo, linfo.pet, linfo.petTanks, linfo.ttk = solo, petUp and (family or "pet") or nil, petTanks, ttk
+
+		-- Mana (amber): Life Tap.
+		if byName["Life Tap"] and ready("Life Tap") and not channel then
+			if fighting then
+				show("tap", AMBER, btn("Life Tap"), { share("player", 0.35, true, "mana", MANA), share("player", 0.65, false, "your health") })
+			else
+				show("tap", AMBER, btn("Life Tap"), { share("player", 0.6, true, "mana", MANA), share("player", 0.8, false, "your health") })
+			end
+		end
+		local list = ns.PlayerBuffs and ns.PlayerBuffs()
+		if list and not list.hidden then
+			local armor = byName["Demon Armor"] and "Demon Armor" or (byName["Demon Skin"] and "Demon Skin") or nil
+			local on = false
+			for _, a in ipairs(list.list or {}) do
+				if a.name == "Demon Armor" or a.name == "Demon Skin" then on = true break end
+			end
+			if armor and not on and ready(armor) then show("armor", AMBER, btn(armor), {}) linfo.armor = "missing" end
+		end
+		-- Staying alive (green).
+		if fighting then
+			if byName["Drain Life"] and ready("Drain Life") and hostile and not channel then
+				show("drain", GREEN, btn("Drain Life"), { share("player", 0.4, true, "your health") })
+			end
+			for _, it in ipairs(healItems()) do
+				if itemReady(it.id) then
+					show("item", GREEN, it.button, { share("player", 0.3, true, "your health") })
+					linfo.item = it.name
+					break
+				end
+			end
+		end
+		if petUp and byName["Health Funnel"] and ready("Health Funnel") and not channel then
+			show("funnel", GREEN, btn("Health Funnel"), { share("pet", fighting and 0.35 or 0.6, true, "pet health"),
+				share("player", 0.5, false, "your health") })
+		end
+		if not hostile then hideUnused() return end
+
+		-- The pet first.
+		local attack = petUp and petAttackButton()
+		if attack then
+			show("petattack", BLUE, attack, { { kind = "bool", v = UnitIsUnit("pettarget", "target"), yes = 0, no = 1,
+				fallback = 0, label = "pet on your target" } })
+		end
+		local guid = plain(UnitGUID("target"))
+		local eng = guid and engagedAt[guid]
+		local waiting = petTanks and plain(UnitAffectingCombat("target")) == false
+		local headStart = petTanks and eng and now - eng < 2 or false
+		linfo.waiting, linfo.headStart = waiting, headStart
+
+		if not waiting then
+			local dangerNow, dangerWhy = plainDanger(solo)
+			local safeSolo = solo and petTanks and not dangerNow
+			local regen = now - lastManaCast >= 5
+			local hold = safeSolo and regen and fighting and ttk < 12
+			local hi, lo
+			if solo then hi, lo = safeSolo and 0.7 or 0.55, safeSolo and 0.35 or 0.25 else hi, lo = 0.3, 0.1 end
+			linfo.safeSolo, linfo.regen, linfo.hold = safeSolo, regen, hold
+			linfo.safeWhy = (not solo and "in a group") or (not petTanks and "no Voidwalker holding it")
+				or (dangerNow and table.concat(dangerWhy, ", ")) or nil
+			local free, gated, threshold = choose({ mode = "free", headStart = headStart })
+			local thrifty = choose({ mode = hold and "dry" or "thrifty", headStart = headStart })
+			local dry = choose({ mode = "dry", headStart = headStart })
+			linfo.picks = { free = free, thrifty = thrifty, dry = dry, hi = hi, lo = lo, gated = gated }
+			local extra = {}
+			if petTanks then
+				extra[#extra + 1] = { kind = "threat", key = "ease", points = { 1, 0, 1, 1 }, fallback = 1, label = "threat" }
+			end
+			-- (Drain Soul for a shard / Shadowburn near the end: under its line, instead of the rest)
+			if gated and btn(gated) then
+				show("lexec", BLUE, btn(gated), with(extra, share("target", threshold, true, "target health")))
+				extra[#extra + 1] = share("target", threshold, false, "target health")
+			end
+			local function place(id, pick, conds, mode)
+				if not pick or not btn(pick) then return end
+				local all = with(conds, unpack(extra))
+				if isDot[pick] then
+					show(id, BLUE, btn(pick), with(all, share("target", DOT_CUT, false, "target health")))
+					local alt = choose({ mode = mode, headStart = headStart, noDots = true })
+					if alt and btn(alt) then show(id .. "low", BLUE, btn(alt), with(all, share("target", DOT_CUT, true, "target health"))) end
+					return
+				end
+				if safeSolo and costOf(pick) > 0 then
+					-- (a nearly dead mob: no mana - the wand if it's on your bars)
+					show(id, BLUE, btn(pick), with(all, share("target", FINISH_CUT, false, "target health")))
+					local alt = choose({ mode = "dry", headStart = headStart, noDots = true })
+					if alt and costOf(alt) == 0 and btn(alt) then
+						show(id .. "end", BLUE, btn(alt), with(all, share("target", FINISH_CUT, true, "target health")))
+					end
+					return
+				end
+				show(id, BLUE, btn(pick), all)
+			end
+			if free == thrifty and thrifty == dry then
+				place("dmg", free, {}, "free")
+			elseif free == thrifty then
+				place("dmg1", free, { share("player", lo, false, "mana", MANA) }, "free")
+				place("dmg3", dry, { share("player", lo, true, "mana", MANA) }, "dry")
+			else
+				place("dmg1", free, { share("player", hi, false, "mana", MANA) }, "free")
+				place("dmg2", thrifty, { share("player", lo, false, "mana", MANA), share("player", hi, true, "mana", MANA) },
+					hold and "dry" or "thrifty")
+				place("dmg3", dry, { share("player", lo, true, "mana", MANA) }, "dry")
+			end
+
+			-- Danger (red).
+			if fighting then
+				local onYou = { kind = "bool", v = UnitIsUnit("targettarget", "player"), yes = 1, no = 0, fallback = 1, label = "mob on you" }
+				if byName["Death Coil"] and ready("Death Coil") then
+					show("coil", RED, btn("Death Coil"), { share("player", 0.35, true, "your health"), onYou })
+				end
+				if byName["Howl of Terror"] and ready("Howl of Terror") and #nearFoes() >= 2 then
+					show("howl", RED, btn("Howl of Terror"), { share("player", 0.5, true, "your health") })
+				end
+				linfo.danger = dangerNow and table.concat(dangerWhy, ", ") or nil
+				if dangerNow and ttk >= 6 then
+					for _, name in ipairs({ "Blood Fury", "Berserking" }) do
+						if byName[name] and ready(name) then show("big:" .. name, RED, btn(name), {}) end
+					end
+				end
+			end
+		end
+		hideUnused()
+	end
+
+	local warlockDebug = function(P)
+		print(P .. ("warlock: %s, pet %s%s, fight left ~%.0fs, curves %s"):format(linfo.solo and "on your own" or "in a group",
+			tostring(linfo.pet or "none"), linfo.petTanks and " (tanking)" or "", linfo.ttk or 0, useCurves() and "on" or "off (gates only)"))
+		local p = linfo.picks
+		if linfo.waiting then
+			print(P .. "  waiting for the mob to fight your Voidwalker (no damage glow yet)")
+		elseif p then
+			print(P .. ("  mana: %s, %s%s"):format(linfo.safeSolo and "on your own and safe (careful bands)"
+				or ("normal bands - not safe: " .. tostring(linfo.safeWhy)),
+				linfo.regen and ("coming back (nothing cast for " .. math.floor(GetTime() - lastManaCast) .. "s)") or "not coming back yet",
+				linfo.hold and " - holding it" or ""))
+			local function withCost(name) return name and (name .. " (" .. costOf(name) .. " mana)") or "nothing" end
+			print(P .. ("  damage: %s above %d%% mana, %s %d-%d%%, %s under %d%%%s"):format(withCost(p.free), p.hi * 100,
+				withCost(p.thrifty), p.lo * 100, p.hi * 100, withCost(p.dry), p.lo * 100,
+				linfo.headStart and "   (pet's head start: damage over time only)" or ""))
+		end
+		local tg = plain(UnitGUID("target"))
+		local parts = {}
+		for _, sp in ipairs(LIST or {}) do
+			if sp.kind == "dot" and byName[sp.name] then
+				local left = dotLeft(sp.name, { dots = tg and dots[tg] })
+				parts[#parts + 1] = sp.name .. " " .. (left and left > 0 and ("%.0fs left"):format(left) or "not on")
+			end
+		end
+		if #parts > 0 then print(P .. "  on your target: " .. table.concat(parts, ", ")) end
+		print(P .. "  target health: " .. (targetShare() and (math.floor(targetShare() * 100) .. "% (read)") or "hidden (kill times guess the fight)")
+			.. "   armor: " .. tostring(linfo.armor or "ok") .. "   item: " .. tostring(linfo.item or "-")
+			.. "   danger: " .. tostring(linfo.danger or "none seen"))
+		local parts2 = {}
+		for label, how in pairs(hows) do parts2[#parts2 + 1] = label .. " " .. tostring(how) end
+		table.sort(parts2)
+		print(P .. "  checks read by: " .. (#parts2 > 0 and table.concat(parts2, ", ") or "-"))
+	end
+
+	if playerClass == "WARLOCK" then
+		classUpdate, classDebug = warlockUpdate, warlockDebug
 	end
 end
 
