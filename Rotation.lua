@@ -1038,6 +1038,13 @@ do
 		else cur, mx = safe(UnitHealth, unit), safe(UnitHealthMax, unit) end
 		local pc, pm = plain(cur), plain(mx)
 		if pc and pm and pm > 0 then return pc / pm, cur, mx end
+		-- (Forever can give the percent as a plain number while hiding the amounts: then the
+		-- addon decides itself, and the API knows exactly which glows are on - a hidden answer
+		-- left Shadow Bolt in the list on a nearly dead mob)
+		local p
+		if ptype then p = UnitPowerPercent and plain(safe(UnitPowerPercent, unit, ptype))
+		else p = UnitHealthPercent and plain(safe(UnitHealthPercent, unit)) end
+		if type(p) == "number" and p >= 0 and p <= 1.0001 then return p, cur, mx end
 		return nil, cur, mx
 	end
 
