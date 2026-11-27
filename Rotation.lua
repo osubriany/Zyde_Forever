@@ -257,6 +257,23 @@ local function factsOf(id)
 	return f or nil
 end
 
+-- A spell's mana (or other power) cost: the game's own cost list first, else the "25 Mana" line
+-- read from its tooltip. (Only the tooltip before: when that read missed, Arcane Shot looked free
+-- and the "no mana on a nearly dead mob" rule passed it by.)
+local function manaCost(id)
+	if type(id) ~= "number" then return 0 end
+	local list = C_Spell and C_Spell.GetSpellPowerCost and safe(C_Spell.GetSpellPowerCost, id)
+	if not list and GetSpellPowerCost then list = safe(GetSpellPowerCost, id) end
+	if type(list) == "table" then
+		for _, c in ipairs(list) do
+			local v = type(c) == "table" and (plain(c.cost) or plain(c.minCost))
+			if type(v) == "number" and v > 0 then return v end
+		end
+	end
+	local f = facts[id]
+	return f and f.cost or 0
+end
+
 ---------------------------------------------------------------------------
 -- 3. The fight
 ---------------------------------------------------------------------------
@@ -824,8 +841,7 @@ do
 	local FINISH_CUT = 0.2
 	local function costOf(name)
 		local e = byName[name]
-		local fx = e and facts[e.id]
-		return fx and fx.cost or 0
+		return e and manaCost(e.id) or 0
 	end
 	local isDot, isAoe = {}, {}
 	for _, spell in ipairs(LIST or {}) do
@@ -1048,8 +1064,11 @@ do
 				local pets = UnitThreatSituation and safe(UnitThreatSituation, "pet", unit)
 				local onMe = plain(UnitIsUnit(unit .. "target", "player"))
 				local onPet = plain(UnitIsUnit(unit .. "target", "pet"))
-				local hidden = isSecret(mine) or isSecret(pets)
-				if hidden or plain(mine) ~= nil or plain(pets) ~= nil or onMe or onPet then n = n + 1 end
+				local isTarget = plain(UnitIsUnit(unit, "target"))
+				-- (a mob whose threat the game hides counted as yours: any other fight nearby made
+				-- two "on you", the fight dangerous, and the mana saving switched itself off. Now only
+				-- one that's on you or your pet, you're on the list of, or is your target counts.)
+				if plain(mine) ~= nil or plain(pets) ~= nil or onMe or onPet or isTarget then n = n + 1 end
 			end
 		end
 		return math.max(1, n)
@@ -1180,7 +1199,10 @@ do
 			-- pull too: thrifty from 70%, dry under 35%. And once your mana is coming back (no
 			-- mana spent for 5 seconds), under 70% nothing that costs mana unless the fight has
 			-- over 12 seconds left: your pet and Auto Shot finish it, and the next drink is shorter.
-			local safeSolo = solo and petTanks and not plainDanger(foesOnUs(), solo)
+			local dangerNow, dangerWhy = plainDanger(foesOnUs(), solo)
+			local safeSolo = solo and petTanks and not dangerNow
+			info.safeWhy = (not solo and "in a group") or (not petTanks and "your pet isn't holding it")
+				or (dangerNow and table.concat(dangerWhy, ", ")) or nil
 			local regen = now - lastManaCast >= 5
 			local hold = safeSolo and regen and fighting and ttk < 12
 			local hi, lo
@@ -1310,11 +1332,13 @@ do
 		if info.waiting then
 			print(P .. "  waiting for the mob to fight your pet (no damage glow yet)")
 		elseif p then
-			print(P .. ("  mana: %s, %s%s"):format(info.safeSolo and "on your own and safe (careful bands)" or "normal bands",
+			print(P .. ("  mana: %s, %s%s"):format(info.safeSolo and "on your own and safe (careful bands)"
+				or ("normal bands - not safe: " .. tostring(info.safeWhy)),
 				info.regen and ("coming back (nothing cast for " .. math.floor(GetTime() - lastManaCast) .. "s)") or "not coming back yet (cast in the last 5s)",
 				info.hold and " - holding it: under 70% only free hits while the fight has under 12s left" or ""))
-			print(P .. ("  damage: %s above %d%% mana, %s %d-%d%%, %s under %d%%%s"):format(tostring(p.free), p.hi * 100,
-				tostring(p.thrifty), p.lo * 100, p.hi * 100, tostring(p.dry), p.lo * 100,
+			local function withCost(name) return name and (name .. " (" .. costOf(name) .. " mana)") or "nothing" end
+			print(P .. ("  damage: %s above %d%% mana, %s %d-%d%%, %s under %d%%%s"):format(withCost(p.free), p.hi * 100,
+				withCost(p.thrifty), p.lo * 100, p.hi * 100, withCost(p.dry), p.lo * 100,
 				info.headStart and "   (pet's head start: stings only)" or ""))
 			if info.finish then print(P .. "  under " .. FINISH_CUT * 100 .. "% target health (on your own, safe): " .. info.finish) end
 			if info.noSting then print(P .. "  under " .. DOT_CUT * 100 .. "% target health, instead of the sting: " .. info.noSting) end
@@ -1379,7 +1403,7 @@ ev:SetScript("OnEvent", function(_, event, unit, _, spellID)
 			if name == "Judgement" and tg and sealName == CRUSADER and sealUntil > now then crusaderOn[tg] = now + 10 end
 			local entry = byName[name]
 			local f = entry and facts[entry.id]
-			if f and f.cost and f.cost > 0 then lastManaCast = now end
+			if manaCost(plain(spellID)) > 0 then lastManaCast = now end
 			if tg and f and f.dotDur and f.dotDur > 0 then
 				dots[tg] = dots[tg] or {}
 				dots[tg][name] = now + f.dotDur
