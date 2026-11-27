@@ -688,18 +688,25 @@ end
 -- The auction house is open. A right-click should fill the sale form, the same
 -- as a right-click in the game's own bags.
 local function frameShown(f)
-	if not f or not f.IsShown then return false end
-	local shown = f:IsShown()
+	if not f then return false end
+	-- IsShown is only this frame's own flag. A child such as the compose page
+	-- stays "shown" after its window closes. IsVisible is the window on screen.
+	local probe = f.IsVisible or f.IsShown
+	if type(probe) ~= "function" then return false end
+	local shown = probe(f)
 	if ns.isSecret(shown) or not shown then return false end
 	return true
 end
 local function auctionHouseOpen()
 	return frameShown(AuctionHouseFrame) or frameShown(AuctionFrame)
 end
--- The compose tab of the mailbox. A right-click attaches the item there.
+-- The compose tab, and only while the mailbox window is actually open.
+-- Otherwise a right-click tries to attach the item and the game says a
+-- soulbound item cannot be mailed.
 local function sendMailOpen()
-	if frameShown(SendMailFrame) then return true end
-	return MailFrame and frameShown(MailFrame.SendMailFrame) or false
+	local compose = frameShown(SendMailFrame) or frameShown(MailFrame and MailFrame.SendMailFrame)
+	if not MailFrame then return compose end
+	return frameShown(MailFrame) and compose
 end
 -- Filled in once the cursor helper exists. A right-click with the compose
 -- window open attaches the item. Returns true when that click is handled.
