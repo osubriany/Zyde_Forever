@@ -3,7 +3,8 @@
 --   General: Perma (never delete), Quest, Junk, Keys, Other.
 --   Gear: weapons, armor, bags, ammo. Consumables: food & drink, potions,
 --   bandages, scrolls, other. Profession: trade goods by type, reagents, recipes.
---   Items are real bag slots: right-click uses or sells, drag moves, shift-click
+--   Items are real bag slots: right-click uses or sells, and with mail or the
+--   auction house open it attaches or lists the item. Drag moves, shift-click
 --   links. While you drag an item, or the split-stack box is open, one empty
 --   slot appears at the bottom left under a New Item header, so the drop or
 --   the split has somewhere to land. The title counts free slots (reagent bag, quiver... apart, in gray).
@@ -13,8 +14,9 @@
 --   bag, quiver, or other special bag that takes it when that bag has room),
 --   Sell junk (at a vendor; junk also sells by itself there, see
 --   "Sell junk at vendors" in /zyde).
---   At a banker the bank gets the same sorted window. A row of bank bags lets
---   you buy the next slot and swap bags ("Game bank" brings the game's window back).
+--   At a banker the bank gets the same sorted window. A right-click moves an
+--   item from your bags into that bank, or from the bank back into your bags.
+--   A row of bank bags lets you buy the next slot and swap bags.
 --   Away from a banker, Bank (or /zyde bank) opens that window from the last
 --   visit. You can look, not move things. Your bags stay open.
 -- Off while Baganator is loaded.
@@ -55,7 +57,11 @@ local function invSlot(bag)
 	return ok and type(slot) == "number" and slot or nil
 end
 local HAS_REAGENT = REAGENT_BAG > LAST_BAG and invSlot(REAGENT_BAG) ~= nil
-local function numSlots(bag) return ns.safe(C_Container.GetContainerNumSlots, bag) or 0 end
+local function numSlots(bag)
+	local n = ns.safe(C_Container.GetContainerNumSlots, bag)
+	if ns.isSecret(n) or type(n) ~= "number" then return 0 end
+	return n
+end
 local function keyringId()
 	if type(KEYRING) == "number" then return KEYRING end
 	-- A classic keyring, when the client still has one and didn't name it.
@@ -679,6 +685,53 @@ local function useLayer()
 	return layer
 end
 
+-- The auction house is open. A right-click should fill the sale form, the same
+-- as a right-click in the game's own bags.
+local function frameShown(f)
+	if not f or not f.IsShown then return false end
+	local shown = f:IsShown()
+	if ns.isSecret(shown) or not shown then return false end
+	return true
+end
+local function auctionHouseOpen()
+	return frameShown(AuctionHouseFrame) or frameShown(AuctionFrame)
+end
+-- The compose tab of the mailbox. A right-click attaches the item there.
+local function sendMailOpen()
+	if frameShown(SendMailFrame) then return true end
+	return MailFrame and frameShown(MailFrame.SendMailFrame) or false
+end
+-- Filled in once the cursor helper exists. A right-click with the compose
+-- window open attaches the item. Returns true when that click is handled.
+local transferAtBank, attachToMail
+
+local function postToAuction(b)
+	local ah = AuctionHouseFrame
+	if b.empty or not ah or not ah.SetPostItem or not frameShown(ah) then return false end
+	local bag = b.bagID
+	if type(bag) ~= "number" and b.GetParent then
+		local parent = b:GetParent()
+		bag = parent and parent.GetID and parent:GetID()
+	end
+	local slot = b.GetID and b:GetID()
+	if ns.isSecret(bag) or ns.isSecret(slot) or type(bag) ~= "number" or type(slot) ~= "number" then return false end
+	if not ItemLocation or not ItemLocation.CreateFromBagAndSlot then return false end
+	local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
+	if not loc then return false end
+	local listing = ah.IsListingAuctions and ah:IsListingAuctions()
+	if ns.isSecret(listing) then listing = false end
+	local valid = false
+	if loc.IsValid and loc:IsValid() and C_AuctionHouse and C_AuctionHouse.IsSellItemValid then
+		local ok, v = pcall(C_AuctionHouse.IsSellItemValid, loc, false)
+		valid = ok and v and not ns.isSecret(v) and true or false
+	end
+	-- On the sell tab, post even when the item cannot be listed, so the
+	-- auction house can say why. On any other tab, only a sellable item.
+	if not listing and not valid then return true end
+	ah:SetPostItem(loc)
+	return true
+end
+
 function View:Button(i)
 	if self.pool[i] then return self.pool[i] end
 	buttonCount = buttonCount + 1
@@ -694,9 +747,12 @@ function View:Button(i)
 	-- Alt-click Perma is a cover that only shows while Alt is held, so the
 	-- item button's own click is the one that uses, picks up, and drops.
 	b.zydeBag = true
-	local alt = CreateFrame("Button", nil, b)
-	alt:SetAllPoints()
-	alt:RegisterForClicks("LeftButtonUp")
+	-- Perma sits above the secure right-click button. That button is DIALOG, so a
+	-- cover on the slot itself never sees the click.
+	local alt = CreateFrame("Button", nil, useLayer())
+	alt:SetSize(S, S)
+	alt:SetFrameStrata("DIALOG")
+	alt:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	alt:Hide()
 	alt:SetScript("OnClick", function()
 		if b.empty then return end
@@ -721,6 +777,22 @@ function View:Button(i)
 	end)
 	alt:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	b.alt = alt
+	-- Above the slot while the bank, mailbox, or auction house is open. A right
+	-- click then moves, attaches, or lists the item. Left clicks pass through
+	-- so the item can still be dragged.
+	local move = CreateFrame("Button", nil, useLayer())
+	move:SetSize(S, S)
+	move:SetFrameStrata("DIALOG")
+	move:RegisterForClicks("RightButtonUp")
+	if move.SetPassThroughButtons then move:SetPassThroughButtons("LeftButton", "MiddleButton") end
+	if move.SetMouseMotionEnabled then move:SetMouseMotionEnabled(false) end
+	move:SetScript("OnClick", function()
+		if transferAtBank(b) then return end
+		if auctionHouseOpen() then postToAuction(b) return end
+		attachToMail(b)
+	end)
+	move:Hide()
+	b.move = move
 	-- Right-click use cannot run from this addon button: the game blocks it as
 	-- tainted. A secure button sits on the slot and uses the item itself.
 	-- Left clicks pass through to this button, which still picks up and drops.
@@ -760,6 +832,9 @@ function View:Button(i)
 			-- so a right-click does nothing and says why, once a fight.
 			local aimingNow = button == "LeftButton" and SpellCanTargetItem and SpellCanTargetItem()
 			if button == "RightButton" or (aimingNow and InCombatLockdown()) then
+				if button == "RightButton" and transferAtBank(self) then return end
+				if button == "RightButton" and auctionHouseOpen() then postToAuction(self) return end
+				if button == "RightButton" and attachToMail(self) then return end
 				if InCombatLockdown() and not self.empty and not ns.bagCombatTold then
 					ns.bagCombatTold = true
 					print("|cff66ccffZyde_Forever|r: items can't be used from the bag window in a fight - use your action bars or the ring")
@@ -803,6 +878,57 @@ local function cursorHolding()
 	local ok, has = pcall(CursorHasItem)
 	return ok and not ns.isSecret(has) and has
 end
+
+-- An empty attachment slot, or nil when this client has no such slot.
+local function emptyMailSlot()
+	local maxN = (type(ATTACHMENTS_MAX_SEND) == "number" and ATTACHMENTS_MAX_SEND) or 12
+	if not GetSendMailItem then return 1 end
+	for i = 1, maxN do
+		local ok, name = pcall(GetSendMailItem, i)
+		if not ok then return i == 1 and 1 or nil end
+		if ns.isSecret(name) then name = "taken" end
+		if type(name) ~= "string" or name == "" then return i end
+	end
+end
+local function clickMailSlot(index)
+	if ClickSendMailItemButton and pcall(ClickSendMailItemButton, index) and not cursorHolding() then return true end
+	local named = _G["SendMailAttachment" .. (index or 1)]
+	if named and named.Click and pcall(named.Click, named, "LeftButton") and not cursorHolding() then return true end
+	local root = SendMailFrame
+	local box = root and (root.SendMailAttachments or root.Attachments)
+	if box and box.GetChildren then
+		for _, child in ipairs({ box:GetChildren() }) do
+			if child.Click and child.GetID and child:GetID() == index then
+				if pcall(child.Click, child, "LeftButton") and not cursorHolding() then return true end
+			end
+		end
+	end
+end
+
+-- The secure use button would use or equip this. Pick it up and drop it on
+-- the compose window instead, which is what a bag right-click does there.
+function attachToMail(b)
+	if not sendMailOpen() then return false end
+	if b.empty or cursorHolding() then return true end
+	local bag = b.bagID
+	if type(bag) ~= "number" and b.GetParent and b:GetParent() and b:GetParent().GetID then
+		bag = b:GetParent():GetID()
+	end
+	local slot = b.GetID and b:GetID()
+	if ns.isSecret(bag) or ns.isSecret(slot) or type(bag) ~= "number" or type(slot) ~= "number" then return true end
+	C_Container.PickupContainerItem(bag, slot)
+	if not cursorHolding() then
+		print(P .. "that item didn't attach")
+		return true
+	end
+	clickMailSlot(emptyMailSlot())
+	if cursorHolding() and ClickSendMailItemButton then pcall(ClickSendMailItemButton) end
+	if cursorHolding() then
+		C_Container.PickupContainerItem(bag, slot)
+		print(P .. "the mail can't take that")
+	end
+	return true
+end
 -- The drop slot is for putting something down: a dragged item, or a stack
 -- you are in the middle of splitting (the split box is open, cursor still empty).
 local function wantDropSlot()
@@ -810,19 +936,13 @@ local function wantDropSlot()
 	return StackSplitFrame and StackSplitFrame.IsShown and StackSplitFrame:IsShown() and true or false
 end
 local function refreshAltCovers()
+	-- placeUse positions these. Releasing Alt hides them at once.
 	local altDown = IsAltKeyDown()
 	if ns.isSecret(altDown) then altDown = false end
-	local show = altDown and not cursorHolding()
+	if altDown and not cursorHolding() then return end
 	for _, v in pairs(views) do
-		for i, b in ipairs(v.pool) do
-			if b.alt then
-				if show and i <= (v.used or 0) and b:IsShown() and not b.empty then
-					b.alt:SetFrameLevel((b:GetFrameLevel() or 1) + 5)
-					b.alt:Show()
-				else
-					b.alt:Hide()
-				end
-			end
+		for _, b in ipairs(v.pool) do
+			if b.alt then b.alt:Hide() end
 		end
 	end
 end
@@ -834,6 +954,8 @@ end)
 
 -- The game's own bag button for this slot. A secure click on it is a normal
 -- right-click: sell at a vendor, use a potion, or pick someone for a bandage.
+-- At a banker that same click moves the item, because the button passes the
+-- open bank. Named slots only exist for the old bag frames.
 local function realContainerButton(bag, slot)
 	if type(bag) ~= "number" or type(slot) ~= "number" then return nil end
 	if bag < 0 or bag > (NUM_BAG_SLOTS or 4) then return nil end
@@ -841,14 +963,135 @@ local function realContainerButton(bag, slot)
 	if btn and btn.Click then return btn end
 end
 
+-- At a banker, a right-click moves the item. The game's own slot button does
+-- that (into the bank from your bags, out of the bank from a bank slot). Our
+-- use button would use or equip it instead.
+local function bankVisit()
+	local f = _G.BankFrame
+	if not f or not f.IsShown then return false end
+	local shown = f:IsShown()
+	if ns.isSecret(shown) or not shown then return false end
+	return true
+end
+local function isBankBag(bag)
+	if type(bag) ~= "number" then return false end
+	if BANK_MAIN and bag == BANK_MAIN then return true end
+	local last = NUM_BAG_SLOTS or 4
+	if bag > last and not (HAS_REAGENT and bag == REAGENT_BAG) then return true end
+	return false
+end
+local moveBySlot = {}
+local moveStale = true
+local function markMoveStale() moveStale = true end
+local function plainID(v)
+	if v == nil or ns.isSecret(v) then return nil end
+	if type(v) == "number" then return v end
+	return tonumber(v)
+end
+local function isFrame(v)
+	return type(v) == "userdata" or type(v) == "table"
+end
+local function buttonBagSlot(btn)
+	if not isFrame(btn) or not btn.Click then return end
+	-- Combined-bag buttons keep the bag on an attribute. GetBagID() falls
+	-- back to the parent frame, which is the same for every slot. Buttons
+	-- are userdata, so a pool loop cannot treat them as tables.
+	local bag = plainID(btn.bagID)
+	if bag == nil and btn.GetAttribute then bag = plainID(btn:GetAttribute("bagid")) end
+	if bag == nil and btn.GetBankTabID then
+		local ok, id = pcall(btn.GetBankTabID, btn)
+		if ok then bag = plainID(id) end
+	end
+	if bag == nil and btn.GetBagID then
+		local ok, id = pcall(btn.GetBagID, btn)
+		if ok then bag = plainID(id) end
+	end
+	local slot
+	if btn.GetContainerSlotID then
+		local ok, id = pcall(btn.GetContainerSlotID, btn)
+		if ok then slot = plainID(id) end
+	end
+	if slot == nil and btn.GetID then slot = plainID(btn:GetID()) end
+	-- Bag 0 is the backpack. Only a missing id is rejected.
+	if bag == nil or slot == nil then return end
+	return bag, slot
+end
+local function keepMoveButton(btn)
+	local bag, slot = buttonBagSlot(btn)
+	if bag == nil then return end
+	moveBySlot[bag] = moveBySlot[bag] or {}
+	moveBySlot[bag][slot] = btn
+end
+local function eachPooled(iter, state, index)
+	if type(iter) ~= "function" then return end
+	for a, b in iter, state, index do
+		if isFrame(b) then keepMoveButton(b)
+		elseif isFrame(a) then keepMoveButton(a) end
+	end
+end
+local function scanMoveFrame(frame)
+	if not frame then return end
+	if frame.Items then
+		for _, btn in ipairs(frame.Items) do keepMoveButton(btn) end
+	end
+	if frame.itemButtonPool and frame.itemButtonPool.EnumerateActive then
+		local ok, iter, state, index = pcall(frame.itemButtonPool.EnumerateActive, frame.itemButtonPool)
+		if ok then eachPooled(iter, state, index) end
+	end
+	if frame.EnumerateValidItems then
+		local ok, iter, state, index = pcall(frame.EnumerateValidItems, frame)
+		if ok then eachPooled(iter, state, index) end
+	end
+	if frame.GetChildren then
+		for _, child in ipairs({ frame:GetChildren() }) do
+			if child.GetObjectType and child:GetObjectType() == "Button" and (child.GetBankTabID or child.GetContainerSlotID or plainID(child.bagID) ~= nil or (child.GetAttribute and plainID(child:GetAttribute("bagid")) ~= nil)) then
+				keepMoveButton(child)
+			end
+		end
+	end
+end
+local function rebuildMoveButtons()
+	wipe(moveBySlot)
+	pcall(scanMoveFrame, ContainerFrameCombinedBags)
+	for i = 1, (NUM_CONTAINER_FRAMES or 13) do
+		pcall(scanMoveFrame, _G["ContainerFrame" .. i])
+	end
+	pcall(scanMoveFrame, BankFrame and BankFrame.BankPanel)
+	pcall(scanMoveFrame, _G.BankPanel)
+	moveStale = false
+end
+local function moveButton(bag, slot)
+	if moveStale then rebuildMoveButtons() end
+	local row = moveBySlot[bag]
+	local btn = row and row[slot]
+	if btn then return btn end
+	if ContainerFrameUtil_GetItemButtonAndContainer then
+		local ok, found = pcall(ContainerFrameUtil_GetItemButtonAndContainer, bag, slot)
+		if ok and isFrame(found) and found.Click then return found end
+	end
+end
+
+local function muteMouse(f)
+	if not f then return end
+	if f.EnableMouse then f:EnableMouse(false) end
+	if f.SetMouseClickEnabled then f:SetMouseClickEnabled(false) end
+	if f.SetMouseMotionEnabled then f:SetMouseMotionEnabled(false) end
+end
+local function muteTree(f, depth)
+	muteMouse(f)
+	if not f or not f.GetChildren or (depth or 0) > 6 then return end
+	for _, child in ipairs({ f:GetChildren() }) do muteTree(child, (depth or 0) + 1) end
+end
+
 -- Keep each secure use-button over its slot. It is not a child of the bag
 -- window, so the window itself does not become protected.
 local function placeUse(b, active)
 	local use = b.use
 	if not use or InCombatLockdown() then return end
-	local merchant = MerchantFrame and MerchantFrame:IsShown() and true or false
 	if not active or b.empty or not b:IsShown() or not b:IsVisible() or cursorHolding() then
 		use:Hide()
+		if b.alt then b.alt:Hide() end
+		if b.move then b.move:Hide() end
 		return
 	end
 	local left, top = b:GetLeft(), b:GetTop()
@@ -862,14 +1105,43 @@ local function placeUse(b, active)
 	if type(bag) ~= "number" and b:GetParent() and b:GetParent().GetID then bag = b:GetParent():GetID() end
 	local slot = b:GetID()
 	if ns.isSecret(bag) or ns.isSecret(slot) or type(bag) ~= "number" or type(slot) ~= "number" then return end
-	local real = realContainerButton(bag, slot)
-	-- At a vendor with no game button to sell through: step aside so this click equips nothing.
-	if merchant and not real then
+	-- Alt-click (either mouse button) marks Perma. It has to sit above this
+	-- right-click button, or the right-click eats it.
+	local alt = b.alt
+	local altDown = IsAltKeyDown()
+	if ns.isSecret(altDown) then altDown = false end
+	if alt then
+		if altDown and not cursorHolding() and not b.empty then
+			alt:ClearAllPoints()
+			alt:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+			alt:SetFrameLevel((use:GetFrameLevel() or 1) + 10)
+			alt:Show()
+		elseif alt:IsShown() then
+			alt:Hide()
+		end
+	end
+	-- Bank, mailbox, and auction house each take the right-click themselves.
+	-- The secure button would use or equip the item instead.
+	local aimingNow = SpellCanTargetItem and SpellCanTargetItem()
+	local move = b.move
+	local handToUs = bankVisit() or auctionHouseOpen() or sendMailOpen()
+	if handToUs and not aimingNow and not (MerchantFrame and MerchantFrame:IsShown()) then
+		use.itemKey = nil
 		use:Hide()
+		if move then
+			move:ClearAllPoints()
+			move:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+			move:SetFrameLevel(500)
+			move:Show()
+		end
+		if alt and alt:IsShown() then alt:SetFrameLevel(510) end
 		return
 	end
+	if move and move:IsShown() then move:Hide() end
+	-- The game's own slot. Its click is the default: use, sell, auction, bandage.
+	local game = moveButton(bag, slot) or realContainerButton(bag, slot)
 	local where = bag .. " " .. slot
-	local key = where .. (real and " game" or " item")
+	local key = where .. (game and " game" or " item")
 	if use.itemKey ~= key then
 		use.itemKey = key
 		use:SetAttribute("item2", nil)
@@ -881,13 +1153,14 @@ local function placeUse(b, active)
 		-- Left click while a spell wants an item (Feed Pet, a stone, a poison).
 		use:SetAttribute("item1", where)
 		use:SetAttribute("*item1", where)
-		if real then
-			-- The game's own slot: sells at a vendor, and a bandage lets you pick a person.
+		if game then
+			-- The game's own slot. At a vendor it sells, at the auction house it
+			-- lists, and a bandage lets you pick a person.
 			use:SetAttribute("forward", true)
 			use:SetAttribute("type2", "click")
 			use:SetAttribute("*type2", "click")
-			use:SetAttribute("clickbutton2", real)
-			use:SetAttribute("*clickbutton2", real)
+			use:SetAttribute("clickbutton2", game)
+			use:SetAttribute("*clickbutton2", game)
 		else
 			-- Right click only. A bare "type" would also fire if a left click landed here.
 			use:SetAttribute("forward", nil)
@@ -931,10 +1204,13 @@ local function refreshUses()
 		for _, v in pairs(views) do
 			for _, b in ipairs(v.pool) do
 				if b.use and b.use:IsShown() then b.use:Hide() end
+				if b.move and b.move:IsShown() then b.move:Hide() end
 			end
 		end
 		return
 	end
+	local bankWin = _G.ZydeForeverBank
+	if bankWin and bankWin:IsShown() and _G.BankFrame then muteTree(_G.BankFrame, 0) end
 	for _, v in pairs(views) do
 		local n = v.used or 0
 		local shown = v.win and v.win:IsShown()
@@ -1070,10 +1346,17 @@ function View:SetTitle()
 		if n and n > 0 then more[#more + 1] = n .. " " .. kind end
 	end
 	local tail = #more > 0 and ("  |cff888888· " .. table.concat(more, " · ") .. "|r") or ""
+	if type(self.tabNote) == "string" and self.tabNote ~= "" then
+		tail = tail .. "  |cff888888·  " .. self.tabNote .. "|r"
+	end
 	self.win.title:SetText(self.titleText .. string.format("  |cff%02x%02x%02x%s|r", r * 255, g * 255, bl * 255, free) .. tail)
 end
 
-function View:ContentTop() return 34 + (self.bagRowShown and self.bagRowShown() and (S + 8) or 0) end
+function View:ContentTop()
+	local row = 0
+	if self.bagRowShown and self.bagRowShown() then row = (self.bagRowHeight or S) + 8 end
+	return 34 + row
+end
 
 local specialMoves
 function View:Layout()
@@ -1408,6 +1691,83 @@ local function freeSlot(bag)
 	end
 end
 
+-- The bank window is ours, so a right-click cannot ask the game's bag slot to
+-- move the item. Pick it up and put it down on the other side, the same move
+-- Restack uses. One stack per click: the slot this tile actually is.
+function transferAtBank(b)
+	if not bankVisit() then return false end
+	if MerchantFrame and MerchantFrame:IsShown() then return false end
+	if auctionHouseOpen() then return false end
+	if cursorHolding() or b.empty then return true end
+	local bag = b.bagID
+	if type(bag) ~= "number" and b.GetParent and b:GetParent() and b:GetParent().GetID then
+		bag = b:GetParent():GetID()
+	end
+	local slot = b.GetID and b:GetID()
+	if ns.isSecret(bag) or ns.isSecret(slot) or type(bag) ~= "number" or type(slot) ~= "number" then return true end
+	local info = C_Container.GetContainerItemInfo(bag, slot)
+	if ns.isSecret(info) or type(info) ~= "table" or ns.isSecret(info.itemID) or type(info.itemID) ~= "number" then return true end
+	if not ns.isSecret(info.isLocked) and info.isLocked then return true end
+	local intoBank = not isBankBag(bag)
+	local dests = intoBank and bankBags() or myBags()
+	local id = info.itemID
+	local count = info.stackCount
+	if ns.isSecret(count) or type(count) ~= "number" then count = 1 end
+	local max = stackSize(id) or count
+	local destBag, destSlot
+	if max > count then
+		for _, dst in ipairs(dests) do
+			if not isKeyring(dst) then
+				for s = 1, numSlots(dst) do
+					local other = C_Container.GetContainerItemInfo(dst, s)
+					local oid = type(other) == "table" and other.itemID
+					local locked = false
+					if type(other) == "table" and not ns.isSecret(other.isLocked) and other.isLocked then locked = true end
+					if not ns.isSecret(oid) and oid == id and not locked then
+						local n = other.stackCount
+						if ns.isSecret(n) or type(n) ~= "number" then n = 1 end
+						if n < max then
+							destBag, destSlot = dst, s
+							break
+						end
+					end
+				end
+			end
+			if destBag then break end
+		end
+	end
+	if not destBag then
+		local kind = itemFamily(id)
+		local best = 0
+		for _, dst in ipairs(dests) do
+			if not isKeyring(dst) then
+				local _, fam = C_Container.GetContainerNumFreeSlots(dst)
+				fam = plainNum(fam)
+				local rank = (fam == 0 and 1) or (fitsSpecial(kind, fam) and 2) or 0
+				if rank > best then
+					local s = freeSlot(dst)
+					if s then destBag, destSlot, best = dst, s, rank end
+				end
+			end
+		end
+	end
+	if not destBag then
+		print(P .. (intoBank and "the bank is full" or "your bags are full"))
+		return true
+	end
+	C_Container.PickupContainerItem(bag, slot)
+	if not cursorHolding() then
+		print(P .. "that item didn't move")
+		return true
+	end
+	C_Container.PickupContainerItem(destBag, destSlot)
+	if cursorHolding() then
+		C_Container.PickupContainerItem(bag, slot)
+		print(P .. "that item can't go there")
+	end
+	return true
+end
+
 -- How many items would move into a special bag that has room for them.
 function specialMoves(bags)
 	local fam = bagFamilies(bags)
@@ -1641,11 +2001,15 @@ local function bagSlot(v, bag, x)
 	end)
 	b:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-		local slot = invSlot(self.bag)
-		if not (slot and GameTooltip:SetInventoryItem("player", slot)) then
-			GameTooltip:AddLine("Empty bag slot")
+		if type(self.tabName) == "string" and self.tabName ~= "" then
+			GameTooltip:AddLine(self.tabName)
+		else
+			local slot = invSlot(self.bag)
+			if not (slot and GameTooltip:SetInventoryItem("player", slot)) then
+				GameTooltip:AddLine("Empty bag slot")
+			end
+			GameTooltip:AddLine("Drop a bag here to put it on. Click or drag to take it off (it must be empty).", 0.6, 0.8, 1, true)
 		end
-		GameTooltip:AddLine("Drop a bag here to put it on. Click or drag to take it off (it must be empty).", 0.6, 0.8, 1, true)
 		local n = numSlots(self.bag)
 		if n > 0 then
 			local free = plainNum(C_Container.GetContainerNumFreeSlots(self.bag))
@@ -1834,8 +2198,7 @@ end
 ---------------------------------------------------------------------------
 -- The bank: the same window, while you're at a banker. The game's bank window
 -- is shrunk out of the way (closing it would end the visit). The bag row on
--- this window is where you buy the next bank slot and swap bank bags.
--- "Game bank" still brings the game's window back.
+-- this window is your bank bags or tabs, and the button that buys the next one.
 ---------------------------------------------------------------------------
 local gameBankShown = false
 local function bankFrame() return _G.BankFrame end
@@ -1844,18 +2207,68 @@ local function tuckGameBank(tuck)
 	local f = bankFrame()
 	if not f or InCombatLockdown() then return end
 	if tuck then
+		-- Stay shown. The game's right-click only moves an item when this frame's
+		-- bank page is still shown. Scaling it away makes that click do nothing.
+		-- Mouse is off so the invisible page does not take the click itself.
 		f:SetAlpha(0)
-		f:SetScale(0.01)
+		f:SetScale(1)
+		muteTree(f, 0)
 	else
 		f:SetAlpha(1)
 		f:SetScale(1)
+		if f.EnableMouse then f:EnableMouse(true) end
+		if f.SetMouseClickEnabled then f:SetMouseClickEnabled(true) end
+		if f.SetMouseMotionEnabled then f:SetMouseMotionEnabled(true) end
 	end
 end
 
--- Purchased bank bag slots, including empty ones, in the game's own order.
--- Unpurchased slots stay off the row; the buy button covers the next one.
+local function activeBankType()
+	if BankFrame and BankFrame.GetActiveBankType then
+		local t = BankFrame:GetActiveBankType()
+		if not ns.isSecret(t) and type(t) == "number" then return t end
+	end
+	if Enum and Enum.BankType and type(Enum.BankType.Character) == "number" then return Enum.BankType.Character end
+end
+
+-- Purchased bank bags or tabs, in the game's own order. The buy button is the
+-- next one. A modern bank has tabs (C_Bank). An older one has bag slots.
+-- Any bag that currently holds slots is included too, so a tab still shows
+-- when the tab list itself comes back empty.
+local function plainBagID(id)
+	if id == nil or ns.isSecret(id) then return nil end
+	if type(id) == "number" then return id end
+	return tonumber(id)
+end
+local function addBankBag(list, seen, bag, icon, name)
+	bag = plainBagID(bag)
+	if not bag or seen[bag] or isKeyring(bag) or isEquippedBag(bag) then return end
+	seen[bag] = true
+	if ns.isSecret(icon) or (type(icon) ~= "string" and type(icon) ~= "number") then icon = nil end
+	if ns.isSecret(name) or type(name) ~= "string" or name == "" then name = nil end
+	list[#list + 1] = { bag = bag, icon = icon, name = name }
+end
+local function pullBankTabs(list, seen, data)
+	if ns.isSecret(data) or type(data) ~= "table" then return end
+	for _, tab in ipairs(data) do
+		if type(tab) == "table" then
+			addBankBag(list, seen, tab.ID or tab.id, tab.icon, tab.name)
+		end
+	end
+end
 local function bankBagContainers()
-	local list, maxn = {}, NUM_BANKBAGSLOTS or 7
+	local list, seen = {}, {}
+	local panel = BankFrame and BankFrame.BankPanel
+	if panel then pcall(pullBankTabs, list, seen, panel.purchasedBankTabData) end
+	if C_Bank and C_Bank.FetchPurchasedBankTabData then
+		local bankType = activeBankType()
+		if bankType ~= nil then
+			local ok, data = pcall(C_Bank.FetchPurchasedBankTabData, bankType)
+			if ok then pullBankTabs(list, seen, data) end
+		end
+	end
+	for _, bag in ipairs(bankBags()) do addBankBag(list, seen, bag) end
+	if #list > 0 then return list end
+	local maxn = NUM_BANKBAGSLOTS or 7
 	if type(maxn) ~= "number" or maxn < 1 then maxn = 7 end
 	local function bagForButton(btn, i)
 		if btn and btn.GetBagID then
@@ -1897,17 +2310,47 @@ local function bankBagContainers()
 			list[#list + 1] = bag
 		end
 	end
-	return list
+	local plain = {}
+	for _, bag in ipairs(list) do addBankBag(plain, {}, bag) end
+	return plain
+end
+
+local function nextBankTab()
+	if not (C_Bank and C_Bank.FetchNextPurchasableBankTabData) then return nil end
+	local bankType = activeBankType()
+	if bankType == nil then return nil end
+	local ok, tab = pcall(C_Bank.FetchNextPurchasableBankTabData, bankType)
+	if ok and not ns.isSecret(tab) and type(tab) == "table" then return tab end
 end
 
 local function bankSlotCost()
+	local tab = nextBankTab()
+	local cost = tab and tab.tabCost
+	if not ns.isSecret(cost) and type(cost) == "number" and cost > 0 then return cost end
 	if not GetBankSlotCost then return nil end
-	local cost = GetBankSlotCost()
-	if ns.isSecret(cost) or type(cost) ~= "number" or cost <= 0 then return nil end
-	return cost
+	local slotCost = GetBankSlotCost()
+	if ns.isSecret(slotCost) or type(slotCost) ~= "number" or slotCost <= 0 then return nil end
+	return slotCost
 end
 
 local function canBuyBankSlot()
+	if C_Bank and C_Bank.HasMaxBankTabs then
+		local bankType = activeBankType()
+		if bankType ~= nil then
+			local ok, full = pcall(C_Bank.HasMaxBankTabs, bankType)
+			if ok and not ns.isSecret(full) then return not full end
+		end
+	end
+	if C_Bank and C_Bank.CanPurchaseBankTab then
+		local bankType = activeBankType()
+		if bankType == nil then return false end
+		if C_Bank.HasMaxBankTabs then
+			local full = C_Bank.HasMaxBankTabs(bankType)
+			if not ns.isSecret(full) and full then return false end
+		end
+		local ok, can = pcall(C_Bank.CanPurchaseBankTab, bankType)
+		if ok then return can and not ns.isSecret(can) and true or false end
+	end
 	local purchase = _G.BankFramePurchaseButton
 	if purchase then return purchase:IsShown() end
 	local maxn = NUM_BANKBAGSLOTS or 7
@@ -1922,6 +2365,10 @@ end
 
 local function buyBankSlot()
 	if InCombatLockdown() then return end
+	if C_Bank and C_Bank.CanPurchaseBankTab and StaticPopupDialogs and StaticPopupDialogs.CONFIRM_BUY_BANK_TAB and StaticPopup_Show then
+		StaticPopup_Show("CONFIRM_BUY_BANK_TAB", nil, nil, { bankType = activeBankType() })
+		return
+	end
 	if StaticPopupDialogs and StaticPopupDialogs.CONFIRM_BUY_BANK_SLOT and StaticPopup_Show then
 		StaticPopup_Show("CONFIRM_BUY_BANK_SLOT")
 		return
@@ -1929,26 +2376,96 @@ local function buyBankSlot()
 	if PurchaseSlot then PurchaseSlot() end
 end
 
+-- The bag item sitting in a bank slot. A tab's own icon is often just the
+-- question mark, which is not the bag.
+local function plainTex(tex)
+	if tex == nil or ns.isSecret(tex) or tex == "" or tex == 0 then return nil end
+	if tex == QUESTION_MARK_ICON or tex == 134400 then return nil end
+	if type(tex) == "string" and tex:find("QuestionMark") then return nil end
+	if type(tex) ~= "string" and type(tex) ~= "number" then return nil end
+	return tex
+end
+local function textureFromInv(slot)
+	if not slot or ns.isSecret(slot) or type(slot) ~= "number" then return nil end
+	if GetInventoryItemTexture then
+		local tex = plainTex(GetInventoryItemTexture("player", slot))
+		if tex then return tex end
+	end
+	if GetInventoryItemID then
+		local id = GetInventoryItemID("player", slot)
+		if not ns.isSecret(id) and type(id) == "number" and id > 0 then
+			local icon
+			if C_Item and C_Item.GetItemIconByID then icon = C_Item.GetItemIconByID(id)
+			elseif GetItemIcon then icon = GetItemIcon(id) end
+			return plainTex(icon)
+		end
+	end
+end
+local function bankBagTexture(bag, index)
+	local tex = textureFromInv(invSlot(bag))
+	if tex then return tex end
+	if index and BankButtonIDToInvSlotID then
+		local ok, slot = pcall(BankButtonIDToInvSlotID, index, true)
+		if ok then
+			tex = textureFromInv(slot)
+			if tex then return tex end
+		end
+	end
+	if index then
+		local btn = _G["BankFrameBag" .. index] or _G["BankSlotsFrameBag" .. index]
+		local icon = btn and (btn.icon or btn.Icon)
+		if not icon and btn and btn.GetName then icon = _G[btn:GetName() .. "Icon"] end
+		if icon and icon.GetTexture then
+			tex = plainTex(icon:GetTexture())
+			if tex then return tex end
+		end
+	end
+end
+
+local CHIP_W = S + 10
+local CHIP_TEXT = 26
 local function syncBankRow()
 	if not bankView or not bankView.win.bagRow then return end
 	local win = bankView.win
 	local ids = bankBagContainers()
-	for i, bag in ipairs(ids) do
+	win.bagRow:SetFrameLevel((win:GetFrameLevel() or 1) + 30)
+	local h = S + CHIP_TEXT
+	for i, entry in ipairs(ids) do
+		local bag = type(entry) == "table" and entry.bag or entry
 		local b = win.bagSlots[i]
 		if not b then
 			b = bagSlot(bankView, bag, 0)
 			win.bagSlots[i] = b
 		end
 		b.bag = bag
+		b.tabName = type(entry) == "table" and entry.name or nil
+		b:SetSize(CHIP_W, h)
+		b.icon:ClearAllPoints()
+		b.icon:SetPoint("TOP", 0, 0)
+		b.icon:SetSize(S, S)
+		if b.bg then
+			b.bg:ClearAllPoints()
+			b.bg:SetPoint("TOPLEFT", b.icon, "TOPLEFT", -1, 1)
+			b.bg:SetPoint("BOTTOMRIGHT", b.icon, "BOTTOMRIGHT", 1, -1)
+		end
+		b.count:ClearAllPoints()
+		b.count:SetPoint("TOP", b.icon, "BOTTOM", 0, -1)
+		b.count:SetPoint("LEFT", 0, 0)
+		b.count:SetPoint("RIGHT", 0, 0)
+		b.count:SetFontObject("GameFontHighlightSmall")
+		b.count:SetJustifyH("CENTER")
+		b.count:SetJustifyV("TOP")
+		b.count:SetWordWrap(true)
+		if b.nameText then b.nameText:Hide() end
 		b:ClearAllPoints()
-		b:SetPoint("LEFT", (i - 1) * (S + GAP), 0)
-		local slot = invSlot(bag)
-		b.icon:SetTexture((slot and GetInventoryItemTexture("player", slot)) or EMPTY_BAG_TEX)
+		b:SetPoint("TOPLEFT", (i - 1) * (CHIP_W + GAP), 0)
+		local icon = type(entry) == "table" and entry.icon
+		b.icon:SetTexture(bankBagTexture(bag, i) or plainTex(icon) or EMPTY_BAG_TEX)
 		local n = numSlots(bag)
 		if n > 0 then
 			local free = plainNum(C_Container.GetContainerNumFreeSlots(bag))
 			local used = math.max(0, n - free)
-			b.count:SetText(used .. "/" .. n)
+			b.count:SetText(used >= n and (used .. "/" .. n .. "\nFULL") or (used .. "/" .. n))
 			if used >= n then b.count:SetTextColor(1, 0.25, 0.2) else b.count:SetTextColor(1, 1, 1) end
 		else
 			b.count:SetText("")
@@ -1960,16 +2477,39 @@ local function syncBankRow()
 	if buy then
 		if canBuyBankSlot() then
 			local cost = bankSlotCost()
-			local money = GetMoney()
-			local afford = cost and not ns.isSecret(money) and type(money) == "number" and money >= cost
+			local tab = nextBankTab()
+			local afford = tab and not ns.isSecret(tab.canAfford) and tab.canAfford
+			if afford == nil then
+				local money = GetMoney()
+				afford = cost and not ns.isSecret(money) and type(money) == "number" and money >= cost
+			end
+			buy:SetSize(S, S)
+			if buy.icon then buy.icon:Hide() end
+			if buy.plus then
+				buy.plus:Show()
+				buy.plus:SetTextColor(afford and 1 or 0.45, afford and 0.82 or 0.45, afford and 0 or 0.45)
+			end
+			if buy.label then buy.label:Hide() end
+			if buy.costText then buy.costText:Hide() end
 			buy:ClearAllPoints()
-			buy:SetPoint("LEFT", #ids * (S + GAP), 0)
+			buy:SetPoint("TOPLEFT", #ids * (CHIP_W + GAP), 0)
 			buy.cost = cost
-			if buy.icon.SetDesaturated then buy.icon:SetDesaturated(not afford) end
+			buy.modern = tab and true or false
 			buy:Show()
 		else
 			buy:Hide()
 		end
+	end
+	local grew = bankView.bagRowHeight ~= h
+	bankView.bagRowHeight = h
+	win.bagRow:SetHeight(h)
+	bankView.tabNote = #ids == 1 and "1 tab" or (#ids .. " tabs")
+	if win:IsShown() then bankView:SetTitle() end
+	bankView:PlaceContent()
+	if grew and win:IsShown() and not InCombatLockdown() and not bankView.layingRow then
+		bankView.layingRow = true
+		bankView:Layout()
+		bankView.layingRow = false
 	end
 end
 
@@ -2004,11 +2544,13 @@ local function buildBank()
 	win.buySlot:SetScript("OnClick", buyBankSlot)
 	win.buySlot:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-		GameTooltip:AddLine("Buy a bank bag slot")
+		GameTooltip:AddLine(self.modern and "Buy a bank tab" or "Buy a bank bag slot")
 		if self.cost then
 			GameTooltip:AddLine("Costs " .. moneyText(self.cost), 1, 1, 1)
 		end
-		GameTooltip:AddLine("The new slot starts empty. Drop a bag on it.", 0.6, 0.8, 1, true)
+		if not self.modern then
+			GameTooltip:AddLine("The new slot starts empty. Drop a bag on it.", 0.6, 0.8, 1, true)
+		end
 		GameTooltip:Show()
 	end)
 	win.buySlot:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -2017,13 +2559,6 @@ local function buildBank()
 	win.restackBtn = win.AddButton("Restack", 80, "Restack",
 		"Joins part stacks of the same item, and moves an item into the bank bag that holds it when that bag has a free slot. The number is how many slots that frees.",
 		function() restack(bankBags()) end)
-	win.AddButton("Game bank", 80, "The game's bank window",
-		"Brings back the game's own bank window, to buy bank slots or bags. Close and reopen the bank to come back here.",
-		function()
-			gameBankShown = true
-			tuckGameBank(false)
-			win:Hide()
-		end)
 	win:SetScript("OnShow", function()
 		v:Place()
 		syncBankRow()
@@ -2588,7 +3123,7 @@ for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "BAG_UPDATE_DELAYE
 	"BAG_UPDATE_COOLDOWN", "PLAYER_REGEN_ENABLED", "PLAYER_MONEY", "GET_ITEM_INFO_RECEIVED", "QUEST_LOG_UPDATE",
 	"BAG_CONTAINER_UPDATE", "PLAYER_LEVEL_UP", "SKILL_LINES_CHANGED", "PLAYER_EQUIPMENT_CHANGED",
 	"LEARNED_SPELL_IN_TAB", "NEW_RECIPE_LEARNED", "MERCHANT_SHOW", "MERCHANT_CLOSED",
-	"BANKFRAME_OPENED", "BANKFRAME_CLOSED", "PLAYERBANKSLOTS_CHANGED", "PLAYERBANKBAGSLOTS_CHANGED", "CURSOR_CHANGED" }) do
+	"BANKFRAME_OPENED", "BANKFRAME_CLOSED", "PLAYERBANKSLOTS_CHANGED", "PLAYERBANKBAGSLOTS_CHANGED", "BANK_TABS_CHANGED", "PLAYER_MONEY", "CURSOR_CHANGED" }) do
 	pcall(ev.RegisterEvent, ev, e)
 end
 -- For a few seconds after login or a reload the game can flag everything you
@@ -2634,6 +3169,12 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 		if event == "PLAYER_REGEN_ENABLED" then install() end
 		return
 	end
+	if event == "BAG_UPDATE_DELAYED" or event == "BANKFRAME_OPENED" or event == "BANKFRAME_CLOSED" then
+		markMoveStale()
+	end
+	if event == "BANK_TABS_CHANGED" or event == "PLAYER_MONEY" or event == "PLAYERBANKSLOTS_CHANGED" then
+		syncBankRow()
+	end
 	if event == "BANKFRAME_OPENED" then
 		gameBankShown = false
 		tuckGameBank(true)
@@ -2641,6 +3182,8 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 		bankView.win:Show()
 		syncBankRow()
 		C_Timer.After(0.25, function()
+			tuckGameBank(true)
+			markMoveStale()
 			rememberBank()
 			syncBankRow()
 		end)
