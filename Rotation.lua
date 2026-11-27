@@ -482,9 +482,19 @@ end
 -- target's debuffs when the game shows them (the longer of the two). nil when neither knows.
 -- (Only the casts before, and only when the tooltip said how long it lasts: a Rend whose tooltip
 -- didn't read never counted as ticking, and kept glowing over Heroic Strike.)
+-- Your damage over time cast on the target you have now, by name (cleared when you change target).
+-- The mob's GUID can be hidden in a fight: then the per-mob notes miss the cast, and the old pick
+-- flashed back until the game showed the debuff.
+local onThisTarget = {}
+
 local function dotLeft(name, ctx)
 	local t = ctx.dots and ctx.dots[name]
 	local left = t and (t - GetTime()) or nil
+	local mine = onThisTarget[name]
+	if mine and (not left or mine - GetTime() > left) then left = mine - GetTime() end
+	-- (being cast right now counts as on: the next pick shows during the cast)
+	local casting = UnitCastingInfo and plain(UnitCastingInfo("player"))
+	if casting == name then left = math.max(left or 0, 99) end
 	local get = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
 	local a = get and safe(get, "target", name, "HARMFUL|PLAYER")
 	if type(a) == "table" then
@@ -2269,6 +2279,7 @@ ev:SetScript("OnEvent", function(_, event, unit, _, spellID)
 				dots[tg] = dots[tg] or {}
 				dots[tg][name] = now + length
 			end
+			if length then onThisTarget[name] = now + length end
 		end
 		return
 	end
@@ -2294,7 +2305,7 @@ ev:SetScript("OnEvent", function(_, event, unit, _, spellID)
 			if not engagedAt[guid] then recorded[guid] = nil end
 		end
 	end
-	if event == "PLAYER_TARGET_CHANGED" then wipe(samples) feedGates() return end
+	if event == "PLAYER_TARGET_CHANGED" then wipe(samples) wipe(onThisTarget) feedGates() return end
 	if event == "SPELLS_CHANGED" or event == "PLAYER_EQUIPMENT_CHANGED" then wipe(facts) end
 	if rescanQueued then return end
 	rescanQueued = true
