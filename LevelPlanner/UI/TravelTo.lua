@@ -240,8 +240,9 @@ end
 -- The points you could head for, each { point, label }.
 local function candidates(dest)
 	local out = {}
-	if dest.kind == "dungeon" then
-		local l = learned()[key(dest.name)]
+	if dest.kind == "dungeon" or dest.kind == "point" then
+		-- (a point is your own /way waypoint: exactly where you said)
+		local l = dest.kind == "dungeon" and learned()[key(dest.name)]
 		local pts = l and { l } or dest.points
 		for _, q in ipairs(pts or {}) do
 			local p = ns.Geo.PointOnMap(q.map, q.x, q.y)
@@ -316,6 +317,8 @@ local function buildSteps(dest)
 	local label
 	if dest.kind == "dungeon" then
 		label = "Go to the " .. dest.name .. " entrance"
+	elseif dest.kind == "point" then
+		label = "Go to " .. dest.name
 	else
 		label = "Go to " .. dest.name .. (target.via and (" (" .. target.via .. ")") or "")
 	end
@@ -369,13 +372,15 @@ end
 local function arrivedAt(dest)
 	if dest.kind == "zone" then return inZone(dest.map) end
 	local _, t = IsInInstance()
-	if t == "party" or t == "raid" then
+	if dest.kind == "dungeon" and (t == "party" or t == "raid") then
 		return key((GetInstanceInfo())) == key(dest.name)
 	end
 	local here = ns.Geo.PlayerPoint()
 	for _, c in ipairs(candidates(dest)) do
 		local d = here and ns.Geo.Distance(here, c.point)
-		if d and d <= (ns.cfg.travelArrivedYards or 20) then return true end
+		if d and d <= (dest.kind == "point" and (ns.cfg.wayArrivedYards or 10) or ns.cfg.travelArrivedYards or 20) then
+			return true
+		end
 	end
 	return false
 end
@@ -385,6 +390,7 @@ function TT.Set(kind, item)
 	local dest = { kind = kind, name = item.name, map = item.map, points = item.points, guessed = item.guessed }
 	if arrivedAt(dest) then
 		ns.print("you're already " .. (kind == "zone" and "in " or "at ") .. item.name .. ".")
+		if kind == "point" and current() and current().kind == "point" then TT.Clear() end -- (a new /way here replaces the old one)
 		return
 	end
 	if #candidates(dest) == 0 then
@@ -392,8 +398,8 @@ function TT.Set(kind, item)
 		return
 	end
 	ns.char.travelTo = dest
-	ns.print(string.format("Travel: heading for %s%s - first in the steps until you get there (right-click a travel step to stop).",
-		item.name, (item.guessed and not learned()[key(item.name)]) and " (entrance approximate)" or ""))
+	ns.print(string.format("%s: heading for %s%s - first in the steps until you get there (right-click a travel step to stop).",
+		kind == "point" and "Waypoint" or "Travel", item.name, (item.guessed and not learned()[key(item.name)]) and " (entrance approximate)" or ""))
 	refresh()
 end
 
@@ -409,6 +415,13 @@ function TT.Clear(arrivedMsg)
 end
 
 function TT.Current() return current() end
+
+-- /way: your own waypoint, routed to ahead of every step (UI/Way.lua). map = uiMapID, x/y = 0-100.
+function TT.SetPoint(map, x, y, name)
+	if not ns.Geo.PointOnMap(map, x, y) then return false end
+	TT.Set("point", { name = name, points = { { map = map, x = x, y = y } } })
+	return true
+end
 
 -- /lp travel <name>: a dungeon or zone by (part of) its name
 function TT.SetByName(text)

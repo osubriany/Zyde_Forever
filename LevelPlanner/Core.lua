@@ -826,6 +826,8 @@ SlashCmdList.LEVELPLANNER = function(msg)
 		elseif msg == "travel" then
 			ns.print("/lp travel <dungeon or zone> - route there first; /lp travel stop - stop")
 		end
+	elseif msg == "way" or msg:match("^way ") then
+		ns.Way.Run(raw:gsub("^%S+%s*", "")) -- (the same as /way: UI/Way.lua)
 	elseif msg:match("^travel ") then
 		local name = raw:gsub("^%S+%s+", "")
 		if not ns.TravelTo.SetByName(name) then
@@ -849,6 +851,7 @@ SlashCmdList.LEVELPLANNER = function(msg)
 		ns.print("/lp pickup tight|loose - only quests that speed the route up, or quick ones on the way too")
 		ns.print("/lp arrow - show or hide the built-in arrow")
 		ns.print("/lp travel <dungeon or zone> - route there ahead of everything (/lp travel stop to stop)")
+		ns.print("/way x y [name] (or /lp way) - your own waypoint first in the steps; /way <zone> x y; /way clear")
 		ns.print("/lp cleanup - quests in your log the plan doesn't use")
 		ns.print("/lp cleanup grey - abandon the grey ones (asks first)")
 		ns.print("/lp auto on|off - automatic accept / turn-in of planned quests")

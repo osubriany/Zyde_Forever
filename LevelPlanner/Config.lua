@@ -292,6 +292,8 @@ LevelPlannerConfig = {
 	followQuestInTracker = true, -- the step's quest (if in your log) is followed like clicking it in the quest tracker
 	useTomTom = true,           -- use TomTom's arrow when TomTom is installed
 	arrivedYards = 15,          -- the arrow shows "here" inside this distance
+	wayArrivedYards = 10,       -- /way (UI/Way.lua): your own waypoint is reached inside this distance
+	wayCommand = true,          -- false: no /way (only /lp way), e.g. to leave /way to another addon
 	stepSound = true,           -- a quiet sound when a step is finished
 
 	-- Quest NPCs ---------------------------------------------------------------------------
