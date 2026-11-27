@@ -2313,12 +2313,13 @@ end)
 --
 --   local api = ZydeForeverAPI
 --   api.version                      -- 1
---   api.GetSuggestions()             -- a list, best first (blue damage, then green, amber, red):
+--   api.GetSuggestions()             -- a list, best first (damage, pet, heal, upkeep, danger):
 --     { spell   = "Shadow Bolt",     -- the spell / item / macro spell on the button
 --       icon    = 136197,            -- its texture
 --       key     = "CTRL-1",          -- the key bound to that button (nil when none)
 --       keyText = "Ctrl-1",          -- the same, as the game prints it
---       role    = "damage",          -- "damage" (blue), "heal" (green), "upkeep" (amber), "danger" (red)
+--       role    = "damage",          -- "damage" (blue), "pet" (your pet's Attack, blue), "heal" (green),
+--                                     -- "upkeep" (amber), "danger" (red)
 --       color   = { r, g, b },       -- the glow's colour
 --       button  = <the action button>,
 --       holder  = <frame> }          -- see below
@@ -2332,7 +2333,7 @@ end)
 -- can clip to the button's spot instead, which a frame elsewhere won't follow.)
 ---------------------------------------------------------------------------
 do
-	local ORDER = { damage = 1, heal = 2, upkeep = 3, danger = 4 }
+	local ORDER = { damage = 1, pet = 2, heal = 3, upkeep = 4, danger = 5 }
 	local function roleOf(color)
 		if color == BLUE then return "damage" end
 		if not color then return "damage" end
@@ -2393,11 +2394,17 @@ do
 	local function build()
 		local out = {}
 		for _, g in ipairs(allGlows) do
-			if g:IsShown() and g.button then
+			-- (left out: a glow a plain check has already made see-through - the pet's Attack once
+			-- it's on your target, a mana band you're not in. A hidden answer may be showing: kept.)
+			local alpha = g:IsShown() and g.button and g:GetParent() and g:GetParent():GetEffectiveAlpha()
+			local invisible = type(alpha) == "number" and not isSecret(alpha) and alpha < 0.05
+			if g:IsShown() and g.button and not invisible then
 				local spell, icon = whatOn(g.button)
 				local key, keyText = keyOf(g.button)
 				local c = g.color or BLUE
-				out[#out + 1] = { spell = spell, icon = icon, key = key, keyText = keyText, role = roleOf(c),
+				local name = g.button.GetName and g.button:GetName()
+				local role = (type(name) == "string" and name:find("^PetActionButton")) and "pet" or roleOf(c)
+				out[#out + 1] = { spell = spell, icon = icon, key = key, keyText = keyText, role = role,
 					color = { c[1], c[2], c[3] }, button = g.button, holder = g:GetParent() }
 			end
 		end
