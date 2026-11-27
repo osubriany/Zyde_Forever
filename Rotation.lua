@@ -280,6 +280,7 @@ end
 -- 3. The fight
 ---------------------------------------------------------------------------
 local lastCast = {} -- [spell name] = GetTime() of your last cast
+local pressed -- { name, at }: the spell on the action button you last pressed (for hidden cast events)
 local lastManaCast = 0 -- your last spell that cost mana (mana comes back 5 seconds after it)
 local dots = {}     -- [target GUID] = { [spell name] = time it runs out }
 local samples = {}    -- your target's health over time (when the game shows it)
@@ -293,21 +294,33 @@ local function killStats()
 	return ZydeForeverDB.killTimes[me]
 end
 
+local cdHow = {} -- [spell name] = how its cooldown was read (for /zyde rotationdebug)
 local function cooldownLeft(name, f)
 	local entry = byName[name]
+	local active
 	if entry and C_Spell and C_Spell.GetSpellCooldown then
 		local cd = safe(C_Spell.GetSpellCooldown, entry.id)
 		if type(cd) == "table" then
 			local s, d = plain(cd.startTime), plain(cd.duration)
 			if s and d then
+				cdHow[name] = "times"
 				if s == 0 or d <= 1.5 then return 0 end
 				return math.max(0, s + d - GetTime())
 			end
+			-- (times hidden in a fight: the game's on / off flags still say whether it's cooling down)
+			local on, gcd = plain(cd.isActive), plain(cd.isOnGCD)
+			if type(on) == "boolean" then active = on and gcd ~= true end
 		end
 	end
 	local last = lastCast[name]
-	if last and f and f.cd > 0 then return math.max(0, last + f.cd - GetTime()) end
-	return 0
+	local left = (last and f and f.cd > 0) and math.max(0, last + f.cd - GetTime()) or 0
+	if active == false then cdHow[name] = "flag (ready)" return 0 end
+	if active == true then
+		cdHow[name] = "flag (cooling down)"
+		return left > 0.3 and left or 1 -- (how long is hidden: count it as cooling down)
+	end
+	cdHow[name] = last and "your last cast" or "unknown"
+	return left
 end
 
 -- Enemies fighting you: nameplates of attackable units in combat that are on you (threat or target).
@@ -527,6 +540,7 @@ local function score(spell, entry, f, ctx, index)
 	if ctx.headStart and spell.kind ~= "dot" and not spell.melee then return nil end
 	if ctx.noDots and spell.kind == "dot" then return nil end
 	if ctx.noAoe and spell.aoe then return nil end
+	if ctx.noCast and f and f.cast > 0 then return nil end -- (hunters: no Aimed Shot on a dying mob)
 	if ctx.noDump and spell.dump then return nil end -- (warriors: Heroic Strike / Cleave, rage dumps)
 	if ctx.mode == "dry" and f and f.cost > 0 and not spell.melee then return nil end
 	-- A wand (Shoot): free, so only while saving mana; scored on its real damage per second.
@@ -696,6 +710,7 @@ local function choose(opts)
 		dots = tg and dots[tg],
 		mode = opts and opts.mode, headStart = opts and opts.headStart, noDots = opts and opts.noDots,
 		noAoe = opts and opts.noAoe, noDump = opts and opts.noDump, thriftPow = opts and opts.thriftPow,
+		noCast = opts and opts.noCast,
 	}
 	ctx.ttkReal = ttkFromHealth -- (set by the timeToKill() call above)
 	if playerClass == "PALADIN" then
@@ -1328,14 +1343,29 @@ do
 			local unpulled, plateCheck = unpulledByTarget()
 			info.plateCheck = plateCheck
 			info.others, info.unpulled = #others, unpulled
-			local function place(id, pick, conds, mode, noAoe)
+			local function place(id, pick, conds, mode, noAoe, noCast)
 				if not pick or not byName[pick] then return end
+				local pf = facts[byName[pick].id]
+				if pf and pf.cast > 0 and not noCast then
+					-- A shot you stand still for (Aimed Shot): only while the mob has over 25% health,
+					-- read by the game; under it the best instant shot.
+					local up, down = {}, {}
+					for _, c in ipairs(conds) do up[#up + 1] = c down[#down + 1] = c end
+					up[#up + 1] = share("target", FINISH_CUT, false, "target health")
+					down[#down + 1] = share("target", FINISH_CUT, true, "target health")
+					local alt = choose({ mode = mode, headStart = headStart, noAoe = noAoe, noCast = true })
+					info.noCast = alt
+					if alt == pick then alt = nil end
+					place(id, pick, up, mode, noAoe, true)
+					if alt then place(id .. "inst", alt, down, mode, noAoe, true) end
+					return
+				end
 				if not isDot[pick] then
 					if not (safeSolo and costOf(pick) > 0) then show(id, BLUE, byName[pick].button, joined(conds)) return end
 					-- (on your own and safe: only while the mob has over 25% health, read by the game;
 					-- under it a free hit if one's in reach, else nothing - Auto Shot)
 					show(id, BLUE, byName[pick].button, joined(conds, share("target", FINISH_CUT, false, "target health")))
-					local alt = choose({ mode = "dry", headStart = headStart, noDots = true, noAoe = noAoe })
+					local alt = choose({ mode = "dry", headStart = headStart, noDots = true, noAoe = noAoe, noCast = noCast })
 					if alt and costOf(alt) > 0 then alt = nil end
 					info.finish = alt or "Auto Shot (nothing glows)"
 					if alt and byName[alt] then
@@ -1345,7 +1375,7 @@ do
 				end
 				-- a sting: only while the mob has some life in it; else the best without one
 				show(id, BLUE, byName[pick].button, joined(conds, share("target", DOT_CUT, false, "target health")))
-				local alt = choose({ mode = mode, headStart = headStart, noDots = true, noAoe = noAoe })
+				local alt = choose({ mode = mode, headStart = headStart, noDots = true, noAoe = noAoe, noCast = noCast })
 				info.noSting = alt
 				if alt and byName[alt] then
 					show(id .. "low", BLUE, byName[alt].button, joined(conds, share("target", DOT_CUT, true, "target health")))
@@ -2262,9 +2292,23 @@ end
 pcall(ev.RegisterUnitEvent, ev, "UNIT_SPELLCAST_SUCCEEDED", "player")
 pcall(ev.RegisterUnitEvent, ev, "UNIT_HEALTH", "target")
 local rescanQueued = false
+if UseAction then
+	hooksecurefunc("UseAction", function(slot)
+		local kind, id = GetActionInfo(plain(slot) or 0)
+		kind, id = plain(kind), plain(id)
+		if kind == "macro" and GetMacroSpell then id = plain(safe(GetMacroSpell, id)) kind = id and "spell" end
+		local n = kind == "spell" and type(id) == "number" and spellName(id) or nil
+		pressed = n and { name = n, at = GetTime() } or nil
+	end)
+end
 ev:SetScript("OnEvent", function(_, event, unit, _, spellID)
 	if event == "UNIT_SPELLCAST_SUCCEEDED" then
 		local name = spellName(plain(spellID) or 0)
+		if not name and isSecret(spellID) and pressed and GetTime() - pressed.at < 0.5 then
+			-- (the game hides which spell it was: the one you just pressed. Not Auto Shot's own shots.)
+			local casting = UnitCastingInfo and plain(UnitCastingInfo("player"))
+			if not casting then name = pressed.name pressed = nil end
+		end
 		if name then
 			local now = GetTime()
 			lastCast[name] = now
@@ -2514,7 +2558,7 @@ function ns.RotationDebug()
 				f and ("hit %.0f, dot %.0f/%ss, cd %ss, cast %ss, cost %s"):format(
 				f.direct, f.dot, f.dotDur, f.cd, f.cast, f.cost) or "no tooltip numbers",
 				tostring(rangeOf(e)), inRange(e, spell) and "in reach" or "OUT of reach",
-				left > 0.3 and ("ready in %.0fs"):format(left) or "ready"))
+				(left > 0.3 and ("ready in %.0fs"):format(left) or "ready") .. " (cooldown read by " .. tostring(cdHow[spell.name] or "-") .. ")"))
 		end
 	end
 end
