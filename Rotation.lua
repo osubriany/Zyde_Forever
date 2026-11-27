@@ -2324,6 +2324,7 @@ end)
 --       button  = <the action button>,
 --       holder  = <frame> }          -- see below
 --   api.RegisterCallback(fn)         -- fn(list) whenever the list changes
+--   (for 150 ms after each of your casts goes off the list is empty, then the fresh pick)
 --   api.UnregisterCallback(fn)
 --
 -- Some suggestions hang on numbers the game hides from addons (your health and mana, the mob's
@@ -2391,6 +2392,17 @@ do
 	end
 
 	local current, callbacks, lastSig = {}, {}, ""
+	-- For 150 ms after one of your casts goes off the list is empty: the game's cooldowns and
+	-- the target's debuffs catch up in that moment, and the old pick would flicker back.
+	local QUIET = 0.15
+	local castAt = -10
+	local castWatch = CreateFrame("Frame")
+	castWatch:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	castWatch:SetScript("OnEvent", function()
+		castAt = GetTime()
+		if apiTick then apiTick() end
+		C_Timer.After(QUIET + 0.01, function() if apiTick then apiTick() end end)
+	end)
 	local function build()
 		local out = {}
 		for _, g in ipairs(allGlows) do
@@ -2416,7 +2428,7 @@ do
 	end
 
 	local function tick()
-		local list = build()
+		local list = (GetTime() - castAt < QUIET) and {} or build()
 		local parts = {}
 		for i, e in ipairs(list) do parts[i] = tostring(e.spell) .. "|" .. tostring(e.key) .. "|" .. e.role end
 		local sig = table.concat(parts, ";")
