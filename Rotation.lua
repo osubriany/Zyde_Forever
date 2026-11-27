@@ -810,7 +810,7 @@ end
 --     attention before your big shots.
 --   * Threat: no glow while you're above the tank on the mob (ease off). The tank is your pet
 --     on your own (or with Growl on in a group), else your group's tank. Feign Death glows
---     amber when the mob turns on you; your shots wait meanwhile.
+--     amber when the mob turns on you, unless it's nearly dead (25%) and you're over 50%.
 --   * Multi-Shot: only while you're safely under the tank on every other mob fighting (up to 3)
 --     and no mob that isn't fighting stands by your target (it could pull it; judged from the
 --     nameplates); else a one-target shot.
@@ -1226,10 +1226,9 @@ do
 			-- (Mend Pet's turn: the shots wait)
 			if mendOn and fighting then extra[#extra + 1] = share("pet", mendCut, false, "pet health") end
 			-- (threat 1 = you're above the tank but it hasn't turned yet: ease off. 2-3 = it's on you:
-			-- Feign Death's turn when it's ready, else keep shooting.)
+			-- keep shooting - Feign Death glows amber beside it when it's worth it, see below.)
 			if tanked then
-				extra[#extra + 1] = { kind = "threat", key = fdReady and "easeFD" or "ease",
-					points = { 1, 0, fdReady and 0 or 1, fdReady and 0 or 1 }, fallback = 1, label = "threat" }
+				extra[#extra + 1] = { kind = "threat", key = "ease", points = { 1, 0, 1, 1 }, fallback = 1, label = "threat" }
 			end
 			local function joined(conds, last)
 				local all = {}
@@ -1304,10 +1303,14 @@ do
 			end
 		end
 
-		-- Feign Death (amber) when the mob turns on you.
+		-- Feign Death (amber) when the mob turns on you - and it's worth it: the mob has over 25% health
+		-- left, or you're under 50%. (A nearly dead mob on you at good health: just finish it.)
 		if fdReady and fighting then
-			show("fd", AMBER, fd.button, { { kind = "threat", key = "onMe", points = { 0, 0, 1, 1 }, fallback = 0,
-				label = "threat" } })
+			local function onYou()
+				return { kind = "threat", key = "onMe", points = { 0, 0, 1, 1 }, fallback = 0, label = "threat" }
+			end
+			show("fd", AMBER, fd.button, { onYou(), share("target", FINISH_CUT, false, "target health") })
+			show("fdHurt", AMBER, fd.button, { onYou(), share("player", 0.5, true, "your health") })
 		end
 
 		-- Danger (red): the big cooldowns.
