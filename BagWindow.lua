@@ -1877,8 +1877,13 @@ function View:Layout()
 	local rb = self.win.restackBtn
 	if rb then
 		local n = (saved or 0) + specialMoves(self.bags())
-		-- (nothing to free: no button; the ones after it close the gap)
-		if n > 0 then rb:SetText("Restack +" .. n) rb:Show() else rb:Hide() end
+		local ordering = bagOrderOn() and (self.stackKey == "bags" or self.stackKey == "bank")
+		-- Sorted view: hide it when a click would free no slots.
+		-- Bag order does not sort by itself, so the button stays. A click
+		-- still packs into category order even when that frees nothing.
+		if n > 0 then rb:SetText("Restack +" .. n) rb:Show()
+		elseif ordering then rb:SetText("Restack") rb:Show()
+		else rb:Hide() end
 		self.win.Flow()
 	end
 	local used, labelUsed, headUsed = 0, 0, 0
@@ -2933,7 +2938,7 @@ local function buildBags()
 	paintBagSlots()
 
 	win.restackBtn = win.AddButton("Restack", 80, "Restack",
-		"Joins part stacks of the same item, and moves an item into the bag that holds it (your reagent bag, a quiver, a soul bag) when that bag has a free slot. The number is how many slots that frees.",
+		"Joins part stacks of the same item, and moves an item into the bag that holds it (your reagent bag, a quiver, a soul bag) when that bag has a free slot. The number is how many slots that frees. In bag order it stays on the bar and also packs items into the same category order as the sorted view.",
 		function() restack(shownBags()) end)
 	win.sellJunk = win.AddButton("Sell junk", 70, "Sell your junk",
 		"Sells every gray item, and everything you marked as junk, that's worth something (never Perma). Only at a vendor.",
