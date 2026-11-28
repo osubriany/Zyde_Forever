@@ -364,11 +364,15 @@ local function coordsText()
 	return string.format("%.1f, %.1f", x * 100, y * 100)
 end
 
--- The day/night icon on the corner. The game leaves it on the sun, so this
--- sets the sun and the moon from the server clock: day, night, and a blend
--- at dawn and dusk. Hovering it shows that clock.
-local SUN_ICON = "Interface\\Icons\\Spell_Fire_SunKey"
-local MOON_ICON = "Interface\\Icons\\Spell_Nature_MoonKey"
+-- The day/night icon on the top-right corner of the minimap. The game leaves
+-- it on the sun, so this fades the sun and the moon from the server clock:
+-- day, night, and a blend at dawn and dusk. Hovering it shows that clock.
+-- These are only the fallback pictures, used when a texture has no art of
+-- its own. Spell_Fire_SunKey and Spell_Nature_MoonKey are keys (Unlock
+-- Shackles and Pick Lock). They were drawn on this corner, on top of the sun
+-- and the moon, so they are not used here.
+local SUN_ICON = "Interface\\Icons\\Spell_Fire_Sunfire"
+local MOON_ICON = "Interface\\Icons\\Spell_Nature_MoonGlow"
 local paintDiel
 
 local function gameHours()
@@ -395,7 +399,15 @@ local function sunShare(h, m)
 end
 
 local function hasArt(tex)
-	if not tex or not tex.GetTexture then return false end
+	if not tex then return false end
+	-- The sun and the moon are often an atlas. GetTexture is empty then, and
+	-- treating that as blank was replacing them with the key icons.
+	if tex.GetAtlas then
+		local atlas = tex:GetAtlas()
+		if isSecret(atlas) then return true end
+		if type(atlas) == "string" and atlas ~= "" then return true end
+	end
+	if not tex.GetTexture then return false end
 	local t = tex:GetTexture()
 	if isSecret(t) then return true end
 	return t ~= nil and t ~= "" and t ~= 0
