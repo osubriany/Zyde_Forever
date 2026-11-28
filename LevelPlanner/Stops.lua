@@ -719,7 +719,9 @@ function S.BuildQuest(questId, logEntry, opts)
 		local starts = qo.startedBy or {}
 		local pts = npcPoints(starts[1], true)
 		objectPoints(starts[2], pts)
-		local fixStart = #pts == 0 and fix and fix.start
+		-- (a hand-filled giver: where Questie has none, or, with override, where Questie's spot is wrong)
+		local fixStart = fix and fix.start and (#pts == 0 or fix.start.override) and fix.start
+		if fixStart and fixStart.override and fixStart.spawns then pts = {} end
 		if fixStart and fixStart.spawns then pointsFromSpawns(fixStart.spawns, pts) end
 		-- Started by an item that's another quest's REWARD (Forlorn Necklace from Not on Squealing Terms):
 		-- the item comes when you hand that quest in, so this one starts right there, after it. Already
