@@ -1005,10 +1005,28 @@ end
 
 local hereFirstInner -- (below: then the escort, if one is running, goes in front of everything)
 
+-- You're working on this objective: its count went up in the last Config.workingMinutes (ns.working,
+-- from Core) and you're still within Config.workingYards of its mobs - any spawn of the sample, not
+-- just the few camp centres (picked when the quest was read, maybe from far away: on Eastwind
+-- Shore's long beach the nearest centre was over 200 yd off, and Sand Crawler Meat at 3/6 was sent
+-- to the back of the route).
+local function workingOn(s, ctx)
+	local at = ctx.working and s.questId and s.objIndex and ctx.working[s.questId .. ":" .. s.objIndex]
+	if not at or not ctx.start then return false end
+	local yards = ns.cfg.workingYards or 400
+	for _, list in ipairs({ s.points or {}, s.spread or {} }) do
+		for _, p in ipairs(list) do
+			local d = ns.Geo.Distance(ctx.start, p)
+			if d and d <= yards then return true end
+		end
+	end
+	return false
+end
+
 -- The quest you're in the middle of stays in the route: a quest in your log whose mobs you're
--- standing among (Config.amongYards) or fighting. A re-plan mid-kill found a route without Raptor
--- Mastery "better" and sent you elsewhere at 3/10 - you'd have to come back. (hereFirstInner then
--- puts it first.)
+-- standing among (Config.amongYards), fighting, or working on (workingOn). A re-plan mid-kill found
+-- a route without Raptor Mastery "better" and sent you elsewhere at 3/10 - you'd have to come back.
+-- (hereFirstInner then puts it first.)
 local function keepHere(state, ctx)
 	if ns.cfg.keepCurrentQuest == false or not ctx.start or not ctx.pool then return state end
 	local among = ns.cfg.amongYards or 80
@@ -1017,11 +1035,15 @@ local function keepHere(state, ctx)
 		if not state.used[q] and first and first.kind ~= "pickup" then
 			local here = false
 			for _, s in ipairs(q.stops) do
-				if s.kind == "objective" and s.mobs then
+				if s.kind == "objective" and workingOn(s, ctx) then here = true end
+				if not here and s.kind == "objective" and s.mobs then
 					if ctx.targetNpc and s.mobs[ctx.targetNpc] then here = true end
-					for _, p in ipairs(here and {} or s.points or {}) do
-						local d = ns.Geo.Distance(ctx.start, p)
-						if d and d <= among then here = true break end
+					for _, list in ipairs(here and {} or { s.points or {}, s.spread or {} }) do
+						for _, p in ipairs(list) do
+							local d = ns.Geo.Distance(ctx.start, p)
+							if d and d <= among then here = true break end
+						end
+						if here then break end
 					end
 				end
 				if here then break end
@@ -1052,7 +1074,8 @@ function hereFirstInner(state, ctx)
 	for i, e in ipairs(state.route) do
 		if e.stop.kind == "objective" then
 			-- the mob you're attacking counts for it: you're in this camp, wherever its map point sits
-			if ctx.targetNpc and e.stop.mobs and e.stop.mobs[ctx.targetNpc] then
+			-- (and one whose count you've been ticking up around here: you're working on it)
+			if (ctx.targetNpc and e.stop.mobs and e.stop.mobs[ctx.targetNpc]) or workingOn(e.stop, ctx) then
 				bestI, bestP, bestD = i, ns.Stops.NearestPoint(e.stop, ctx.start), 0
 				fighting = true
 				break
@@ -1726,6 +1749,12 @@ function P.Plan(candidates, previous, opts)
 	local ctx = {
 		start = ns.Geo.PlayerPoint(),
 		targetNpc = (function() local ok, id = pcall(P.TargetNpc) return ok and id or nil end)(), -- (the mob you're fighting: its objective goes first, see hereFirst)
+		-- objectives whose count went up in the last few minutes ("questId:index" = time): see workingOn
+		working = ns.working and next(ns.working) and (function()
+			local w, now, keep = {}, GetTime(), (cfg.workingMinutes or 4) * 60
+			for k, t in pairs(ns.working) do if now - t <= keep then w[k] = t end end
+			return w
+		end)() or nil,
 		horizon = (cfg.horizonMinutes or 60) * 60,
 		logCount = ns.QuestSource.LogCount(),
 		logCap = ns.QuestSource.LogCap and ns.QuestSource.LogCap() or 20,

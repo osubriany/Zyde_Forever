@@ -587,6 +587,12 @@ local function onQuestieReady()
 			-- the step you just finished leaves the list at once; the re-plan refines it a moment later
 			ns.safe(ns.DropFinished, questId, objectiveIndex, reason, R)
 			local progress = R and reason == R.QUEST_UPDATED
+			-- you're working on this objective: the planner keeps it first while you're near its mobs
+			-- (Planner workingOn)
+			if progress and objectiveIndex then
+				ns.working = ns.working or {}
+				ns.working[questId .. ":" .. objectiveIndex] = GetTime()
+			end
 			-- a count ticking (3/10 -> 4/10) only refreshes the shown counts (above): the plan changes
 			-- when an objective is finished, a quest is taken / turned in / abandoned, or at the regular
 			-- refresh. (Config.replanOnProgress = true: re-plan on every tick, as before.)
