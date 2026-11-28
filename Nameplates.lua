@@ -551,6 +551,10 @@ local function isBoss(unit)
 	local class = plain(UnitClassification(unit))
 	local lvl = plain(UnitLevel(unit))
 	if class == "worldboss" or (lvl and lvl < 0) then return true end
+	-- (out in the world only those: a dungeon boss list or the game's boss flag made a Lesser Rock
+	-- Elemental in the Badlands purple)
+	local inside, where = IsInInstance()
+	if not plain(inside) or (where ~= "party" and where ~= "raid") then return false end
 	if UnitIsBossMob and plain(safe(UnitIsBossMob, unit)) == true then return true end
 	-- The game's boss units during an encounter. In a dungeon "is it the same mob?" comes back hidden,
 	-- so compare nameplates instead: the plate the game gives for boss1-5 against this mob's plate.
