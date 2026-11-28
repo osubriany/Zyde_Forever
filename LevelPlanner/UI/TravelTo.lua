@@ -285,35 +285,49 @@ local function bestTarget(dest, from)
 	return best, bestT
 end
 
+-- The trip's travel steps from `start` to `goal` (the hearthstone when it's ready and clearly sooner,
+-- then flights, boats, passes): a list, and the trip's seconds. Each step gets the fields of `mark`
+-- (travelTo = true here; UI/Pin.lua's trips to an NPC use it too, with pinTrip = true).
+function TT.TripLegs(start, goal, secs, mark)
+	local cfg = ns.cfg
+	local steps, from = {}, start
+	secs = secs or travelSeconds(start, goal)
+	local function add(s)
+		for k, v in pairs(mark or {}) do s[k] = v end
+		steps[#steps + 1] = s
+	end
+	-- the hearthstone, when it's ready and gets you there clearly sooner
+	local h = ns.Travel.Hearth and ns.Travel.Hearth()
+	if h and h.readyIn <= 0 and secs then
+		local hs = cfg.hearthSeconds or 45
+		local alt = hs + travelSeconds(h.point, goal)
+		if alt + 60 < secs then
+			add({ kind = "travel", mode = "hearth", label = "Use your hearthstone (" .. h.name .. ")",
+				point = start, work = hs, mobXp = 0, xp = 0 })
+			from, secs = h.point, alt
+		end
+	end
+	local arrived = (cfg.arrivedYards or 15) * 2
+	for _, leg in ipairs(ns.Travel.Legs(from, goal)) do
+		local dFrom = ns.Geo.Distance(leg.point, from)
+		local dEnd = ns.Geo.Distance(leg.point, goal)
+		local edge = leg.mode == "pass" or leg.mode == "border"
+		if not (edge and ((dFrom and dFrom <= arrived) or (dEnd and dEnd <= arrived))) then
+			add({ kind = "travel", mode = leg.mode, label = leg.label, point = leg.point,
+				work = leg.seconds, mobXp = 0, xp = 0, to = leg.to })
+		end
+	end
+	return steps, secs
+end
+
 -- The travel steps from where you stand, or nil when there is nothing to do.
 local function buildSteps(dest)
 	local start = ns.Geo.PlayerPoint()
 	if not start then return nil end
 	local target, secs = bestTarget(dest, start)
 	if not target then return nil end
-	local cfg = ns.cfg
-	local steps, from = {}, start
-	-- the hearthstone, when it's ready and gets you there clearly sooner
-	local h = ns.Travel.Hearth and ns.Travel.Hearth()
-	if h and h.readyIn <= 0 then
-		local hs = cfg.hearthSeconds or 45
-		local alt = hs + travelSeconds(h.point, target.point)
-		if alt + 60 < secs then
-			steps[#steps + 1] = { kind = "travel", mode = "hearth", label = "Use your hearthstone (" .. h.name .. ")",
-				point = start, work = hs, mobXp = 0, xp = 0, travelTo = true }
-			from, secs = h.point, alt
-		end
-	end
-	local arrived = (cfg.arrivedYards or 15) * 2
-	for _, leg in ipairs(ns.Travel.Legs(from, target.point)) do
-		local dFrom = ns.Geo.Distance(leg.point, from)
-		local dEnd = ns.Geo.Distance(leg.point, target.point)
-		local edge = leg.mode == "pass" or leg.mode == "border"
-		if not (edge and ((dFrom and dFrom <= arrived) or (dEnd and dEnd <= arrived))) then
-			steps[#steps + 1] = { kind = "travel", mode = leg.mode, label = leg.label, point = leg.point,
-				work = leg.seconds, mobXp = 0, xp = 0, to = leg.to, travelTo = true }
-		end
-	end
+	local steps
+	steps, secs = TT.TripLegs(start, target.point, secs, { travelTo = true })
 	local label
 	if dest.kind == "dungeon" then
 		label = "Go to the " .. dest.name .. " entrance"

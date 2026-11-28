@@ -32,10 +32,19 @@ local function nearest(kind)
 	end
 	local ok, list = pcall(ns.Places.List, kind.place)
 	if not ok or type(list) ~= "table" then return nil, "Questie's NPC data isn't ready" end
-	local best, bestD
+	-- the closest few as the crow flies, then the quickest to reach of those (flights, boats: the
+	-- nearest across a mountain range can be the slowest)
+	local near = {}
 	for _, pl in ipairs(list) do
 		local d = ns.Geo.Distance(here, pl.point)
-		if d and (not bestD or d < bestD) then best, bestD = pl, d end
+		if d then near[#near + 1] = { pl = pl, d = d } end
+	end
+	table.sort(near, function(a, b) return a.d < b.d end)
+	local best, bestT
+	local secs = ns.Travel and ns.Travel.Seconds
+	for i = 1, math.min(#near, 6) do
+		local t = secs and ns.safe(secs, here, near[i].pl.point) or near[i].d
+		if t and (not bestT or t < bestT) then best, bestT = near[i].pl, t end
 	end
 	if not best then return nil, "none known on this continent" end
 	return { name = best.name, map = best.point.map, x = best.point.x, y = best.point.y }
@@ -46,19 +55,48 @@ function Pin.Apply(plan)
 	if not plan or not plan.stops then return end
 	-- (anywhere: travel steps from "..." > Travel may sit above it)
 	for i = #plan.stops, 1, -1 do
-		if plan.stops[i].kind == "pin" then table.remove(plan.stops, i) end
+		if plan.stops[i].kind == "pin" or plan.stops[i].pinTrip then table.remove(plan.stops, i) end
 	end
 	local p = current()
-	if not p then return end
+	if not p then Pin.shownSig = nil return end
 	local point = ns.Geo.PointOnMap(p.map, p.x, p.y)
 	if not point then return end
+	-- the way there first: hearthstone, flights, boats, passes (UI/TravelTo.lua), like "..." > Travel
+	local legs = {}
+	local start = ns.Geo.PlayerPoint()
+	if start and ns.TravelTo and ns.TravelTo.TripLegs then
+		legs = ns.safe(ns.TravelTo.TripLegs, start, point, nil, { pinTrip = true }) or {}
+	end
+	Pin.shownSig = Pin.Signature(legs)
 	-- (a ghost's run back to the corpse stays first)
 	local at = (plan.stops[1] and plan.stops[1].mode == "corpse") and 2 or 1
-	table.insert(plan.stops, at, {
+	for i, s in ipairs(legs) do table.insert(plan.stops, at + i - 1, s) end
+	table.insert(plan.stops, at + #legs, {
 		kind = "pin", label = "Go to " .. p.name, point = point, work = 0, mobXp = 0, xp = 0,
 		npcName = p.name, pinLabel = p.label, icon = p.icon,
 	})
 end
+
+function Pin.Signature(legs)
+	local t = {}
+	for _, s in ipairs(legs or {}) do t[#t + 1] = (s.mode or "") .. ":" .. (s.label or "") end
+	return table.concat(t, "|")
+end
+
+-- The trip changes as you go (a flight landed, a pass crossed, the hearthstone used): fresh legs
+-- when they differ from the ones shown.
+C_Timer.NewTicker(2, function()
+	local p = current()
+	if not (ns.active and p and ns.TravelTo and ns.TravelTo.TripLegs and ns.plan) then return end
+	if InCombatLockdown() or (UnitOnTaxi and UnitOnTaxi("player")) then return end
+	local _, t = IsInInstance()
+	if t ~= "none" then return end
+	if ns.JobRunning and ns.JobRunning() then return end
+	local start, point = ns.Geo.PlayerPoint(), ns.Geo.PointOnMap(p.map, p.x, p.y)
+	if not (start and point) then return end
+	local legs = ns.safe(ns.TravelTo.TripLegs, start, point, nil, { pinTrip = true }) or {}
+	if Pin.Signature(legs) ~= Pin.shownSig and ns.OnPlanReady then ns.OnPlanReady(ns.plan) end
+end)
 
 local function refresh()
 	if ns.plan and ns.OnPlanReady then ns.OnPlanReady(ns.plan) end

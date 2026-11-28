@@ -157,7 +157,7 @@ local function makeRow(i)
 	r:SetScript("OnDragStop", function() frame:StopMovingOrSizing() savePos() end)
 	r:SetScript("OnMouseUp", function(self, button)
 		if button ~= "RightButton" then return end
-		if self.kind == "pin" and ns.Pin then ns.Pin.Clear()
+		if (self.kind == "pin" or self.pinTrip) and ns.Pin then ns.Pin.Clear()
 		elseif self.travelTo and ns.TravelTo then ns.TravelTo.Clear()
 		elseif self.skips and #self.skips > 0 and ns.Skip then ns.Skip.ShowRowMenu(self, self.skips) end
 	end)
@@ -411,6 +411,7 @@ local function groupSteps(plan)
 				dropFrom = s.dropFrom, mobs = s.mobs,
 				-- "..." > Travel steps (UI/TravelTo.lua): right-click stops the trip
 				travelTo = s.travelTo, destKind = s.destKind, travelSecs = s.travelSecs, guessed = s.guessed,
+				pinTrip = s.pinTrip, -- (the way to a "..." NPC, UI/Pin.lua: right-click removes it)
 				early = s.early, -- (an early pick-up "for later", Planner.lua)
 				-- right-click > "Skip quest" (UI/Skip.lua)
 				skips = { t },
@@ -773,6 +774,7 @@ function L.Update(plan)
 		if need and not dinged and gained >= need then dinged, dingHere = true, true end
 		r.kind = s.kind
 		r.travelTo = s.travelTo
+		r.pinTrip = s.pinTrip
 		r.skips = s.skips
 		if s.kind == "travel" and s.mode == "hearth" and not hearthFound then hearthFound = r end
 		r.icon:SetTexture(icon)
