@@ -1062,8 +1062,37 @@ local function keepHere(state, ctx)
 	return state
 end
 
+-- A quest that's ready to hand in is handed in at the earliest point of the route where that costs
+-- at most Config.readyTurninSlackSeconds more. The route only counts time, so "now, by the flight
+-- master you're leaving from" and "when the route comes back to Badlands at step 32" looked the same
+-- to it - but XP now is XP now, the log slot frees up, and nobody wants to fly away from a turn-in.
+local function readyTurninsEarly(state, ctx)
+	local slack = ns.cfg.readyTurninSlackSeconds or 60
+	if slack <= 0 or #state.route < 2 then return state end
+	local i = 2
+	while i <= #state.route do
+		local e = state.route[i]
+		local q = e.stop.quest
+		if e.stop.kind == "turnin" and #q.stops == 1 then
+			for p = 1, i - 1 do
+				local r = copy(state.route)
+				table.insert(r, p, table.remove(r, i))
+				if feasible(r, ctx) then
+					local t = routeSeconds(r, ctx)
+					if t <= state.total + slack then
+						state.route, state.total = r, t
+						break
+					end
+				end
+			end
+		end
+		i = i + 1
+	end
+	return state
+end
+
 local function hereFirst(state, ctx)
-	return escortFirst(hereFirstInner(keepHere(state, ctx), ctx), ctx)
+	return escortFirst(hereFirstInner(readyTurninsEarly(keepHere(state, ctx), ctx), ctx), ctx)
 end
 
 function hereFirstInner(state, ctx)

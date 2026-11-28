@@ -107,6 +107,7 @@ LevelPlannerConfig = {
 	hereFirstSlackSeconds = 90, -- ... at most this many seconds more on the route
 	hereTurninYards = 400,      -- turn-ins this close to you (the town you're in) go first, same rule
 	hereTurninAtYards = 40,     -- ...and one you're standing at goes before everything
+	readyTurninSlackSeconds = 60, -- a quest ready to hand in goes as early in the route as this costs (0 = off)
 	amongYards = 80,            -- an objective whose mobs are this close to you comes next, whatever it costs
 	workingMinutes = 4,         -- an objective whose count went up this recently ...
 	workingYards = 400,         -- ... and whose mobs are within this distance comes first: you are working on it
