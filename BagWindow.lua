@@ -993,9 +993,36 @@ function View:Button(i)
 	use:RegisterForClicks("RightButtonDown", "RightButtonUp")
 	use:EnableMouse(true)
 	if use.SetMouseClickEnabled then use:SetMouseClickEnabled(true) end
-	-- Motion falls through so the slot underneath still shows its tooltip.
-	if use.SetMouseMotionEnabled then use:SetMouseMotionEnabled(false) end
+	-- Keep the mouse. With motion off, a right-click while swimming goes to the
+	-- camera instead of this button, and the potion is never used.
+	if use.SetMouseMotionEnabled then use:SetMouseMotionEnabled(true) end
+	if use.SetPropagateMouseClicks then use:SetPropagateMouseClicks(false) end
+	if use.SetPropagateMouseMotion then use:SetPropagateMouseMotion(false) end
 	if use.SetPassThroughButtons then use:SetPassThroughButtons("LeftButton", "MiddleButton") end
+	use:SetScript("OnEnter", function(self)
+		local owner = self.owner
+		if not owner or owner.empty then return end
+		local parent = owner:GetParent()
+		local bag = owner.bagID
+		if type(bag) ~= "number" and parent and parent.GetID then bag = parent:GetID() end
+		local slot = owner:GetID()
+		if type(bag) ~= "number" or type(slot) ~= "number" then return end
+		GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+		if GameTooltip.SetBagItem then GameTooltip:SetBagItem(bag, slot) end
+		if bagOrderOn() then
+			local info = C_Container.GetContainerItemInfo(bag, slot)
+			GameTooltip:AddLine("Alt+right-click: " .. markName(info and info.itemID), 0.6, 0.8, 1)
+		end
+		GameTooltip:AddLine("Alt-click: " .. (owner.perma and "take out of Perma" or "keep in Perma"), 0.6, 0.8, 1)
+		local info = C_Container.GetContainerItemInfo(bag, slot)
+		if info and ns.IsMarkedJunk(info.itemID) then
+			GameTooltip:AddLine("Marked as junk: sold at vendors. Drag it onto the bar at the top of your bags to unmark it.", 1, 0.55, 0.3, true)
+		else
+			GameTooltip:AddLine("Drag it onto the Junk bar at the top of your bags to sell it at vendors.", 0.6, 0.6, 0.6, true)
+		end
+		GameTooltip:Show()
+	end)
+	use:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	use:Hide()
 	-- One right-click, on the release, when this button hands the click to the game's bag slot.
 	-- That slot sells at a vendor, and for a bandage it lets you pick who to use it on.
