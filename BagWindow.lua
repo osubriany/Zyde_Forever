@@ -1011,44 +1011,9 @@ function View:Button(i)
 	]])
 	use.owner = b
 	b.use = use
-	-- Right before a right-click uses anything: it has to be over this button's own slot, and
-	-- use that slot. (A friend's right-click on a Craftsman's Writ opened another item, a
-	-- journal; this catches it and says what happened.)
-	use:HookScript("PreClick", function(self, button)
-		if button ~= "RightButton" or InCombatLockdown() or self:GetAttribute("forward") then return end
-		local owner = self.owner
-		local bag = owner.bagID
-		if type(bag) ~= "number" and owner:GetParent() and owner:GetParent().GetID then bag = owner:GetParent():GetID() end
-		local slot = owner:GetID()
-		if ns.isSecret(bag) or ns.isSecret(slot) or type(bag) ~= "number" or type(slot) ~= "number" then return end
-		local where = bag .. " " .. slot
-		local kind = self:GetAttribute("type2")
-		local used
-		if kind == "item" then used = self:GetAttribute("item2")
-		elseif kind == "macro" then used = (self:GetAttribute("macrotext2") or ""):match("^/use (.+)$") end
-		local quiet = self.toldAt and GetTime() - self.toldAt < 0.5 -- (down and up: one line)
-		local function nameAt(spot)
-			local b2, s2 = tostring(spot or ""):match("^(%-?%d+) (%d+)$")
-			local link = b2 and C_Container.GetContainerItemLink(tonumber(b2), tonumber(s2))
-			return (type(link) == "string" and not ns.isSecret(link)) and link or "nothing"
-		end
-		if not owner:IsMouseOver() then
-			self:SetAttribute("type2", nil)
-			self:SetAttribute("*type2", nil)
-			self.itemKey = nil -- (set again on the next frame)
-			self.toldAt = GetTime()
-			if not quiet then print("|cff33ff99Zyde|r: skipped that right-click - it landed on the button for " .. nameAt(where)
-				.. ", not the slot under your mouse. Please tell the author.") end
-		elseif used and used ~= where then
-			local field = kind == "item" and "item2" or "macrotext2"
-			local value = kind == "item" and where or ("/use " .. where)
-			self:SetAttribute(field, value)
-			self:SetAttribute("*" .. field, value)
-			self.toldAt = GetTime()
-			if not quiet then print("|cff33ff99Zyde|r: that right-click was set for " .. nameAt(used) .. "; used " .. nameAt(where)
-				.. " instead. Please tell the author.") end
-		end
-	end)
+	-- No addon PreClick on this button. A hook here taints the click, and once
+	-- combat starts the game blocks the secure item use, so a health pot does
+	-- nothing. The slot check that used to live here is what did that.
 	local origClick = b:GetScript("OnClick")
 	-- The template's own click is what the default bags run. A right-click there
 	-- is UseContainerItem, which starts a quest and does not equip a necklace.
