@@ -8,7 +8,7 @@
 --   links. While you drag an item, or the split-stack box is open, one empty
 --   slot appears at the bottom left under a New Item header, so the drop or
 --   the split has somewhere to land. The title counts free slots (reagent bag, quiver... apart, in gray).
---   Alt-click an item to put it in Perma (or take it out). Click a heading to fold it.
+--   Alt-click an item to put it in Perma (or take it out). Double-click a heading to fold it.
 --   The title shows used/total (orange at 5 or fewer free, red and FULL when full).
 --   Buttons: Restack (joins part stacks, and moves an item into the reagent
 --   bag, quiver, or other special bag that takes it when that bag has room),
@@ -57,6 +57,7 @@ local function invSlot(bag)
 	return ok and type(slot) == "number" and slot or nil
 end
 local HAS_REAGENT = REAGENT_BAG > LAST_BAG and invSlot(REAGENT_BAG) ~= nil
+local canEnterReagentBag
 local function numSlots(bag)
 	local n = ns.safe(C_Container.GetContainerNumSlots, bag)
 	if ns.isSecret(n) or type(n) ~= "number" then return 0 end
@@ -121,6 +122,30 @@ end
 local function togglePerma(id)
 	permaDB()[id] = not ns.IsPerma(id)
 end
+
+-- Bag order marks. Alt+right-click cycles them. The border is the level the
+-- player picked, not quality or gear score: none, Keep, Useful, Important.
+local MARKS = {
+	{ name = "Keep", r = 0.72, g = 0.72, b = 0.76 },
+	{ name = "Useful", r = 1, g = 0.82, b = 0.25 },
+	{ name = "Important", r = 0.95, g = 0.28, b = 0.22 },
+}
+local function markDB() db().bagMark = db().bagMark or {} return db().bagMark end
+function ns.BagMark(id)
+	if not id or ns.isSecret(id) then return nil end
+	local n = markDB()[id]
+	if type(n) ~= "number" or n < 1 or n > #MARKS then return nil end
+	return n
+end
+local function cycleMark(id)
+	local n = ns.BagMark(id) or 0
+	markDB()[id] = n >= #MARKS and nil or (n + 1)
+end
+local function markName(id)
+	local n = ns.BagMark(id)
+	return n and MARKS[n].name or "unmarked"
+end
+local function bagOrderOn() return ns.F and ns.F("bagOrder") end
 
 -- Junk you marked yourself, any quality: sorted under Junk and sold at
 -- vendors like grays. Marking something junk takes it out of Perma.
@@ -236,6 +261,75 @@ local function setBang(b, show)
 	if b.bang then b.bang:SetShown(show and true or false) end
 end
 
+-- Retail returns one table. This client also returns the three classic values
+-- (isQuestItem, questID, isActive). ns.safe keeps every return.
+local function questRecord(bag, slot)
+	local fn = C_Container and C_Container.GetContainerItemQuestInfo
+	if not fn then return nil end
+	local a, b, c = ns.safe(fn, bag, slot)
+	if type(a) == "table" then return a end
+	if a == nil and b == nil then return nil end
+	local id = b
+	if type(id) ~= "number" then id = tonumber(id) end
+	return { isQuestItem = a and true or false, questID = id, isActive = c and true or false }
+end
+local BEGINS_QUEST = ITEM_STARTS_QUEST or "This Item Begins a Quest"
+local beginsCache = {}
+local function textBeginsQuest(text)
+	if type(text) ~= "string" or ns.isSecret(text) then return false end
+	if text == BEGINS_QUEST then return true end
+	return text:lower():find("begins a quest", 1, true) ~= nil
+end
+local function tooltipBeginsQuest(bag, slot, link)
+	if type(link) ~= "string" or ns.isSecret(link) then return false end
+	local cached = beginsCache[link]
+	if cached ~= nil then return cached end
+	local found = false
+	local data = C_TooltipInfo and C_TooltipInfo.GetBagItem and ns.safe(C_TooltipInfo.GetBagItem, bag, slot)
+	local lines = type(data) == "table" and data.lines
+	if type(lines) == "table" then
+		for _, line in ipairs(lines) do
+			if textBeginsQuest(line.leftText) or textBeginsQuest(line.rightText) then
+				found = true
+				break
+			end
+		end
+	end
+	if not found then
+		local tip = _G.ZydeForeverQuestScanTip
+		if not tip then
+			tip = CreateFrame("GameTooltip", "ZydeForeverQuestScanTip", nil, "GameTooltipTemplate")
+			tip:SetOwner(UIParent, "ANCHOR_NONE")
+		end
+		tip:ClearLines()
+		if pcall(tip.SetBagItem, tip, bag, slot) then
+			for i = 1, tip:NumLines() or 0 do
+				local fs = _G["ZydeForeverQuestScanTipTextLeft" .. i]
+				if fs and textBeginsQuest(fs:GetText()) then
+					found = true
+					break
+				end
+			end
+		end
+	end
+	beginsCache[link] = found
+	return found
+end
+local function startsQuest(bag, slot)
+	local q = questRecord(bag, slot)
+	if type(q) == "table" then
+		local id = q.questID
+		if id and not ns.isSecret(id) and id ~= 0 and not q.isActive then
+			-- Done already (some starters stay in your bags): no !.
+			local done = C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted and ns.safe(C_QuestLog.IsQuestFlaggedCompleted, id)
+			return done ~= true
+		end
+		if q.isActive then return false end
+	end
+	local info = C_Container.GetContainerItemInfo(bag, slot)
+	local link = type(info) == "table" and info.hyperlink
+	return tooltipBeginsQuest(bag, slot, link)
+end
 
 ---------------------------------------------------------------------------
 -- Small marks on an item: red tint (can't use it), green arrow (upgrade),
@@ -290,24 +384,6 @@ local function scan(bag, slot, info)
 	scanCache[key] = c
 	return c
 end
-
--- An item that starts a quest: "yes" (you haven't taken it), "taken" (in your log or done),
--- or nil. The game's quest info first; some starters don't carry a quest there, only the
--- tooltip's "This Item Begins a Quest" line - then it counts as not taken.
-local function questStart(bag, slot)
-	local q = C_Container.GetContainerItemQuestInfo and ns.safe(C_Container.GetContainerItemQuestInfo, bag, slot)
-	local id = type(q) == "table" and q.questID or nil
-	if id and not ns.isSecret(id) then
-		if q.isActive then return "taken" end
-		-- Done already (some starters stay in your bags): no !.
-		local done = C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted and ns.safe(C_QuestLog.IsQuestFlaggedCompleted, id)
-		return done == true and "taken" or "yes"
-	end
-	local info = C_Container.GetContainerItemInfo(bag, slot)
-	if not info then return nil end
-	return scan(bag, slot, info).starts and "yes" or nil
-end
-local function startsQuest(bag, slot) return questStart(bag, slot) == "yes" end
 
 local function markFont(fs, size)
 	if not fs:SetFont("Fonts\\ARIALN.TTF", size, "OUTLINE") then fs:SetFontObject("GameFontNormalSmall") end
@@ -497,6 +573,9 @@ end
 local function emptyTexture(bag, ordinary)
 	local tex = "Interface\\PaperDoll\\UI-Backpack-EmptySlot"
 	if ordinary then return tex end
+	-- Empty reagent slots were the reagent bag's own icon, a green sack
+	-- (GetInventoryItemTexture on the bag). They use the normal empty slot.
+	if HAS_REAGENT and bag == REAGENT_BAG then return tex end
 	local inv = invSlot(bag)
 	if inv then return GetInventoryItemTexture("player", inv) or tex end
 	return tex
@@ -519,9 +598,17 @@ local function slotTaken(bag, slot)
 end
 
 local function firstEmpty(bags, ordinaryOnly)
+	local held
+	if GetCursorInfo then
+		local ok, kind, id = pcall(GetCursorInfo)
+		if ok and not ns.isSecret(kind) and kind == "item" and type(id) == "number" and not ns.isSecret(id) then held = id end
+	end
 	local pick
 	for _, bag in ipairs(bags) do
-		if not isKeyring(bag) then
+		-- The spare drop slot is never a reagent slot unless the item on the
+		-- cursor is one that bag accepts. Anything else errors on the drop.
+		local reagentDrop = HAS_REAGENT and bag == REAGENT_BAG and canEnterReagentBag(held) ~= true
+		if not isKeyring(bag) and not reagentDrop then
 			local free, fam = C_Container.GetContainerNumFreeSlots(bag)
 			free, fam = plainNum(free), plainNum(fam)
 			local ordinary = isOrdinaryBag(bag, fam)
@@ -679,6 +766,48 @@ local views = {}
 
 local function collapsed() db().bagCollapsed = db().bagCollapsed or {} return db().bagCollapsed end
 
+-- A heading used to fold on any mouse-up still over it. The bar is as wide as
+-- the window, so a short click, a drag that ends there, or the wheel did it.
+-- Now it takes a second click, and the pointer has to stay put.
+local FOLD_MOVE = 6  -- pixels. Old limit: none (0), any release folded.
+local FOLD_GAP = 0.4 -- seconds between the two clicks.
+
+local function cursorPos()
+	local x, y = GetCursorPosition()
+	if ns.isSecret(x) or ns.isSecret(y) or type(x) ~= "number" or type(y) ~= "number" then return nil end
+	return x, y
+end
+
+local function armFold(btn)
+	btn:RegisterForClicks("LeftButtonUp")
+	btn:SetScript("OnMouseDown", function(self, mouse)
+		if mouse ~= "LeftButton" then return end
+		self.foldX, self.foldY = cursorPos()
+	end)
+	btn:SetScript("OnMouseWheel", function() end)
+	btn:SetScript("OnClick", function(self, mouse)
+		if mouse ~= "LeftButton" then return end
+		local x, y = cursorPos()
+		if x and self.foldX then
+			local scale = self:GetEffectiveScale()
+			if ns.isSecret(scale) or type(scale) ~= "number" or scale <= 0 then scale = 1 end
+			local dx, dy = (x - self.foldX) / scale, (y - self.foldY) / scale
+			if dx * dx + dy * dy > FOLD_MOVE * FOLD_MOVE then
+				self.foldAt = nil
+				return
+			end
+		end
+		local now = GetTime()
+		if ns.isSecret(now) or type(now) ~= "number" then return end
+		if not self.foldAt or now - self.foldAt > FOLD_GAP then
+			self.foldAt = now
+			return
+		end
+		self.foldAt = nil
+		if self.fold then self.fold(self) end
+	end)
+end
+
 function View:Holder(bag)
 	if self.holders[bag] then return self.holders[bag] end
 	local h = CreateFrame("Frame", nil, self.win)
@@ -690,10 +819,10 @@ function View:Holder(bag)
 end
 
 local buttonCount = 0
--- The secure right-click buttons (View:Button) live on this layer. The game hides it for the
--- whole of a fight (a state driver, which works in combat), because addon code can't move or
--- hide secure buttons then: closing the bags mid-fight would otherwise leave invisible buttons
--- where the slots were, and a right-click there would use that item.
+-- The secure use buttons live on this layer, not on the bag window, so the
+-- window itself does not become protected. They stay up during a fight: that
+-- is what lets a right-click use a health pot. Mouse stays off on the layer
+-- itself; only the slot-sized buttons take clicks.
 local layer
 local function useLayer()
 	if layer then return layer end
@@ -701,13 +830,14 @@ local function useLayer()
 	layer:SetAllPoints()
 	-- The bag window is HIGH and toplevel, so its item buttons sit above anything
 	-- else in HIGH. This layer has to be DIALOG or the use buttons are clamped
-	-- under those slots and a right-click never reaches them. Mouse stays off
-	-- on the layer itself; only the slot-sized buttons take clicks.
+	-- under those slots and a right-click never reaches them.
 	layer:SetFrameStrata("DIALOG")
 	layer:EnableMouse(false)
 	if layer.SetMouseClickEnabled then layer:SetMouseClickEnabled(false) end
 	if layer.SetMouseMotionEnabled then layer:SetMouseMotionEnabled(false) end
-	RegisterStateDriver(layer, "visibility", "[combat] hide; show")
+	-- A visibility driver used to hide this layer for the whole fight. That
+	-- took the pot buttons with it. Do not put that driver back.
+	if UnregisterStateDriver then UnregisterStateDriver(layer, "visibility") end
 	return layer
 end
 
@@ -738,6 +868,15 @@ local function sendMailOpen()
 	local compose = frameShown(SendMailFrame) or frameShown(MailFrame and MailFrame.SendMailFrame)
 	if not MailFrame then return compose end
 	return frameShown(MailFrame) and compose
+end
+-- The mailbox itself, inbox or compose. The compose tab still has its own
+-- check, because only that tab attaches an item.
+local function mailOpen()
+	return frameShown(MailFrame)
+end
+-- The player trade window. Same bag-sort hold as the bank and the auction house.
+local function tradeOpen()
+	return frameShown(TradeFrame)
 end
 -- Filled in once the cursor helper exists. A right-click with the compose
 -- window open attaches the item. Returns true when that click is handled.
@@ -792,13 +931,16 @@ function View:Button(i)
 	alt:SetFrameStrata("DIALOG")
 	alt:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	alt:Hide()
-	alt:SetScript("OnClick", function()
+	alt:SetScript("OnClick", function(_, mouse)
 		if b.empty then return end
 		local parent = b:GetParent()
 		if not parent or not parent.GetID then return end
 		local info = C_Container.GetContainerItemInfo(parent:GetID(), b:GetID())
 		if ns.isSecret(info) or not info or ns.isSecret(info.itemID) or not info.itemID then return end
-		togglePerma(info.itemID)
+		-- Bag order: Alt+right-click sets the importance border. It does not
+		-- put the item in Perma. Alt+left-click still does.
+		if mouse == "RightButton" and bagOrderOn() then cycleMark(info.itemID)
+		else togglePerma(info.itemID) end
 		for _, v in pairs(views) do
 			v.dirty = true
 			if v.win:IsShown() and not InCombatLockdown() then v:Layout() end
@@ -810,7 +952,15 @@ function View:Button(i)
 		if parent and parent.GetID and GameTooltip.SetBagItem then
 			GameTooltip:SetBagItem(parent:GetID(), b:GetID())
 		end
-		GameTooltip:AddLine("Alt-click: " .. (b.perma and "take out of Perma" or "keep in Perma"), 0.6, 0.8, 1)
+		if bagOrderOn() then
+			local parentId = parent and parent.GetID and parent:GetID()
+			local info = parentId and C_Container.GetContainerItemInfo(parentId, b:GetID())
+			local id = info and info.itemID
+			GameTooltip:AddLine("Alt+right-click: " .. markName(id), 0.6, 0.8, 1)
+			GameTooltip:AddLine("Alt+left-click: " .. (b.perma and "take out of Perma" or "keep in Perma"), 0.6, 0.8, 1)
+		else
+			GameTooltip:AddLine("Alt-click: " .. (b.perma and "take out of Perma" or "keep in Perma"), 0.6, 0.8, 1)
+		end
 		GameTooltip:Show()
 	end)
 	alt:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -900,39 +1050,49 @@ function View:Button(i)
 		end
 	end)
 	local origClick = b:GetScript("OnClick")
+	-- The template's own click is what the default bags run. A right-click there
+	-- is UseContainerItem, which starts a quest and does not equip a necklace.
+	-- Our wrapper is addon code, so UseContainerItem is blocked from it. Quest
+	-- items put this original click back. Everything else keeps the wrapper so
+	-- the secure button above the slot can use a health pot.
+	b.origClick = origClick
 	if origClick then
-		b:SetScript("OnClick", function(self, button, ...)
-			-- Right-clicks never reach the slot's own click: run from here it's addon code, and
-			-- the game forbids it to use an item ("was blocked calling UseContainerItem()").
-			-- Out of a fight the secure button above takes them; in one it's hidden (useLayer),
-			-- so a right-click does nothing and says why, once a fight.
+		local function wrapped(self, button, ...)
 			local aimingNow = button == "LeftButton" and SpellCanTargetItem and SpellCanTargetItem()
 			if button == "RightButton" or (aimingNow and InCombatLockdown()) then
 				if button == "RightButton" and transferAtBank(self) then return end
 				if button == "RightButton" and auctionHouseOpen() then postToAuction(self) return end
 				if button == "RightButton" and attachToMail(self) then return end
-				if InCombatLockdown() and not self.empty and not ns.bagCombatTold then
-					ns.bagCombatTold = true
-					print("|cff66ccffZyde_Forever|r: items can't be used from the bag window in a fight - use your action bars or the ring")
-				end
 				return
 			end
 			return origClick(self, button, ...)
-		end)
+		end
+		b.wrappedClick = wrapped
+		b:SetScript("OnClick", wrapped)
 	end
 	b:HookScript("OnEnter", function(btn)
 		if btn.empty then
 			GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
-			local n = tonumber(btn.emptyCount) or 0
-			GameTooltip:AddLine(n == 1 and "Empty slot" or (n .. " empty slots"))
-			GameTooltip:AddLine("Drop an item here, or split a stack into it.", 1, 1, 1, true)
-			if not btn.emptyOrdinary then
-				GameTooltip:AddLine("Only what this bag holds can go here.", 0.8, 0.8, 0.8, true)
+			if btn.realSlot then
+				GameTooltip:AddLine("Empty slot")
+				GameTooltip:AddLine("Drop an item here.", 1, 1, 1, true)
+			else
+				local n = tonumber(btn.emptyCount) or 0
+				GameTooltip:AddLine(n == 1 and "Empty slot" or (n .. " empty slots"))
+				GameTooltip:AddLine("Drop an item here, or split a stack into it.", 1, 1, 1, true)
+				if not btn.emptyOrdinary then
+					GameTooltip:AddLine("Only what this bag holds can go here.", 0.8, 0.8, 0.8, true)
+				end
 			end
 			GameTooltip:Show()
 			return
 		end
 		if GameTooltip:IsOwned(btn) then
+			if bagOrderOn() then
+				local parent = btn:GetParent()
+				local info = parent and parent.GetID and C_Container.GetContainerItemInfo(parent:GetID(), btn:GetID())
+				GameTooltip:AddLine("Alt+right-click: " .. markName(info and info.itemID), 0.6, 0.8, 1)
+			end
 			GameTooltip:AddLine("Alt-click: " .. (btn.perma and "take out of Perma" or "keep in Perma"), 0.6, 0.8, 1)
 			local info = C_Container.GetContainerItemInfo(btn:GetParent():GetID(), btn:GetID())
 			if info and ns.IsMarkedJunk(info.itemID) then
@@ -1155,6 +1315,53 @@ local function moveButton(bag, slot)
 	end
 end
 
+-- The use spell on a quest item. Using the necklace once it is worn opens the
+-- quest. UseContainerItem never gets there when the item is also gear: that
+-- call equips it. Casting this spell is that same use, from the bag.
+local function questUseSpell(bag, slot)
+	local info = C_Container.GetContainerItemInfo(bag, slot)
+	if type(info) ~= "table" then return nil end
+	local id = info.itemID
+	if ns.isSecret(id) or type(id) ~= "number" or not getSpell then return nil end
+	local spell = select(1, ns.safe(getSpell, id))
+	if (ns.isSecret(spell) or type(spell) ~= "string" or spell == "") and type(info.hyperlink) == "string" then
+		spell = select(1, ns.safe(getSpell, info.hyperlink))
+	end
+	if ns.isSecret(spell) or type(spell) ~= "string" or spell == "" or spell:find("[\n;]") then
+		if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
+		return nil
+	end
+	return spell
+end
+
+local function itemEquippable(id)
+	if ns.isSecret(id) or type(id) ~= "number" then return false end
+	local fn = (C_Item and C_Item.IsEquippableItem) or IsEquippableItem
+	if not fn then return false end
+	local v = ns.safe(fn, id)
+	-- Some builds return 1, not true. Either one means the item can be worn.
+	return v and not ns.isSecret(v) and true or false
+end
+
+-- The game's own bag button for this slot. Its right-click is UseContainerItem.
+-- That opens a quest on an item that is not gear. On gear it equips instead.
+local function defaultBagButton(bag, slot)
+	moveStale = true
+	local g = moveButton(bag, slot)
+	if isFrame(g) and not g.zydeBag then
+		local gb, gs = buttonBagSlot(g)
+		if gb == bag and gs == slot then return g end
+	end
+	for i = 1, (NUM_CONTAINER_FRAMES or 13) do
+		local f = _G["ContainerFrame" .. i]
+		local fname = f and f.GetName and f:GetName()
+		if f and fname and f.GetID and plainID(f:GetID()) == bag then
+			local b = _G[fname .. "Item" .. slot]
+			if isFrame(b) and b.Click and not b.zydeBag then return b end
+		end
+	end
+end
+
 local function muteMouse(f)
 	if not f then return end
 	if f.EnableMouse then f:EnableMouse(false) end
@@ -1239,21 +1446,94 @@ local function placeUse(b, active)
 		end
 	end
 	local where = bag .. " " .. slot
-	-- (an item that starts a quest goes through /use, like the game's bags: the secure "item"
-	-- action puts on anything you can wear - the Pendant of Myzrael - instead of using it)
-	-- (read twice a second, not every frame: this runs for every tile)
-	local now = GetTime()
-	if use.qWhere ~= where or not use.qAt or now - use.qAt > 0.5 then
-		use.qWhere, use.qAt, use.qStarts = where, now, questStart(bag, slot) ~= nil
+	-- The secure button over this slot (b.use) was the one equipping the
+	-- pendant. Its right-click is type2. For a normal item that is "item",
+	-- and the secure item action equips anything that can be worn before it
+	-- ever uses it. Pendant of Myzrael took that path: the use spell was not
+	-- what ran, and type2 stayed "item". A startsQuest item never keeps an
+	-- item action. Right-click goes to the game's own bag button, whose
+	-- right-click is UseContainerItem (the quest opens, the necklace stays
+	-- in the bag). No game button: the click does nothing, and it does not equip.
+	local wantQuest = not atVendor and not game and startsQuest(bag, slot)
+	if not wantQuest and not atVendor and not game then
+		-- Equippable quest items still equip if the "begins a quest" line was
+		-- not loaded yet. The container marks those, and the secure item
+		-- action must not get the click.
+		local q = questRecord(bag, slot)
+		local info = C_Container.GetContainerItemInfo(bag, slot)
+		local id = type(info) == "table" and info.itemID
+		if type(q) == "table" and q.isQuestItem and not q.isActive and itemEquippable(id) then
+			wantQuest = true
+		end
 	end
-	local starter = not game and not atVendor and use.qStarts
-	local key = where .. (game and " game" or ((atVendor or starter) and " vendor" or " item"))
+	-- Default bags right-click this slot and UseContainerItem runs. That starts
+	-- the quest and does not equip. The secure button over the slot was the one
+	-- equipping Pendant of Myzrael (type2=item), or eating the click when it
+	-- forwarded to a hidden bag button and nothing happened. Step off the slot
+	-- and give the click back to the template.
+	if wantQuest and b.origClick then
+		if b:GetScript("OnClick") ~= b.origClick then
+			b:SetScript("OnClick", b.origClick)
+		end
+		use.itemKey = nil
+		use.clickMode = nil
+		use.potClicks = nil
+		use:SetAttribute("type", nil)
+		use:SetAttribute("*type", nil)
+		use:SetAttribute("type1", nil)
+		use:SetAttribute("*type1", nil)
+		use:SetAttribute("type2", nil)
+		use:SetAttribute("*type2", nil)
+		use:SetAttribute("item", nil)
+		use:SetAttribute("*item", nil)
+		use:SetAttribute("item1", nil)
+		use:SetAttribute("*item1", nil)
+		use:SetAttribute("item2", nil)
+		use:SetAttribute("*item2", nil)
+		use:SetAttribute("spell1", nil)
+		use:SetAttribute("*spell1", nil)
+		use:SetAttribute("spell2", nil)
+		use:SetAttribute("*spell2", nil)
+		if use:IsShown() then use:Hide() end
+		return
+	end
+	if b.wrappedClick and b:GetScript("OnClick") ~= b.wrappedClick then
+		b:SetScript("OnClick", b.wrappedClick)
+	end
+	local questSpell = wantQuest and questUseSpell(bag, slot) or nil
+	local questGear = false
+	if wantQuest and not questSpell then
+		local info = C_Container.GetContainerItemInfo(bag, slot)
+		questGear = info and itemEquippable(info.itemID) or false
+	end
+	local questClick = wantQuest and defaultBagButton(bag, slot) or nil
+	local questBtn = (wantQuest and not questSpell and not questGear) and questClick or nil
+	local quest = (questSpell or questClick or questGear) and true or false
+	if wantQuest and b.SetAttribute then
+		-- The slot itself is a ContainerFrameItemButton. If it still has a
+		-- secure item action, a right-click that reaches it equips the gear.
+		b:SetAttribute("type", nil)
+		b:SetAttribute("*type", nil)
+		b:SetAttribute("type2", nil)
+		b:SetAttribute("*type2", nil)
+		b:SetAttribute("item", nil)
+		b:SetAttribute("*item", nil)
+		b:SetAttribute("item2", nil)
+		b:SetAttribute("*item2", nil)
+	end
+	local key = where .. (game and " game" or (atVendor and " vendor" or (questClick and " questclick" or (wantQuest and " quest" or " item"))))
 	if use.itemKey ~= key then
 		use.itemKey = key
+		use:SetAttribute("type", nil)
+		use:SetAttribute("*type", nil)
+		use:SetAttribute("item", nil)
+		use:SetAttribute("*item", nil)
 		use:SetAttribute("item2", nil)
 		use:SetAttribute("*item2", nil)
 		use:SetAttribute("item1", nil)
 		use:SetAttribute("*item1", nil)
+		use:SetAttribute("spell2", nil)
+		use:SetAttribute("*spell2", nil)
 		use:SetAttribute("clickbutton2", nil)
 		use:SetAttribute("*clickbutton2", nil)
 		use:SetAttribute("macrotext2", nil)
@@ -1269,12 +1549,22 @@ local function placeUse(b, active)
 			use:SetAttribute("*type2", "click")
 			use:SetAttribute("clickbutton2", game)
 			use:SetAttribute("*clickbutton2", game)
-		elseif atVendor or starter then
+		elseif atVendor then
 			use:SetAttribute("forward", nil)
 			use:SetAttribute("type2", "macro")
 			use:SetAttribute("*type2", "macro")
 			use:SetAttribute("macrotext2", "/use " .. where)
 			use:SetAttribute("*macrotext2", "/use " .. where)
+		elseif questClick then
+			use:SetAttribute("forward", nil)
+			use:SetAttribute("type2", "click")
+			use:SetAttribute("*type2", "click")
+			use:SetAttribute("clickbutton2", questClick)
+			use:SetAttribute("*clickbutton2", questClick)
+		elseif wantQuest then
+			use:SetAttribute("forward", nil)
+			use:SetAttribute("type2", nil)
+			use:SetAttribute("*type2", nil)
 		else
 			-- Right click only. A bare "type" would also fire if a left click landed here.
 			use:SetAttribute("forward", nil)
@@ -1287,13 +1577,48 @@ local function placeUse(b, active)
 	-- A spell waiting for an item (Feed Pet, a sharpening stone, a poison, Disenchant): the
 	-- left-click on the item has to be the secure button's too. Through the slot's own click
 	-- it's addon code, and the game forbids it ("was blocked calling UseContainerItem()").
+	-- A quest starter's left click still casts that use when the item has one.
+	-- The right click is the game bag button (type2 above), not this left click.
 	local aiming = SpellCanTargetItem and SpellCanTargetItem() and true or false
-	if use.aiming ~= aiming then
-		use.aiming = aiming
+	local mode = (aiming and "aim:" or (questSpell and ("spell:" .. questSpell) or (quest and "quest:" or "norm:"))) .. where
+	if use.clickMode ~= mode then
+		use.clickMode = mode
+		use:SetAttribute("macrotext1", nil)
+		use:SetAttribute("*macrotext1", nil)
+		use:SetAttribute("clickbutton1", nil)
+		use:SetAttribute("*clickbutton1", nil)
+		use:SetAttribute("spell1", nil)
+		use:SetAttribute("*spell1", nil)
 		if aiming then
 			use:SetAttribute("type1", "item")
 			use:SetAttribute("*type1", "item")
 			use:RegisterForClicks("LeftButtonDown", "LeftButtonUp", "RightButtonDown", "RightButtonUp")
+			if use.SetPassThroughButtons then use:SetPassThroughButtons("MiddleButton") end
+		elseif questSpell then
+			use:SetAttribute("type1", "spell")
+			use:SetAttribute("*type1", "spell")
+			use:SetAttribute("spell1", questSpell)
+			use:SetAttribute("*spell1", questSpell)
+			use:RegisterForClicks("LeftButtonUp", "RightButtonDown", "RightButtonUp")
+			if use.SetPassThroughButtons then use:SetPassThroughButtons("MiddleButton") end
+		elseif questBtn then
+			local clickName = questBtn.GetName and questBtn:GetName()
+			if type(clickName) ~= "string" or clickName == "" then
+				clickName = "ZydeForeverBagQuestClick"
+				_G[clickName] = questBtn
+			end
+			use:SetAttribute("type1", "macro")
+			use:SetAttribute("*type1", "macro")
+			use:SetAttribute("macrotext1", "/click " .. clickName .. " RightButton")
+			use:SetAttribute("*macrotext1", "/click " .. clickName .. " RightButton")
+			use:RegisterForClicks("LeftButtonUp", "RightButtonDown", "RightButtonUp")
+			if use.SetPassThroughButtons then use:SetPassThroughButtons("MiddleButton") end
+		elseif quest then
+			-- Equippable quest item, spell not loaded yet. Hold the click so it
+			-- does not equip. The next refresh casts the use once the spell is known.
+			use:SetAttribute("type1", nil)
+			use:SetAttribute("*type1", nil)
+			use:RegisterForClicks("LeftButtonUp", "RightButtonDown", "RightButtonUp")
 			if use.SetPassThroughButtons then use:SetPassThroughButtons("MiddleButton") end
 		else
 			use:SetAttribute("type1", nil)
@@ -1302,6 +1627,33 @@ local function placeUse(b, active)
 			if use.SetPassThroughButtons then use:SetPassThroughButtons("LeftButton", "MiddleButton") end
 		end
 	end
+	-- A quest setup registers RightButtonUp only and stops passing Left through.
+	-- On a health pot that leaves the mouse-down to the slot, and the slot
+	-- swallows it, so the pot never runs. In a fight placeUse cannot fix that.
+	-- Re-assert the pot click whenever this slot is not a quest starter.
+	-- A quest starter never gets type2=item back: that action equips the pendant.
+	if not wantQuest and not game and not atVendor and not aiming then
+		if use:GetAttribute("type2") ~= "item" then
+			use:SetAttribute("forward", nil)
+			use:SetAttribute("type", nil)
+			use:SetAttribute("*type", nil)
+			use:SetAttribute("type2", "item")
+			use:SetAttribute("*type2", "item")
+			use:SetAttribute("spell2", nil)
+			use:SetAttribute("*spell2", nil)
+			use:SetAttribute("clickbutton2", nil)
+			use:SetAttribute("*clickbutton2", nil)
+			use:SetAttribute("item2", where)
+			use:SetAttribute("*item2", where)
+		end
+		if use.potClicks ~= true then
+			use.potClicks = true
+			use:RegisterForClicks("RightButtonDown", "RightButtonUp")
+			if use.SetPassThroughButtons then use:SetPassThroughButtons("LeftButton", "MiddleButton") end
+		end
+	else
+		use.potClicks = nil
+	end
 	if use:GetFrameStrata() ~= "DIALOG" then use:SetFrameStrata("DIALOG") end
 	local lvl = (b:GetFrameLevel() or 1) + 20
 	if use:GetFrameLevel() ~= lvl then use:SetFrameLevel(lvl) end
@@ -1309,7 +1661,6 @@ local function placeUse(b, active)
 end
 local function refreshUses()
 	if InCombatLockdown() then return end
-	ns.bagCombatTold = nil -- (the "not in a fight" hint: once per fight)
 	local open = false
 	for _, v in pairs(views) do
 		if v.win and v.win:IsShown() then open = true break end
@@ -1370,48 +1721,96 @@ function View:Head(i)
 	h.line:SetPoint("LEFT", h.text, "RIGHT", 8, 0)
 	h.line:SetPoint("RIGHT")
 	local view = self
-	h:SetScript("OnClick", function(btn)
+	h.fold = function(btn)
 		if InCombatLockdown() then return end
 		collapsed()[btn.section] = not collapsed()[btn.section] or nil
 		for _, v in pairs(views) do v.dirty = true end
 		view:Layout()
 		if ns.RefreshBankMemory then ns.RefreshBankMemory() end
-	end)
+	end
+	armFold(h)
 	self.heads[i] = h
 	return h
 end
 
+local function paintImportance(b, itemID)
+	local n = bagOrderOn() and ns.BagMark(itemID)
+	local m = n and MARKS[n]
+	if not m then
+		if b.impEdge then for _, t in ipairs(b.impEdge) do t:Hide() end end
+		return
+	end
+	if not b.impEdge then
+		b.impEdge = ns.newEdges(b, "OVERLAY", 6)
+		ns.placeEdges(b.impEdge, b, 0, 2)
+	end
+	for _, t in ipairs(b.impEdge) do
+		t:SetColorTexture(m.r, m.g, m.b, 1)
+		t:Show()
+	end
+end
+
+local function bagCaption(bag)
+	if bag == 0 then return "Backpack" end
+	if isKeyring(bag) then return "Keys" end
+	if HAS_REAGENT and bag == REAGENT_BAG then return "Reagent" end
+	if BANK_MAIN and bag == BANK_MAIN then return "Bank" end
+	local inv = invSlot(bag)
+	local name = inv and GetInventoryItemName and GetInventoryItemName("player", inv)
+	if type(name) == "string" and not ns.isSecret(name) and name ~= "" then return name end
+	if isBankBag(bag) then return "Bank bag" end
+	return "Bag " .. tostring(bag)
+end
+
+-- "12/16": filled slots over how many the bag holds. An empty slot is unused.
+local function slotCountText(bag)
+	local n = numSlots(bag)
+	if n <= 0 then return nil end
+	local free = plainNum(C_Container.GetContainerNumFreeSlots(bag))
+	return math.max(0, n - free) .. "/" .. n
+end
+local function bagCountLabel(bag)
+	local fill = slotCountText(bag)
+	if not fill then return bagCaption(bag) end
+	return bagCaption(bag) .. "  " .. fill
+end
+
 function View:Paint(b)
-	if b.empty then
+	local parent = b:GetParent()
+	local bag = parent and parent.GetID and parent:GetID()
+	local slot = b:GetID()
+	-- Bag 0 is the backpack. A truthiness check would skip it.
+	local info
+	if type(bag) == "number" and type(slot) == "number" then
+		info = C_Container.GetContainerItemInfo(bag, slot)
+	end
+	-- A drag clears the icon, and the button can still be marked empty from
+	-- the last layout. Read the slot itself so a drop shows what landed.
+	if info and ns.isSecret(info) then return end
+	local hasItem = info and info.itemID and not ns.isSecret(info.itemID)
+	if not hasItem then
 		setNew(b, false)
 		setBang(b, false)
 		setMarks(b, nil)
-		SetItemButtonTexture(b, b.emptyTex)
-		SetItemButtonCount(b, b.emptyCount)
+		local tex = b.emptyTex
+		if b.realSlot and not tex and type(bag) == "number" then
+			local _, fam = C_Container.GetContainerNumFreeSlots(bag)
+			tex = emptyTexture(bag, isOrdinaryBag(bag, plainNum(fam)))
+		end
+		SetItemButtonTexture(b, (b.empty or b.realSlot) and tex or nil)
+		SetItemButtonCount(b, b.empty and b.emptyCount or 0)
 		SetItemButtonDesaturated(b, false)
 		if SetItemButtonQuality then pcall(SetItemButtonQuality, b, nil) end
 		if b.cd then b.cd:Hide() end
-		-- Running out of room: the count goes orange, then red.
+		paintImportance(b, nil)
 		if b.countText then
-			if b.emptyOrdinary then b.countText:SetTextColor(freeColor(b.emptyCount))
-			else b.countText:SetTextColor(1, 1, 1) end
+			if b.realSlot or not b.emptyOrdinary then b.countText:SetTextColor(1, 1, 1)
+			else b.countText:SetTextColor(freeColor(b.emptyCount)) end
 		end
 		b:SetAlpha(1)
 		return
 	end
 	if b.countText then b.countText:SetTextColor(1, 1, 1) end
-	local bag, slot = b:GetParent():GetID(), b:GetID()
-	local info = C_Container.GetContainerItemInfo(bag, slot)
-	if not info then
-		setNew(b, false)
-		setBang(b, false)
-		setMarks(b, nil)
-		SetItemButtonTexture(b, nil)
-		SetItemButtonCount(b, 0)
-		if SetItemButtonQuality then pcall(SetItemButtonQuality, b, nil) end
-		if b.cd then b.cd:Hide() end
-		return
-	end
 	SetItemButtonTexture(b, info.iconFileID)
 	-- A merged tile counts every stack of the item, read fresh (stacks change in a fight too).
 	local total = info.stackCount or 1
@@ -1443,6 +1842,7 @@ function View:Paint(b)
 		if not inBag then lit = false end
 	end
 	b:SetAlpha(lit and 1 or 0.25)
+	paintImportance(b, info.itemID)
 end
 
 function View:Repaint()
@@ -1492,6 +1892,78 @@ function View:Layout()
 	local used, labelUsed, headUsed = 0, 0, 0
 	local y = 0
 	local content = self.win.content
+	-- Bag order: each bag's own slots, empties included, no sections and no
+	-- sort. A later layout reads the bags again, so a drag stays where it landed.
+	local plain = bagOrderOn() and (self.stackKey == "bags" or self.stackKey == "bank")
+	if plain then
+		for _, bag in ipairs(self.bags()) do
+			local n = numSlots(bag)
+			if n > 0 then
+				local _, fam = C_Container.GetContainerNumFreeSlots(bag)
+				local ordinary = isOrdinaryBag(bag, tonumber(fam) or 0)
+				local tex = emptyTexture(bag, ordinary)
+				labelUsed = labelUsed + 1
+				local l = self:Label(labelUsed)
+				l:ClearAllPoints()
+				l:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
+				l:SetWidth(INNER_W)
+				l:SetText(self.stackKey == "bags" and bagCountLabel(bag) or bagCaption(bag))
+				l:Show()
+				for slot = 1, n do
+					used = used + 1
+					local info = C_Container.GetContainerItemInfo(bag, slot)
+					local filled = info and info.itemID and not ns.isSecret(info.itemID)
+					local b = self:Button(used)
+					b:SetParent(self:Holder(bag))
+					b:SetFrameLevel((self.win:GetFrameLevel() or 1) + 4)
+					b:SetID(slot)
+					b.bagID = bag
+					b.realSlot = true
+					b.empty = not filled
+					if filled then
+						b.emptyTex, b.emptyCount, b.emptyOrdinary = nil, nil, nil
+						b.slots = { { bag = bag, slot = slot } }
+						b.perma = ns.IsPerma(info.itemID)
+					else
+						b.emptyTex, b.emptyCount, b.emptyOrdinary = tex, 0, ordinary
+						b.slots = nil
+						b.perma = false
+					end
+					local col, row = (slot - 1) % COLS, math.floor((slot - 1) / COLS)
+					b:ClearAllPoints()
+					b:SetPoint("TOPLEFT", content, "TOPLEFT", col * (S + GAP), -(y + LABEL_H + row * (S + GAP)))
+					b:Show()
+					self:Paint(b)
+				end
+				local rows = math.ceil(n / COLS)
+				y = y + LABEL_H + rows * (S + GAP) - GAP + 10
+			end
+		end
+	else
+	-- Categorized bags have no per-bag heading. A short line still names the
+	-- backpack and each equipped bag, with used/capacity beside it.
+	if self.stackKey == "bags" then
+		local x, placed = 0, false
+		for _, bag in ipairs(self.bags()) do
+			if numSlots(bag) > 0 and not isKeyring(bag) and (bag == 0 or isEquippedBag(bag)) then
+				labelUsed = labelUsed + 1
+				local l = self:Label(labelUsed)
+				l:SetText(bagCountLabel(bag))
+				local w = math.max(40, math.ceil(l:GetStringWidth() or 0) + 14)
+				if x > 0 and x + w > INNER_W then
+					x = 0
+					y = y + LABEL_H
+				end
+				l:ClearAllPoints()
+				l:SetPoint("TOPLEFT", content, "TOPLEFT", x, -y)
+				l:SetWidth(math.min(w, INNER_W))
+				l:Show()
+				x = x + w
+				placed = true
+			end
+		end
+		if placed then y = y + LABEL_H + 6 end
+	end
 	for _, sec in ipairs(SECTIONS) do
 		local groups = data[sec]
 		local order = groupOrder(sec, groups)
@@ -1539,6 +2011,7 @@ function View:Layout()
 						b.emptyTex, b.emptyCount, b.emptyOrdinary = e.tex, e.count, e.ordinary
 						b.slots = e.slots
 						b.perma = not e.empty and ns.IsPerma(e.info and e.info.itemID)
+						b.realSlot = false
 						local col, row = (i - 1) % cols, math.floor((i - 1) / cols)
 						b:ClearAllPoints()
 						b:SetPoint("TOPLEFT", content, "TOPLEFT", x + col * (S + GAP), -(y + LABEL_H + row * (S + GAP)))
@@ -1553,12 +2026,14 @@ function View:Layout()
 			end
 		end
 	end
+	end
 	-- Bottom left, only while dragging or splitting: a New Item header and one
-	-- real free slot. Kept in the pool either way so a fight can show it
+	-- real free slot. Bag order already shows every empty slot, so it has no
+	-- pinned drop slot. Kept in the pool either way so a fight can show it
 	-- without laying the window out again.
 	self.baseY = y
-	self.reserve = reserve
-	if reserve then
+	self.reserve = plain and nil or reserve
+	if reserve and not plain then
 		local h = self:DropHead()
 		h:ClearAllPoints()
 		h:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
@@ -1572,6 +2047,7 @@ function View:Layout()
 		b.emptyTex, b.emptyCount, b.emptyOrdinary = reserve.tex, reserve.count, reserve.ordinary
 		b.slots = nil
 		b.perma = false
+		b.realSlot = false
 		b:ClearAllPoints()
 		b:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(y + HEAD_H))
 		self:Paint(b)
@@ -1660,9 +2136,16 @@ function View:Place()
 	local p = db()[self.posKey]
 	if type(p) == "table" and type(p.x) == "number" and type(p.y) == "number" then
 		w:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", p.x, p.y)
-	else
-		w:SetPoint(unpack(self.defaultPoint))
+		return
 	end
+	-- First open sits on the left of the bag window. A drag saves bankPos,
+	-- and that spot is used from then on.
+	local bags = self.posKey == "bankPos" and _G.ZydeForeverBags
+	if bags then
+		w:SetPoint("TOPRIGHT", bags, "TOPLEFT", -8, 0)
+		return
+	end
+	w:SetPoint(unpack(self.defaultPoint))
 end
 
 -- Your gold, for the bottom-right corner: 14g 71s 18c with the coin icons.
@@ -1789,6 +2272,39 @@ local function fitsSpecial(itemFam, bagFam)
 	return bit.band(itemFam, bagFam) ~= 0
 end
 
+-- The reagent bag takes an item the game has marked as a crafting reagent,
+-- and only when that item also matches the bag's own family (an herb bag in
+-- that slot still refuses cloth). Class 5 is wider than that mark, and item
+-- family alone is wider still. Either one was enough for the bag to refuse
+-- the move. nil means the item is not loaded yet, so a sort must not try it.
+local function markedReagent(id)
+	if not id or ns.isSecret(id) or type(id) ~= "number" then return false end
+	if C_Item and C_Item.IsItemCraftingReagent then
+		local ok, v = pcall(C_Item.IsItemCraftingReagent, id)
+		if ok and v and not ns.isSecret(v) then return true end
+	end
+	local get = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+	if not get then return nil end
+	local ok, name, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, reagent = pcall(get, id)
+	if not ok then return nil end
+	if name == nil or ns.isSecret(name) then
+		if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
+		return nil
+	end
+	if ns.isSecret(reagent) then return nil end
+	return reagent and true or false
+end
+
+function canEnterReagentBag(id)
+	local marked = markedReagent(id)
+	if marked == nil then return nil end
+	if not marked or not HAS_REAGENT then return false end
+	local _, bagFam = C_Container.GetContainerNumFreeSlots(REAGENT_BAG)
+	bagFam = plainNum(bagFam)
+	if bagFam == 0 then return true end
+	return fitsSpecial(itemFamily(id), bagFam)
+end
+
 local function bagFamilies(bags)
 	local fam = {}
 	for _, bag in ipairs(bags) do
@@ -1857,7 +2373,10 @@ function transferAtBank(b)
 			if not isKeyring(dst) then
 				local _, fam = C_Container.GetContainerNumFreeSlots(dst)
 				fam = plainNum(fam)
-				local rank = (fam == 0 and 1) or (fitsSpecial(kind, fam) and 2) or 0
+				local rank = 0
+				if not (HAS_REAGENT and dst == REAGENT_BAG and canEnterReagentBag(id) ~= true) then
+					rank = (fam == 0 and 1) or (fitsSpecial(kind, fam) and 2) or 0
+				end
 				if rank > best then
 					local s = freeSlot(dst)
 					if s then destBag, destSlot, best = dst, s, rank end
@@ -1902,7 +2421,8 @@ function specialMoves(bags)
 				if id and not ns.isSecret(id) and not fitsSpecial(itemFamily(id), fam[bag]) then
 					local kind = itemFamily(id)
 					for dst, left in pairs(room) do
-						if left > 0 and fitsSpecial(kind, fam[dst]) then
+						local reagentOk = not (HAS_REAGENT and dst == REAGENT_BAG) or canEnterReagentBag(id) == true
+						if left > 0 and reagentOk and fitsSpecial(kind, fam[dst]) then
 							room[dst] = left - 1
 							n = n + 1
 							break
@@ -1915,13 +2435,141 @@ function specialMoves(bags)
 	return n
 end
 
+-- Bag order Restack. Same category order as the sorted bag view. Only an item
+-- the reagent bag will accept goes there, and only while it has room. Everything
+-- else packs from the backpack forward, so empty slots are the last slots and a
+-- later bag can be empty.
+local function orderMove(bags, refused)
+	refused = refused or {}
+	local fam = bagFamilies(bags)
+	local reagentBag
+	if HAS_REAGENT and numSlots(REAGENT_BAG) > 0 then reagentBag = REAGENT_BAG end
+	local function readItem(bag, slot)
+		local info = C_Container.GetContainerItemInfo(bag, slot)
+		if not info or ns.isSecret(info) or not info.itemID or ns.isSecret(info.itemID) then return nil end
+		local n = info.stackCount
+		if ns.isSecret(n) or type(n) ~= "number" then n = 1 end
+		if info.isLocked then return "locked" end
+		info.bag, info.slot = bag, slot
+		local q = info.quality
+		return {
+			bag = bag, slot = slot, id = info.itemID, n = n, info = info,
+			name = nameOf(info),
+			q = (not ns.isSecret(q) and type(q) == "number") and q or 0,
+		}
+	end
+	local function sig(id, n) return id .. ":" .. n end
+	local normal, reagentSlots, items = {}, {}, {}
+	for _, bag in ipairs(bags) do
+		if not isKeyring(bag) then
+			local isReagent = reagentBag and bag == reagentBag
+			if isReagent or (fam[bag] or 0) == 0 then
+				local slots = isReagent and reagentSlots or normal
+				for slot = 1, numSlots(bag) do
+					slots[#slots + 1] = { bag = bag, slot = slot }
+					local it = readItem(bag, slot)
+					if it == "locked" then return "locked" end
+					if it then items[#items + 1] = it end
+				end
+			end
+		end
+	end
+	local groups = {}
+	for _, sec in ipairs(SECTIONS) do groups[sec] = {} end
+	for _, it in ipairs(items) do
+		local sec, group = categorize(it.info)
+		if sec == "Gear" and (group == "Weapons" or group == "Armor") then
+			local c = scan(it.bag, it.slot, it.info)
+			if c and c.upgrade ~= nil and not c.red then sec = "Upgrades" end
+		end
+		groups[sec][group] = groups[sec][group] or {}
+		table.insert(groups[sec][group], it)
+	end
+	local ordered = {}
+	for _, sec in ipairs(SECTIONS) do
+		for _, list in pairs(groups[sec]) do
+			table.sort(list, function(a, b)
+				if a.q ~= b.q then return a.q > b.q end
+				if a.name ~= b.name then return a.name < b.name end
+				if a.id ~= b.id then return a.id < b.id end
+				return a.n > b.n
+			end)
+		end
+		for _, g in ipairs(groupOrder(sec, groups[sec])) do
+			for _, it in ipairs(groups[sec][g]) do ordered[#ordered + 1] = it end
+		end
+	end
+	local reagentItems, normalItems, room = {}, {}, #reagentSlots
+	for _, it in ipairs(ordered) do
+		if room > 0 and canEnterReagentBag(it.id) == true and not refused[it.id] then
+			room = room - 1
+			reagentItems[#reagentItems + 1] = it
+		else
+			normalItems[#normalItems + 1] = it
+		end
+	end
+	local dests = {}
+	local function add(slots, list)
+		for i, slot in ipairs(slots) do
+			local it = list[i]
+			dests[#dests + 1] = { bag = slot.bag, slot = slot.slot, sig = it and sig(it.id, it.n) or false }
+		end
+	end
+	add(reagentSlots, reagentItems)
+	add(normal, normalItems)
+	local cur, at = {}, {}
+	local function key(bag, slot) return bag .. ":" .. slot end
+	for _, d in ipairs(dests) do
+		local it = readItem(d.bag, d.slot)
+		if it == "locked" then return "locked" end
+		local s = it and sig(it.id, it.n) or false
+		cur[key(d.bag, d.slot)] = s
+		if s then
+			at[s] = at[s] or {}
+			at[s][#at[s] + 1] = { bag = d.bag, slot = d.slot }
+		end
+	end
+	local satisfied = {}
+	for _, d in ipairs(dests) do
+		local k = key(d.bag, d.slot)
+		if cur[k] == d.sig then satisfied[k] = true end
+	end
+	for _, d in ipairs(dests) do
+		local k = key(d.bag, d.slot)
+		if not satisfied[k] then
+			if not d.sig then
+				local here = cur[k]
+				if here then
+					for _, other in ipairs(dests) do
+						local ok = key(other.bag, other.slot)
+						if other.sig == here and not satisfied[ok] then
+							return { d.bag, d.slot, other.bag, other.slot }
+						end
+					end
+				end
+			else
+				local list = at[d.sig]
+				if list then
+					for _, src in ipairs(list) do
+						local sk = key(src.bag, src.slot)
+						if sk ~= k and not satisfied[sk] then
+							return { src.bag, src.slot, d.bag, d.slot }
+						end
+					end
+				end
+			end
+		end
+	end
+end
+
 local restacking = false
 local function restack(bags)
 	if restacking then return end
 	if InCombatLockdown() then print(P .. "can't restack during a fight") return end
 	if GetCursorInfo() then print(P .. "put down what's on the cursor first") return end
 	restacking = true
-	local moves, tries = 0, 0
+	local moves, tries, lastKey = 0, 0, nil
+	local refused = {}
 	local function finish(msg)
 		restacking = false
 		print(P .. msg)
@@ -1931,7 +2579,15 @@ local function restack(bags)
 		if tries > 400 then finish("restack stopped (took too long)") return end
 		if InCombatLockdown() then finish("restack stopped for the fight") return end
 		local fam = bagFamilies(bags)
-		local function rank(bag, kind)
+		local packing = false
+		if bagOrderOn() then
+			for _, bag in ipairs(bags) do
+				if bag == 0 then packing = true break end
+			end
+		end
+		local function rank(bag, kind, id)
+			-- A part stack the reagent bag will not take must not join into it.
+			if HAS_REAGENT and bag == REAGENT_BAG and canEnterReagentBag(id) ~= true then return 0 end
 			if fitsSpecial(kind, fam[bag]) then return 2 end
 			if (fam[bag] or 0) == 0 then return 1 end
 			return 0
@@ -1969,7 +2625,7 @@ local function restack(bags)
 				-- The stack already in the reagent bag (or quiver) stays put.
 				-- The part stack in the normal bag is the one that moves.
 				table.sort(list, function(a, b)
-					local ra, rb = rank(a.bag, kind), rank(b.bag, kind)
+					local ra, rb = rank(a.bag, kind, id), rank(b.bag, kind, id)
 					if ra ~= rb then return ra > rb end
 					return a.n > b.n
 				end)
@@ -1978,6 +2634,30 @@ local function restack(bags)
 				return
 			end
 		end
+		local pack = packing
+		if pack then
+			local m = orderMove(bags, refused)
+			if m == "locked" then C_Timer.After(0.15, step) return end
+			if m then
+				local k = m[1] .. ":" .. m[2] .. ">" .. m[3] .. ":" .. m[4]
+				if k == lastKey then
+					-- The reagent bag refused it. Leave that item out and keep packing.
+					if HAS_REAGENT and m[3] == REAGENT_BAG then
+						local info = C_Container.GetContainerItemInfo(m[1], m[2])
+						local id = info and info.itemID
+						if id and not ns.isSecret(id) then refused[id] = true end
+						lastKey = nil
+						C_Timer.After(0.05, step)
+						return
+					end
+					finish("restack stopped (that item can't move)")
+					return
+				end
+				lastKey = k
+				move(m[1], m[2], m[3], m[4])
+				return
+			end
+		else
 		for _, bag in ipairs(bags) do
 			if not isKeyring(bag) then
 				for slot = 1, numSlots(bag) do
@@ -1987,7 +2667,8 @@ local function restack(bags)
 						local kind = itemFamily(id)
 						if kind and kind ~= 0 and not fitsSpecial(kind, fam[bag]) then
 							for _, dst in ipairs(bags) do
-								if not isKeyring(dst) and fitsSpecial(kind, fam[dst]) then
+								local reagentOk = not (HAS_REAGENT and dst == REAGENT_BAG) or canEnterReagentBag(id) == true
+								if not isKeyring(dst) and reagentOk and fitsSpecial(kind, fam[dst]) then
 									local open = freeSlot(dst)
 									if open then move(bag, slot, dst, open) return end
 								end
@@ -1996,6 +2677,7 @@ local function restack(bags)
 					end
 				end
 			end
+		end
 		end
 		finish(moves > 0 and ("restacked (" .. moves .. " moves)") or "nothing to restack")
 	end
@@ -2069,6 +2751,29 @@ local function shownBags()
 	return list
 end
 
+-- Shift-click a bag in the row to leave its slots out of the window.
+-- Click it again to put them back. The bag icon stays so it can be clicked.
+local function bagContentsHidden(bag)
+	local t = db().bagContentsHidden
+	return type(t) == "table" and t[tostring(bag)] == true
+end
+local function toggleBagContents(bag)
+	local t = db().bagContentsHidden or {}
+	db().bagContentsHidden = t
+	local key = tostring(bag)
+	t[key] = not t[key] or nil
+end
+local function withoutHidden(list)
+	local t = db().bagContentsHidden
+	if type(t) ~= "table" then return list end
+	local out, hidden = {}, false
+	for _, bag in ipairs(list) do
+		if t[tostring(bag)] then hidden = true else out[#out + 1] = bag end
+	end
+	return hidden and out or list
+end
+local syncBankRow
+
 local EMPTY_BAG_TEX = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Bag"
 local function paintBagSlots()
 	local win = bagsView and bagsView.win
@@ -2079,6 +2784,9 @@ local function paintBagSlots()
 		b.icon:SetTexture(tex or EMPTY_BAG_TEX)
 		local n = numSlots(b.bag)
 		b.count:SetText(n > 0 and n or "")
+		local hidden = bagContentsHidden(b.bag)
+		if b.icon.SetDesaturated then b.icon:SetDesaturated(hidden) end
+		b.icon:SetAlpha(hidden and 0.35 or 1)
 	end
 end
 
@@ -2105,9 +2813,28 @@ local function bagSlot(v, bag, x)
 	local function put(self)
 		local slot = invSlot(self.bag)
 		if InCombatLockdown() or not slot then return end
-		if CursorHasItem() then PutItemInBag(slot) else PickupBagFromSlot(slot) end
+		if CursorHasItem() then
+			-- Dropping a non-reagent on the reagent bag is the error. Leave it
+			-- on the cursor instead of asking the bag to take it.
+			if HAS_REAGENT and self.bag == REAGENT_BAG and GetCursorInfo then
+				local ok, kind, id = pcall(GetCursorInfo)
+				if ok and not ns.isSecret(kind) and kind == "item" and type(id) == "number" and not ns.isSecret(id) and canEnterReagentBag(id) == false then return end
+			end
+			PutItemInBag(slot)
+		else
+			PickupBagFromSlot(slot)
+		end
 	end
-	b:SetScript("OnClick", put)
+	b:SetScript("OnClick", function(self, button)
+		if button == "LeftButton" and IsShiftKeyDown() and not cursorHolding() then
+			toggleBagContents(self.bag)
+			v.dirty = true
+			if not InCombatLockdown() then v:Layout() end
+			if v.stackKey == "bank" then syncBankRow() else paintBagSlots() end
+			return
+		end
+		put(self)
+	end)
 	b:SetScript("OnReceiveDrag", put)
 	b:SetScript("OnDragStart", function(self)
 		local slot = invSlot(self.bag)
@@ -2124,6 +2851,7 @@ local function bagSlot(v, bag, x)
 			end
 			GameTooltip:AddLine("Drop a bag here to put it on. Click or drag to take it off (it must be empty).", 0.6, 0.8, 1, true)
 		end
+		GameTooltip:AddLine(bagContentsHidden(self.bag) and "Shift-click to show this bag." or "Shift-click to hide this bag.", 0.6, 0.8, 1)
 		local n = numSlots(self.bag)
 		if n > 0 then
 			local free = plainNum(C_Container.GetContainerNumFreeSlots(self.bag))
@@ -2146,7 +2874,7 @@ local closeBlizzard -- forward
 
 local function buildBags()
 	local v = newView({
-		frameName = "ZydeForeverBags", bags = shownBags, posKey = "bagPos", stackKey = "bags",
+		frameName = "ZydeForeverBags", bags = function() return withoutHidden(shownBags()) end, posKey = "bagPos", stackKey = "bags",
 		titleText = "Bags",
 		defaultPoint = { "BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -60, 110 },
 		bagRowShown = bagRowShown,
@@ -2547,7 +3275,7 @@ end
 
 local CHIP_W = S + 10
 local CHIP_TEXT = 26
-local function syncBankRow()
+function syncBankRow()
 	if not bankView or not bankView.win.bagRow then return end
 	local win = bankView.win
 	local ids = bankBagContainers()
@@ -2584,6 +3312,9 @@ local function syncBankRow()
 		b:SetPoint("TOPLEFT", (i - 1) * (CHIP_W + GAP), 0)
 		local icon = type(entry) == "table" and entry.icon
 		b.icon:SetTexture(bankBagTexture(bag, i) or plainTex(icon) or EMPTY_BAG_TEX)
+		local hidden = bagContentsHidden(bag)
+		if b.icon.SetDesaturated then b.icon:SetDesaturated(hidden) end
+		b.icon:SetAlpha(hidden and 0.35 or 1)
 		local n = numSlots(bag)
 		if n > 0 then
 			local free = plainNum(C_Container.GetContainerNumFreeSlots(bag))
@@ -2636,12 +3367,26 @@ local function syncBankRow()
 	end
 end
 
+-- Same default as the bag row on your bags: hidden until the button is on.
+-- Hidden extra bank bags leave the window. The main bank stays.
+local function bankBagsShown() return db().bankSlotsShown and true or false end
+local function shownBankBags()
+	local list = bankBags()
+	if bankBagsShown() then return list end
+	local out = {}
+	for _, bag in ipairs(list) do
+		if BANK_MAIN and bag == BANK_MAIN then out[#out + 1] = bag end
+	end
+	if #out == 0 then return list end
+	return out
+end
+
 local function buildBank()
 	local v = newView({
-		frameName = "ZydeForeverBank", bags = bankBags, posKey = "bankPos", stackKey = "bank",
+		frameName = "ZydeForeverBank", bags = function() return withoutHidden(shownBankBags()) end, posKey = "bankPos", stackKey = "bank",
 		titleText = "Bank",
 		defaultPoint = { "TOPLEFT", UIParent, "TOPLEFT", 20, -110 },
-		bagRowShown = function() return true end,
+		bagRowShown = bankBagsShown,
 	})
 	local win = v.win
 	win.bagRow = CreateFrame("Frame", nil, win)
@@ -2679,6 +3424,26 @@ local function buildBank()
 	win.buySlot:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	win.buySlot:Hide()
 	v:PlaceContent()
+	local toggle = CreateFrame("Button", nil, win)
+	toggle:SetSize(22, 22)
+	toggle:SetPoint("RIGHT", win.search, "LEFT", -10, 0)
+	toggle:SetNormalTexture(EMPTY_BAG_TEX)
+	toggle:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+	toggle:SetScript("OnClick", function()
+		if InCombatLockdown() then return end
+		db().bankSlotsShown = not bankBagsShown()
+		v:PlaceContent()
+		v.dirty = true
+		v:Layout()
+	end)
+	toggle:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:AddLine(bankBagsShown() and "Hide bank bags" or "Show bank bags")
+		GameTooltip:AddLine("The extra bank bags. The main bank stays. Hidden bags leave this window.", 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	toggle:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	win.title:SetWidth(INNER_W - 140 - 6 - 24 - 40 - 28)
 	win.restackBtn = win.AddButton("Restack", 80, "Restack",
 		"Joins part stacks of the same item, and moves an item into the bank bag that holds it when that bag has a free slot. The number is how many slots that frees.",
 		function() restack(bankBags()) end)
@@ -2896,7 +3661,12 @@ local function buildMemory()
 		if type(p) == "table" and type(p.x) == "number" and type(p.y) == "number" then
 			win:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", p.x, p.y)
 		else
-			win:SetPoint("CENTER", -220, 40)
+			local bags = _G.ZydeForeverBags
+			if bags then
+				win:SetPoint("TOPRIGHT", bags, "TOPLEFT", -8, 0)
+			else
+				win:SetPoint("CENTER", -220, 40)
+			end
 		end
 	end
 	win:SetScript("OnDragStart", function(self) self:StartMoving() end)
@@ -2992,7 +3762,7 @@ local function buildMemory()
 		h.line:SetHeight(1)
 		h.line:SetPoint("LEFT", h.text, "RIGHT", 8, 0)
 		h.line:SetPoint("RIGHT")
-		h:SetScript("OnClick", function(btn)
+		h.fold = function(btn)
 			collapsed()[btn.section] = not collapsed()[btn.section] or nil
 			layoutMemory()
 			if InCombatLockdown() then
@@ -3003,7 +3773,8 @@ local function buildMemory()
 				v.dirty = true
 				if v.win:IsShown() then v:Layout() end
 			end
-		end)
+		end
+		armFold(h)
 		heads[i] = h
 		return h
 	end
@@ -3242,22 +4013,50 @@ end
 -- Events
 ---------------------------------------------------------------------------
 local ev = CreateFrame("Frame")
-for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "BAG_UPDATE_DELAYED", "ITEM_LOCK_CHANGED",
+for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "BAG_UPDATE", "BAG_UPDATE_DELAYED", "ITEM_LOCK_CHANGED",
 	"BAG_UPDATE_COOLDOWN", "PLAYER_REGEN_ENABLED", "PLAYER_MONEY", "GET_ITEM_INFO_RECEIVED", "QUEST_LOG_UPDATE",
 	"BAG_CONTAINER_UPDATE", "PLAYER_LEVEL_UP", "SKILL_LINES_CHANGED", "PLAYER_EQUIPMENT_CHANGED",
 	"LEARNED_SPELL_IN_TAB", "NEW_RECIPE_LEARNED", "MERCHANT_SHOW", "MERCHANT_CLOSED",
-	"BANKFRAME_OPENED", "BANKFRAME_CLOSED", "PLAYERBANKSLOTS_CHANGED", "PLAYERBANKBAGSLOTS_CHANGED", "BANK_TABS_CHANGED", "PLAYER_MONEY", "CURSOR_CHANGED" }) do
+	"BANKFRAME_OPENED", "BANKFRAME_CLOSED", "PLAYERBANKSLOTS_CHANGED", "PLAYERBANKBAGSLOTS_CHANGED", "BANK_TABS_CHANGED", "PLAYER_MONEY", "CURSOR_CHANGED",
+	"AUCTION_HOUSE_SHOW", "AUCTION_HOUSE_CLOSED",
+	"MAIL_SHOW", "MAIL_CLOSED", "TRADE_SHOW", "TRADE_CLOSED" }) do
 	pcall(ev.RegisterEvent, ev, e)
 end
 -- For a few seconds after login or a reload the game can flag everything you
 -- carry as new. Nothing is new then: clear it while the bags fill in.
 local loginQuietUntil = 0
+local cursorWasItem = false
 local function clearNew() if C_NewItems and C_NewItems.ClearAll then pcall(C_NewItems.ClearAll) end end
 
 local function allChanged()
 	if bankView and bankView.win:IsShown() then syncBankRow() end
 	if paintBankButton then paintBankButton() end
-	for _, v in pairs(views) do v:Changed() end
+	-- Opening the bank, the auction house, the trade window, or the mailbox,
+	-- and every bag event while any of them stays open, was re-sorting the
+	-- bags too. That rebuild flashes the bag window. The bank still sorts.
+	-- The bags sort once when the last of those windows closes.
+	local f = bankFrame()
+	local atBank = f and f.IsShown and f:IsShown()
+	if ns.isSecret(atBank) then atBank = false end
+	local holdBags = atBank or auctionHouseOpen() or tradeOpen() or mailOpen()
+	for _, v in pairs(views) do
+		if holdBags and v == bagsView then
+			v.dirty = true
+		else
+			v:Changed()
+		end
+	end
+end
+
+-- The bags were left unsorted while one of those windows was open. Sort once
+-- when the last of them closes. A window that is still open keeps the hold.
+local function releaseBags()
+	if not bagsView then return end
+	local f = bankFrame()
+	local atBank = f and f.IsShown and f:IsShown()
+	if ns.isSecret(atBank) then atBank = false end
+	if atBank or auctionHouseOpen() or tradeOpen() or mailOpen() then return end
+	bagsView:Changed()
 end
 
 ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
@@ -3270,10 +4069,27 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 	end
 	if event == "BAG_UPDATE_DELAYED" and GetTime() < loginQuietUntil then clearNew() end
 	-- Picking an item up (or putting it down) shows or hides the Junk bar.
+	-- The bag update for a move inside your own bags often arrives while the
+	-- item is still on the cursor, so that layout paints the slot empty and
+	-- nothing asks again after the drop. When the cursor lets the item go,
+	-- read the bags once more.
 	if event == "CURSOR_CHANGED" then
+		local holding = cursorHolding()
+		local dropped = cursorWasItem and not holding
+		cursorWasItem = holding
 		if bagsView and bagsView.win.UpdateJunkBar then bagsView.win.UpdateJunkBar() end
 		for _, v in pairs(views) do
 			if v.SyncDropSlot then v:SyncDropSlot() end
+		end
+		if dropped then
+			allChanged()
+			if bagsView and bagsView.win:IsShown() and not InCombatLockdown() then
+				-- pending means a full sort was queued. Do it now so the
+				-- slots are not left blank. While the bank, auction house,
+				-- trade window, or mailbox holds that sort, just redraw the
+				-- slots in place.
+				if bagsView.pending then bagsView:Layout() else bagsView:Repaint() end
+			end
 		end
 		return
 	end
@@ -3292,7 +4108,7 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 		if event == "PLAYER_REGEN_ENABLED" then install() end
 		return
 	end
-	if event == "BAG_UPDATE_DELAYED" or event == "BANKFRAME_OPENED" or event == "BANKFRAME_CLOSED" then
+	if event == "BAG_UPDATE" or event == "BAG_UPDATE_DELAYED" or event == "BANKFRAME_OPENED" or event == "BANKFRAME_CLOSED" then
 		markMoveStale()
 	end
 	if event == "BANK_TABS_CHANGED" or event == "PLAYER_MONEY" or event == "PLAYERBANKSLOTS_CHANGED" then
@@ -3318,12 +4134,22 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 		gameBankShown = true -- (so hiding ours doesn't close the bank again)
 		bankView.win:Hide()
 		tuckGameBank(false)
+		-- The bag window was left alone during the visit. Sort it once now,
+		-- unless the auction house, trade, or mailbox is still open.
+		releaseBags()
+		return
+	end
+	if event == "AUCTION_HOUSE_CLOSED" or event == "MAIL_CLOSED" or event == "TRADE_CLOSED" then
+		-- Left alone while that window was open. Sort once now, unless the
+		-- bank or another of those windows is still open.
+		releaseBags()
 		return
 	end
 	if event == "PLAYER_LEVEL_UP" or event == "SKILL_LINES_CHANGED" or event == "PLAYER_EQUIPMENT_CHANGED"
 		or event == "LEARNED_SPELL_IN_TAB" or event == "NEW_RECIPE_LEARNED" then
 		-- What you can use, and what's an upgrade, may have changed: read the tooltips again.
 		wipe(scanCache)
+		wipe(beginsCache)
 		-- (a full sort, not just a repaint: the Upgrades section may change)
 		allChanged()
 		return
@@ -3341,7 +4167,7 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 		if bankView and bankView.win:IsShown() then syncBankRow() end
 		return
 	end
-	if event == "BAG_CONTAINER_UPDATE" or event == "BAG_UPDATE_DELAYED" then paintBagSlots() end
+	if event == "BAG_CONTAINER_UPDATE" or event == "BAG_UPDATE" or event == "BAG_UPDATE_DELAYED" then paintBagSlots() end
 	if event == "ITEM_LOCK_CHANGED" or event == "BAG_UPDATE_COOLDOWN" then
 		ns.BagWindowRepaint()
 		return
@@ -3349,3 +4175,16 @@ ev:SetScript("OnEvent", function(_, event, isLogin, isReload)
 	if bankFrame() and bankFrame():IsShown() then rememberBank() end
 	allChanged()
 end)
+
+if ns.OnFeatureChanged then
+	ns.OnFeatureChanged(function(key)
+		if key ~= "bagOrder" then return end
+		for _, v in ipairs({ bagsView, bankView }) do
+			if v then
+				v.dirty = true
+				if v.win:IsShown() and not InCombatLockdown() then v:Layout()
+				elseif v.win:IsShown() then v:Repaint() end
+			end
+		end
+	end)
+end
