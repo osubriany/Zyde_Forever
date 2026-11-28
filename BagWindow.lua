@@ -1428,8 +1428,8 @@ function View:Layout()
 	local rb = self.win.restackBtn
 	if rb then
 		local n = (saved or 0) + specialMoves(self.bags())
-		rb:SetText(n > 0 and ("Restack +" .. n) or "Restack")
-		rb:Show()
+		-- (nothing to free: no button; the ones after it close the gap)
+		if n > 0 then rb:SetText("Restack +" .. n) rb:Show() else rb:Hide() end
 		self.win.Flow()
 	end
 	local used, labelUsed, headUsed = 0, 0, 0
