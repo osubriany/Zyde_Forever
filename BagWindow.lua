@@ -1038,30 +1038,10 @@ function View:Button(i)
 	]])
 	use.owner = b
 	b.use = use
-	-- No addon PreClick on this button. A hook here taints the click, and once
-	-- combat starts the game blocks the secure item use, so a health pot does
-	-- nothing. The slot check that used to live here is what did that.
-	local origClick = b:GetScript("OnClick")
-	-- The template's own click is what the default bags run. A right-click there
-	-- is UseContainerItem, which starts a quest and does not equip a necklace.
-	-- Our wrapper is addon code, so UseContainerItem is blocked from it. Quest
-	-- items put this original click back. Everything else keeps the wrapper so
-	-- the secure button above the slot can use a health pot.
-	b.origClick = origClick
-	if origClick then
-		local function wrapped(self, button, ...)
-			local aimingNow = button == "LeftButton" and SpellCanTargetItem and SpellCanTargetItem()
-			if button == "RightButton" or (aimingNow and InCombatLockdown()) then
-				if button == "RightButton" and transferAtBank(self) then return end
-				if button == "RightButton" and auctionHouseOpen() then postToAuction(self) return end
-				if button == "RightButton" and attachToMail(self) then return end
-				return
-			end
-			return origClick(self, button, ...)
-		end
-		b.wrappedClick = wrapped
-		b:SetScript("OnClick", wrapped)
-	end
+	-- Do not replace this slot's OnClick. The template's own click is secure, so
+	-- a right-click can UseContainerItem in combat (a pot, dynamite, a drink).
+	-- An addon wrapper taints that click and the game blocks it for the fight.
+	-- The secure button above is only for a spell that is waiting on an item.
 	b:HookScript("OnEnter", function(btn)
 		if btn.empty then
 			GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
@@ -1422,6 +1402,12 @@ local function placeUse(b, active)
 		return
 	end
 	if move and move:IsShown() then move:Hide() end
+	-- Ordinary right-clicks belong to the slot. Its own handler uses the item
+	-- and still works in a fight. This cover would take the click instead.
+	if not aimingNow then
+		if use:IsShown() then use:Hide() end
+		return
+	end
 	-- Right-click uses the slot itself through this secure button (food, drink, scrolls,
 	-- potions; at a vendor that sells it). Only a bandage goes through the game's own slot
 	-- button, so you can pick who it heals - and only when that button is on screen and is
