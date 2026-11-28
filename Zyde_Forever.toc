@@ -44,6 +44,7 @@ MinimapLook.lua
 Tidy.lua
 Guild.lua
 VendorList.lua
+AutoRepair.lua
 Recipes.lua
 LFGHelper.lua
 
@@ -97,3 +98,5 @@ LevelPlanner\UI\Skip.lua
 LevelPlanner\UI\Shopping.lua
 LevelPlanner\Auto.lua
 LevelPlanner\Why.lua
+
+ItemCounts.lua
