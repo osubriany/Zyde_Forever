@@ -761,6 +761,9 @@ function S.BuildQuest(questId, logEntry, opts)
 			kind = "pickup", questId = questId, questName = quest.name, points = pts, npcIds = starts[1],
 			work = cfg.npcTalkSeconds or 10, mobXp = 0, label = "Pick up " .. quest.name,
 		}
+		-- a giver inside a cave: the arrow goes to the way in first (fix.start.via, Waypoint.lua)
+		local via = fix and fix.start and fix.start.via and pointsFromSpawns(fix.start.via)[1]
+		if via then pickup.via, pickup.viaName = via, fix.start.viaName or "the cave entrance" end
 		if fixStart and fixStart.drop then
 			-- the quest starts from an item these mobs drop: a few kills, then right-click the item
 			local E = ns.Estimate

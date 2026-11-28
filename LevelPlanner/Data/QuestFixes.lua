@@ -37,9 +37,9 @@ ns.QuestFixes = {
 	-- (Kargath's quest NPCs stand around 2.4-6.5, 46-47).
 	-- (78823's turn-in is in its entry under Batch 8 below: one entry per ID - a second one replaces the first)
 	[78830] = { name = "Terror of the Desert Skies", finish = { override = true, spawns = { [3] = { { 4.0, 46.5 } } } } },
-	-- Jom-jom's Escape (Riverglades, 16591): picked up at 68.8, 31.2 (the user, 2026-11-28), not where
-	-- Questie (or Zygor's 73.3, 24.8) puts the giver.
-	[94556] = { name = "Jom-jom's Escape", start = { override = true, spawns = { [16591] = { { 68.8, 31.2 } } } } },
+	-- Jom-jom's Escape (Riverglades, 16591): Jom-jom is in a cave; its way in is at 77, 27 (the user,
+	-- 2026-11-28). via: the arrow goes there first, then to him (Questie's spot for him is right).
+	[94556] = { name = "Jom-jom's Escape", start = { via = { [16591] = { { 77.0, 27.0 } } }, viaName = "the cave entrance" } },
 	-- Valuable Vantages (Horde, Hillsbrad): place the three Apothecary Vials on peaks.
 	-- Spots from Sportskeeda's walkthrough.
 	[98095] = {

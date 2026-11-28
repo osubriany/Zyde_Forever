@@ -153,10 +153,40 @@ C_Timer.NewTicker(2, function()
 	if ns.active and isGhost() and ns.StepList and ns.StepList.Refresh then ns.safe(ns.StepList.Refresh) end
 end)
 
+-- A step whose NPC is inside a cave (stop.via, Data/QuestFixes.lua start.via): the arrow points at the
+-- way in until you've been there (within Config.viaArrivedYards), then at the NPC. Remembered per
+-- step for 2 hours (ns.char.viaPassed), so a /reload inside the cave doesn't send you back out.
+local function viaKey(stop) return tostring(stop.key or stop.label or "") end
+local function viaPending(stop)
+	if not (stop and stop.via and stop.via.wx) then return false end
+	local done = ns.char and ns.char.viaPassed and ns.char.viaPassed[viaKey(stop)]
+	return not (done and time() - done < 2 * 3600)
+end
+W.ViaPending = viaPending -- (the step list says "through the cave entrance")
+
+C_Timer.NewTicker(1, function()
+	if not ns.active then return end
+	local stop = ns.plan and ns.plan.stops and ns.plan.stops[1]
+	if not viaPending(stop) then return end
+	local _, d = ns.Geo.VectorTo(stop.via)
+	if d and d <= (ns.cfg.viaArrivedYards or 20) then
+		ns.char.viaPassed = ns.char.viaPassed or {}
+		for k, t in pairs(ns.char.viaPassed) do if time() - t > 2 * 3600 then ns.char.viaPassed[k] = nil end end
+		ns.char.viaPassed[viaKey(stop)] = time()
+		lastKey = nil
+		W.Update(ns.plan)
+		if ns.StepList and ns.StepList.Refresh then ns.safe(ns.StepList.Refresh) end -- (its "go in at..." note goes)
+	end
+end)
+
 function W.Update(plan)
 	if isGhost() and W.ShowCorpse() then return end -- the corpse comes first
 	local stop = plan and plan.stops and plan.stops[1]
 	local p = stop and stop.point
 	if not p or not p.map or not p.x or not p.y then clear() return end
+	if viaPending(stop) and stop.via.map and stop.via.x then
+		setTarget(stop.via, "Go in: " .. (stop.viaName or "the entrance") .. " - " .. (stop.label or ""), nil)
+		return
+	end
 	setTarget(p, stop.label or stop.questName or "LevelPlanner", stop.questId)
 end

@@ -413,6 +413,9 @@ local function groupSteps(plan)
 				travelTo = s.travelTo, destKind = s.destKind, travelSecs = s.travelSecs, guessed = s.guessed,
 				pinTrip = s.pinTrip, -- (the way to a "..." NPC, UI/Pin.lua: right-click removes it)
 				early = s.early, -- (an early pick-up "for later", Planner.lua)
+				-- (a giver in a cave whose way in you haven't reached yet: Waypoint.lua)
+				viaNote = ns.Waypoint and ns.Waypoint.ViaPending and ns.Waypoint.ViaPending(s) and s.via
+					and string.format("go in at %s (%.0f, %.0f) first", s.viaName or "the entrance", s.via.x, s.via.y) or nil,
 				-- right-click > "Skip quest" (UI/Skip.lua)
 				skips = { t },
 			}
@@ -458,7 +461,9 @@ local function describe(step, plan)
 			detail = table.concat(step.names, ", ")
 		else
 			titleText = step.label
-			if step.early then
+			if step.viaNote then
+				detail = "|cffffd100" .. step.viaNote .. "|r"
+			elseif step.early then
 				-- (its turn-in isn't in this hour's route: say why it's taken now)
 				detail = string.format("|cff66ccfffor later|r - saves ~%s coming back to this giver", ns.shortTime(step.early.saved))
 			else
