@@ -1038,10 +1038,26 @@ function View:Button(i)
 	]])
 	use.owner = b
 	b.use = use
-	-- Do not replace this slot's OnClick. The template's own click is secure, so
-	-- a right-click can UseContainerItem in combat (a pot, dynamite, a drink).
-	-- An addon wrapper taints that click and the game blocks it for the fight.
-	-- The secure button above is only for a spell that is waiting on an item.
+	-- The template's right-click calls UseContainerItem. From an addon button
+	-- that call is blocked in combat ("only available to the Blizzard UI").
+	-- Swallow it. The secure button above runs /use instead, which is allowed.
+	-- A quest item has no secure /use (that would equip it). Out of combat its
+	-- own click still runs. In a fight it does not call UseContainerItem.
+	local origClick = b:GetScript("OnClick")
+	b.origClick = origClick
+	if origClick then
+		b:SetScript("OnClick", function(self, button, ...)
+			if button == "RightButton" then
+				if self.questUse and not InCombatLockdown() then
+					return origClick(self, button, ...)
+				end
+				return
+			end
+			local aimingNow = button == "LeftButton" and SpellCanTargetItem and SpellCanTargetItem()
+			if aimingNow and InCombatLockdown() then return end
+			return origClick(self, button, ...)
+		end)
+	end
 	b:HookScript("OnEnter", function(btn)
 		if btn.empty then
 			GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
@@ -1402,12 +1418,6 @@ local function placeUse(b, active)
 		return
 	end
 	if move and move:IsShown() then move:Hide() end
-	-- Ordinary right-clicks belong to the slot. Its own handler uses the item
-	-- and still works in a fight. This cover would take the click instead.
-	if not aimingNow then
-		if use:IsShown() then use:Hide() end
-		return
-	end
 	-- Right-click uses the slot itself through this secure button (food, drink, scrolls,
 	-- potions; at a vendor that sells it). Only a bandage goes through the game's own slot
 	-- button, so you can pick who it heals - and only when that button is on screen and is
@@ -1450,9 +1460,7 @@ local function placeUse(b, active)
 	-- forwarded to a hidden bag button and nothing happened. Step off the slot
 	-- and give the click back to the template.
 	if wantQuest and b.origClick then
-		if b:GetScript("OnClick") ~= b.origClick then
-			b:SetScript("OnClick", b.origClick)
-		end
+		b.questUse = true
 		use.itemKey = nil
 		use.clickMode = nil
 		use.potClicks = nil
@@ -1544,12 +1552,14 @@ local function placeUse(b, active)
 			use:SetAttribute("type2", nil)
 			use:SetAttribute("*type2", nil)
 		else
-			-- Right click only. A bare "type" would also fire if a left click landed here.
+			-- /use, not the "item" action. That action calls UseContainerItem,
+			-- which this client blocks in combat. A secure macro is allowed.
+			-- A bare "type" would also fire if a left click landed here.
 			use:SetAttribute("forward", nil)
-			use:SetAttribute("type2", "item")
-			use:SetAttribute("*type2", "item")
-			use:SetAttribute("item2", where)
-			use:SetAttribute("*item2", where)
+			use:SetAttribute("type2", "macro")
+			use:SetAttribute("*type2", "macro")
+			use:SetAttribute("macrotext2", "/use " .. where)
+			use:SetAttribute("*macrotext2", "/use " .. where)
 		end
 	end
 	-- A spell waiting for an item (Feed Pet, a sharpening stone, a poison, Disenchant): the
@@ -1610,19 +1620,23 @@ local function placeUse(b, active)
 	-- swallows it, so the pot never runs. In a fight placeUse cannot fix that.
 	-- Re-assert the pot click whenever this slot is not a quest starter.
 	-- A quest starter never gets type2=item back: that action equips the pendant.
+	b.questUse = false
 	if not wantQuest and not game and not atVendor and not aiming then
-		if use:GetAttribute("type2") ~= "item" then
+		local macro = "/use " .. where
+		if use:GetAttribute("type2") ~= "macro" or use:GetAttribute("macrotext2") ~= macro then
 			use:SetAttribute("forward", nil)
 			use:SetAttribute("type", nil)
 			use:SetAttribute("*type", nil)
-			use:SetAttribute("type2", "item")
-			use:SetAttribute("*type2", "item")
+			use:SetAttribute("type2", "macro")
+			use:SetAttribute("*type2", "macro")
 			use:SetAttribute("spell2", nil)
 			use:SetAttribute("*spell2", nil)
 			use:SetAttribute("clickbutton2", nil)
 			use:SetAttribute("*clickbutton2", nil)
-			use:SetAttribute("item2", where)
-			use:SetAttribute("*item2", where)
+			use:SetAttribute("item2", nil)
+			use:SetAttribute("*item2", nil)
+			use:SetAttribute("macrotext2", macro)
+			use:SetAttribute("*macrotext2", macro)
 		end
 		if use.potClicks ~= true then
 			use.potClicks = true
