@@ -268,7 +268,7 @@ title.line = title:CreateTexture(nil, "ARTWORK")
 title.line:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.35)
 title.line:SetHeight(1)
 title.line:SetPoint("BOTTOMLEFT", 6, 0)
-title.line:SetPoint("BOTTOMRIGHT", -6, 0)
+title.line:SetPoint("BOTTOMRIGHT", -40, 0)
 title.text:SetText("Quests")
 title:RegisterForDrag("LeftButton")
 title:SetScript("OnDragStart", function() if IsShiftKeyDown() then frame:StartMoving() end end)
@@ -294,6 +294,50 @@ title:SetScript("OnEnter", function(self)
 	GameTooltip:Show()
 end)
 title:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+-- Black wash behind the list. + and - on the header step it by 20%.
+local trackerBg = frame:CreateTexture(nil, "BACKGROUND")
+trackerBg:SetAllPoints()
+trackerBg:SetColorTexture(0, 0, 0, 1)
+local function trackerBgAlpha()
+	local n = tonumber(db().questTrackerBg) or 0
+	n = math.floor(n * 5 + 0.5) / 5
+	if n < 0 then n = 0 end
+	if n > 1 then n = 1 end
+	return n
+end
+local function applyTrackerBg()
+	local n = trackerBgAlpha()
+	trackerBg:SetAlpha(n)
+	trackerBg:SetShown(n > 0)
+end
+local function opacityButton(text, x, delta)
+	local b = CreateFrame("Button", nil, title)
+	b:SetSize(16, 16)
+	b:SetPoint("RIGHT", x, 0)
+	b.label = font(b:CreateFontString(nil, "OVERLAY"), 14)
+	b.label:SetPoint("CENTER")
+	b.label:SetText(text)
+	b.label:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+	b:SetScript("OnClick", function()
+		local n = trackerBgAlpha() + delta
+		if n < 0 then n = 0 end
+		if n > 1 then n = 1 end
+		db().questTrackerBg = n
+		applyTrackerBg()
+	end)
+	b:SetScript("OnEnter", function(self)
+		local n = math.floor(trackerBgAlpha() * 100 + 0.5)
+		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+		GameTooltip:AddLine(delta > 0 and "Darker" or "Lighter")
+		GameTooltip:AddLine("Black background, " .. n .. "%. Each click changes it by 20%.", 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	return b
+end
+opacityButton("+", -4, 0.2)
+opacityButton("-", -22, -0.2)
 
 ---------------------------------------------------------------------------
 -- The list scrolls: the tracker grows with its quests until it would run off
@@ -837,6 +881,7 @@ ev:SetScript("OnEvent", function(_, event, name)
 			if type(ZDB) ~= "table" then ZDB = nil end
 		end
 		applyFonts()
+		applyTrackerBg()
 		if not on() then return end
 		place()
 		for _, e in ipairs({ "QUEST_LOG_UPDATE", "QUEST_WATCH_UPDATE", "UNIT_QUEST_LOG_CHANGED", "ZONE_CHANGED_NEW_AREA",
@@ -855,7 +900,7 @@ end)
 
 ns.OnFeatureChanged(function(key)
 	if key ~= "questTracker" then return end
-	if on() then place() hideBlizzard() refresh() else frame:Hide() end
+	if on() then place() applyTrackerBg() hideBlizzard() refresh() else frame:Hide() end
 	if QuestieLoader then pcall(setQuestieTracker, on()) end
 end)
 
