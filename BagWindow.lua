@@ -236,15 +236,6 @@ local function setBang(b, show)
 	if b.bang then b.bang:SetShown(show and true or false) end
 end
 
-local function startsQuest(bag, slot)
-	local q = C_Container.GetContainerItemQuestInfo and ns.safe(C_Container.GetContainerItemQuestInfo, bag, slot)
-	if type(q) ~= "table" then return false end
-	local id = q.questID
-	if not id or ns.isSecret(id) or q.isActive then return false end
-	-- Done already (some starters stay in your bags): no !.
-	local done = C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted and ns.safe(C_QuestLog.IsQuestFlaggedCompleted, id)
-	return done ~= true
-end
 
 ---------------------------------------------------------------------------
 -- Small marks on an item: red tint (can't use it), green arrow (upgrade),
@@ -260,6 +251,7 @@ local scanCache = {}
 local waitingIds = {}
 local getInfoAny = (C_Item and C_Item.GetItemInfo) or GetItemInfo
 local LOCKED_TEXT = LOCKED or "Locked"
+local STARTS_TEXT = ITEM_STARTS_QUEST or "This Item Begins a Quest"
 
 local function scan(bag, slot, info)
 	local key = bag .. ":" .. slot
@@ -272,6 +264,7 @@ local function scan(bag, slot, info)
 			local text, col = side[1], side[2]
 			if type(text) == "string" and not ns.isSecret(text) then
 				if text == LOCKED_TEXT then c.locked = true end
+				if text == STARTS_TEXT then c.starts = true end
 				if col and type(col.r) == "number" and not ns.isSecret(col.r)
 					and col.r > 0.95 and col.g < 0.2 and col.b < 0.2 then
 					c.red = true
@@ -297,6 +290,24 @@ local function scan(bag, slot, info)
 	scanCache[key] = c
 	return c
 end
+
+-- An item that starts a quest: "yes" (you haven't taken it), "taken" (in your log or done),
+-- or nil. The game's quest info first; some starters don't carry a quest there, only the
+-- tooltip's "This Item Begins a Quest" line - then it counts as not taken.
+local function questStart(bag, slot)
+	local q = C_Container.GetContainerItemQuestInfo and ns.safe(C_Container.GetContainerItemQuestInfo, bag, slot)
+	local id = type(q) == "table" and q.questID or nil
+	if id and not ns.isSecret(id) then
+		if q.isActive then return "taken" end
+		-- Done already (some starters stay in your bags): no !.
+		local done = C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted and ns.safe(C_QuestLog.IsQuestFlaggedCompleted, id)
+		return done == true and "taken" or "yes"
+	end
+	local info = C_Container.GetContainerItemInfo(bag, slot)
+	if not info then return nil end
+	return scan(bag, slot, info).starts and "yes" or nil
+end
+local function startsQuest(bag, slot) return questStart(bag, slot) == "yes" end
 
 local function markFont(fs, size)
 	if not fs:SetFont("Fonts\\ARIALN.TTF", size, "OUTLINE") then fs:SetFontObject("GameFontNormalSmall") end
@@ -1190,7 +1201,15 @@ local function placeUse(b, active)
 		end
 	end
 	local where = bag .. " " .. slot
-	local key = where .. (game and " game" or (atVendor and " vendor" or " item"))
+	-- (an item that starts a quest goes through /use, like the game's bags: the secure "item"
+	-- action puts on anything you can wear - the Pendant of Myzrael - instead of using it)
+	-- (read twice a second, not every frame: this runs for every tile)
+	local now = GetTime()
+	if use.qWhere ~= where or not use.qAt or now - use.qAt > 0.5 then
+		use.qWhere, use.qAt, use.qStarts = where, now, questStart(bag, slot) ~= nil
+	end
+	local starter = not game and not atVendor and use.qStarts
+	local key = where .. (game and " game" or ((atVendor or starter) and " vendor" or " item"))
 	if use.itemKey ~= key then
 		use.itemKey = key
 		use:SetAttribute("item2", nil)
@@ -1212,7 +1231,7 @@ local function placeUse(b, active)
 			use:SetAttribute("*type2", "click")
 			use:SetAttribute("clickbutton2", game)
 			use:SetAttribute("*clickbutton2", game)
-		elseif atVendor then
+		elseif atVendor or starter then
 			use:SetAttribute("forward", nil)
 			use:SetAttribute("type2", "macro")
 			use:SetAttribute("*type2", "macro")
