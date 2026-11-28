@@ -198,13 +198,15 @@ end
 local function textBlocks(text, have)
 	if ns.isSecret(text) or type(text) ~= "string" or text == "" then return false end
 	local lower = text:lower()
-	for _, r in ipairs(RIDING) do
-		if lower:find("requires " .. r.name:lower(), 1, true) and have > 0 and have < r.rank then
-			return true
+	-- "Requires Journeyman Riding" and a red "Journeyman Riding" line are the
+	-- same gate. Cerulean Prideclaw uses that line; Apprentice is not enough.
+	if have > 0 then
+		for _, r in ipairs(RIDING) do
+			if lower:find(r.name:lower(), 1, true) and have < r.rank then return true end
 		end
+		local need = lower:match("riding %((%d+)%)") or lower:match("riding skill %((%d+)%)")
+		if need and have < tonumber(need) then return true end
 	end
-	local need = lower:match("requires riding %((%d+)%)")
-	if need and have > 0 and have < tonumber(need) then return true end
 	local lvl = lower:match("requires level (%d+)")
 	if lvl then
 		local mine = UnitLevel("player")
@@ -243,15 +245,24 @@ local function tooltipBlocks(spellID, journalID, have)
 	return textBlocks(desc, have)
 end
 
--- True, false, or nil when the journal did not say.
-local function usableNow(spellID, flagged)
-	if not ns.isSecret(flagged) and flagged == true then return true end
-	if not ns.isSecret(flagged) and flagged == false then return false end
+-- True, false, or nil when neither the spell nor the journal said.
+-- The journal's usable flag is not enough: it stays true for Cerulean
+-- Prideclaw on a character who never learned Journeyman, and that mount
+-- then comes back around in the rotation.
+local function spellUsable(spellID)
 	local fn = (C_Spell and C_Spell.IsSpellUsable) or IsUsableSpell
 	if not fn or not plainNumber(spellID) then return nil end
 	local usable = ns.safe(fn, spellID)
 	if ns.isSecret(usable) or usable == nil then return nil end
 	return usable == true
+end
+
+local function usableNow(spellID, flagged)
+	local spell = spellUsable(spellID)
+	if spell == false then return false end
+	if not ns.isSecret(flagged) and flagged == true then return true end
+	if not ns.isSecret(flagged) and flagged == false then return false end
+	return spell
 end
 
 local function dropUnrideable(list)
@@ -704,8 +715,11 @@ ev:SetScript("OnEvent", function(_, event, _, _, spellID)
 		if dirty then applyMacro() else applyClick() end
 		return
 	end
-	if event == "CVAR_UPDATE" or event == "MOUNT_JOURNAL_USABILITY_CHANGED" or event == "ZONE_CHANGED_NEW_AREA" then
-		if event == "CVAR_UPDATE" then applyClick() end
+	if event == "CVAR_UPDATE" then applyClick() return end
+	-- Usability and zone changes rebuild the deck. Otherwise a mount this
+	-- character cannot ride stays on the key after the others become summonable.
+	if event == "MOUNT_JOURNAL_USABILITY_CHANGED" or event == "ZONE_CHANGED_NEW_AREA" then
+		applyMacro()
 		return
 	end
 	applyMacro()
