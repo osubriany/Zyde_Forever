@@ -136,10 +136,39 @@ function Geo.ClassSpeedMult()
 	return 1
 end
 
+-- Your riding: the best "... Riding" skill (Wolf Riding, Horse Riding...): 150 = 100% mount, 75 = 60%,
+-- 0 = none. nil when it can't tell (no skill API, or a collapsed skill header might hide it).
+-- Read at most every 10 s.
+local ridingAt, ridingRank = -100, nil
+function Geo.RidingRank()
+	if GetTime() - ridingAt < 10 then return ridingRank end
+	ridingAt = GetTime()
+	if not (GetNumSkillLines and GetSkillLineInfo) then ridingRank = nil return nil end
+	local best, collapsed = 0, false
+	for i = 1, ns.safe(GetNumSkillLines) or 0 do
+		local name, isHeader, isExpanded, rank = GetSkillLineInfo(i)
+		if isHeader and not isExpanded then collapsed = true end
+		if not isHeader and type(name) == "string" and not ns.isSecret(name) and name:lower():find("riding")
+			and type(rank) == "number" and rank > best then
+			best = rank
+		end
+	end
+	ridingRank = (best > 0 or not collapsed) and best or nil
+	return ridingRank
+end
+
 function Geo.Speed()
 	local cfg = ns.cfg
 	local base = cfg.runSpeed or 7
 	local run = base * Geo.ClassSpeedMult()
+	-- your real riding skill when the game says (Config.mountSpeed / mountFastSpeed); else the
+	-- old guess: a 60% mount from Config.mountLevel
+	local rank = cfg.useRidingSkill ~= false and Geo.RidingRank() or nil
+	if rank then
+		if rank >= 150 then return math.max(cfg.mountFastSpeed or 14, run) end
+		if rank >= 75 then return math.max(cfg.mountSpeed or 11.2, run) end
+		return run
+	end
 	if ns.playerLevel() >= (cfg.mountLevel or 40) then return math.max(cfg.mountSpeed or 11.2, run) end
 	return run
 end

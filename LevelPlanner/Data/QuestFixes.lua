@@ -31,6 +31,12 @@ zyde.LP = zyde.LP or {}
 local ns = zyde.LP
 
 ns.QuestFixes = {
+	-- Terror of the Desert Skies (Badlands, starts from the Primitive Drawing): on Forever it's handed in
+	-- at Kargath (the user, 2026-11-28). Questie's turn-in (the Season of Discovery one, far off) made it
+	-- look 4 minutes out of the way. Two IDs in the game's data; the NPC's exact spot is approximate
+	-- (Kargath's quest NPCs stand around 2.4-6.5, 46-47).
+	[78823] = { name = "Terror of the Desert Skies", finish = { override = true, spawns = { [3] = { { 4.0, 46.5 } } } } },
+	[78830] = { name = "Terror of the Desert Skies", finish = { override = true, spawns = { [3] = { { 4.0, 46.5 } } } } },
 	-- Valuable Vantages (Horde, Hillsbrad): place the three Apothecary Vials on peaks.
 	-- Spots from Sportskeeda's walkthrough.
 	[98095] = {

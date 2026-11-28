@@ -124,6 +124,8 @@ LevelPlannerConfig = {
 	runSpeed = 7.0,             -- yards per second on foot
 	mountLevel = 40,            -- from this level the planner assumes you ride
 	mountSpeed = 11.2,          -- yards per second mounted (60% mount)
+	mountFastSpeed = 14.0,      -- yards per second on a 100% mount (riding 150)
+	useRidingSkill = true,      -- read your riding skill (75 = 60% mount, 150 = 100%, none = on foot); false: assume a 60% mount from mountLevel
 	detourFactor = 1.3,         -- straight lines are shorter than real paths; multiply by this.
 	                            -- LevelPlanner learns each zone's real factor from your walks (/lp learned)
 	detourMinYards = 200,       -- only walks covering at least this much ground (straight line) are measured

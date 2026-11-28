@@ -884,8 +884,12 @@ function S.BuildQuest(questId, logEntry, opts)
 	local fin = qo.finishedBy or {}
 	local tpts = npcPoints(fin[1], true)
 	objectPoints(fin[2], tpts)
-	local fixFinish = #tpts == 0 and fix and fix.finish
-	if fixFinish then pointsFromSpawns(fixFinish.spawns, tpts) end
+	-- (a hand-filled turn-in: where Questie has none, or, with override, where Questie's is wrong for Forever)
+	local fixFinish = fix and fix.finish and (#tpts == 0 or fix.finish.override) and fix.finish
+	if fixFinish then
+		if fixFinish.override then tpts, fin = {}, {} end
+		pointsFromSpawns(fixFinish.spawns, tpts)
+	end
 	if #tpts == 0 then return nil, "no turn-in location" end
 	if #tpts > 5 then tpts = clusterAreas(tpts) end
 	quest.stops[#quest.stops + 1] = {
