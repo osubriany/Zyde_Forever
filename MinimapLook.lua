@@ -901,16 +901,29 @@ function ns.MinimapDebug()
 end
 
 
+-- Shift-drag moves it (a plain drag on the map moved it by accident, off the corner).
+local dragging = false
 local function startDrag()
-	if InCombatLockdown() or not on() then return end
+	if InCombatLockdown() or not on() or not IsShiftKeyDown() then return end
+	dragging = true
 	mover:SetMovable(true)
 	mover:StartMoving()
 end
 
 local function stopDrag()
+	if not dragging then return end
+	dragging = false
 	if mover.StopMovingOrSizing then mover:StopMovingOrSizing() end
 	savePos()
 	layoutText()
+end
+
+-- /zyde minimapreset: back to the top-right corner.
+function ns.MinimapReset()
+	db().minimapSpot = nil
+	if InCombatLockdown() then print("|cff66ccffZyde_Forever|r: the minimap goes back to the corner after the fight") end
+	applyPos()
+	if layoutText then layoutText() end
 end
 
 layoutText = function()

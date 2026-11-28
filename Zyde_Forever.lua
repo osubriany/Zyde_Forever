@@ -216,7 +216,7 @@ local FEATURES = {
 	{ key = "fishing", short = "one-key fishing", label = "One Button Fishing", desc = "Same key casts and reels in (set the key in Keybindings)" },
 	{ key = "mounts", short = "random favorite mount", label = "Favorite mounts", desc = "A key summons a random mount from the ones you tick with Choose. Tick none and it uses every mount you know. It skips the mount you are already on when you know another. Set the key in Keybindings > Zyde Forever: Random favorite mount" },
 	{ key = "buttonBag", short = "one button, a key for the rest", label = "Minimap button bag", desc = "Gathers the other addon buttons on the minimap onto one button. Click that button to spread them out. Drag it around the minimap to move it. Hold Buttons at cursor (Options > Keybindings > Zyde Forever) to open tradeskills, the game menu, and those buttons at the mouse" },
-	{ key = "minimap", short = "zone and local time", label = "Minimap", desc = "A few looks for the minimap: Round, Gilded, or Square. Drag the map to move it. The zone name sits under it, with your local time below. Off while SexyMap is loaded", conflict = "SexyMap" },
+	{ key = "minimap", short = "zone and local time", label = "Minimap", desc = "A few looks for the minimap: Round, Gilded, or Square. Shift-drag the map to move it (/zyde minimapreset puts it back). The zone name sits under it, with your local time below. Off while SexyMap is loaded", conflict = "SexyMap" },
 	{ key = "mapSkin", short = "the map in Zyde's look", label = "World map look", desc = "The world map in Zyde's look: a flat dark frame with a gold title and square buttons, flat tabs along the top (purple for the map you're on), and a dark quest list with flat headings. The map, its icons and pins are unchanged. Off until you tick it", defaultOff = true, reload = true },
 	{ key = "mapNotes", short = "alt-click to mark", label = "Map markers", desc = "Your own named markers on the world map, kept between sessions. Alt-click the map to drop one and name it, alt-click a marker to remove it, right-click to rename it" },
 	{ key = "flightTimer", short = "time left on flights", label = "Flight timer", desc = "On a flight: a panel near the middle of the screen with where you're going, the time left and a progress bar (drag it to move it). Flight map tooltips show each flight's time. Uses the published times of about 900 Classic flights, and remembers your own" },
@@ -2690,6 +2690,7 @@ ns.ZydeCommands = {
 	{ cmd = "/zyde lightreset", about = "Put the Pull Traffic Light back in its first place." },
 	{ cmd = "/zyde healer <name>", paste = "/zyde healer ", about = "The healer the Pull Traffic Light watches. No name: back to role, then a guess by class." },
 	{ cmd = "/zyde sealdebug", about = "Paladins: why the Seal of Righteousness tile is or isn't showing." },
+	{ cmd = "/zyde minimapreset", about = "Put the minimap back in the top-right corner." },
 	{ cmd = "/zyde minimapdebug", about = "Where the minimap and its cluster are, and the saved spot." },
 	{ cmd = "/zyde tentdebug", about = "What the tent reminder sees: nearby tents, a tent in your bags, Leatherworking, rested XP." },
 	{ cmd = "/zyde trackdebug", about = "Hunters: what auto tracking sees around you and which tracking it would pick." },
@@ -2896,6 +2897,8 @@ SlashCmdList.ZYDEFOREVER = function(msg)
 		if ns.PullLight then ns.PullLight.SetHealer(msg:match("^healer%s+(.-)%s*$")) end
 	elseif msg == "sealdebug" then
 		if ns.SealDebug then ns.SealDebug() else print("|cff66ccffZyde_Forever|r: the seal tile is for paladins") end
+	elseif msg == "minimapreset" then
+		if ns.MinimapReset then ns.MinimapReset() end
 	elseif msg == "minimapdebug" then
 		if ns.MinimapDebug then ns.MinimapDebug() end
 	elseif msg == "tentdebug" then
